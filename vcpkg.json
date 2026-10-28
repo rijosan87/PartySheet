@@ -1,0 +1,27 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+  "name": "skyrim-party-sheet",
+  "version-string": "0.0.1",
+  "dependencies": [
+    "directxmath",
+    "directxtk",
+    "directxtex",
+    "fmt",
+    {
+      "name": "imgui",
+      "features": [
+        "dx11-binding",
+        "win32-binding",
+        "freetype",
+        "wchar32"
+      ]
+    },
+    "lunasvg",
+    "nlohmann-json",
+    "rapidcsv",
+    "simpleini",
+    "spdlog",
+    "toml11",
+    "xbyak"
+  ]
+}
