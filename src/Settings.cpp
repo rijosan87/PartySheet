@@ -1579,6 +1579,7 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"QuickHeal", L"BuffFlash",              toWStr(qhBuffFlash ? 1 : 0).c_str(),              presetPath);
 
     WritePrivateProfileStringW(L"Hotkeys", L"HudToggleKey", toWStr(hudToggleKey).c_str(), userPath);
+    WritePrivateProfileStringW(L"Hotkeys", L"HudToggleModifier", toWStr(hudToggleModifier).c_str(), userPath);
     WritePrivateProfileStringW(L"Hotkeys", L"ModifierKey", toWStr(modifierKey).c_str(), userPath);
     
     WritePrivateProfileStringW(L"Behavior", L"RequireAlteration", toWStr(requireAlteration).c_str(), userPath);
