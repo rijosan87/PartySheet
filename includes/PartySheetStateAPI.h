@@ -16,11 +16,14 @@ namespace PartySheetAPI
         AlreadySet,
         Refused_MenuOpen,
         Refused_BadHandle,
+        Refused_BadPanel,       // v2 only
+        Refused_Unavailable,    // v2 only: panel disabled, or Inspect Card has no target
     };
 
     enum : std::uint32_t {
-        kMsg_Interface = 0x50534831,
-        kMsg_State     = 0x50534832,
+        kMsg_Interface  = 0x50534831,
+        kMsg_State      = 0x50534832,
+        kMsg_Interface2 = 0x50534833,  // data is IPartySheetState2*
     };
 
     enum class Panel : std::uint32_t {
@@ -61,6 +64,22 @@ namespace PartySheetAPI
         virtual bool          IsPanelOpen(Panel a_panel) const = 0;
         virtual std::uint32_t GetOpenPanels() const = 0;
         virtual bool IsFullscreenPanelOpen() const = 0;
+    };
+
+    // v1 stays frozen (GetVersion() == 1); v2 arrives only via kMsg_Interface2.
+    // PartySheet and PartySheetV2 both act on the sheet psUseFullscreenMode selects.
+    class IPartySheetState2 : public IPartySheetState1 {
+    public:
+        virtual std::uint32_t GetInterfaceVersion() const = 0;   // == 2
+
+        // Queued to the main thread: OK means queued. Read IsPanelOpen or kMsg_State for the result.
+        virtual APIResult OpenPanel(SKSE::PluginHandle a_myPluginHandle, Panel a_panel) = 0;
+        virtual APIResult ClosePanel(SKSE::PluginHandle a_myPluginHandle, Panel a_panel) = 0;
+
+        // Runtime only, nothing saved. Held per plugin; the key returns when the last holder releases.
+        virtual APIResult SetHotkeySuppressed(SKSE::PluginHandle a_myPluginHandle,
+                                              Panel a_panel, bool a_suppressed) = 0;
+        virtual bool IsHotkeySuppressed(Panel a_panel) const = 0;
     };
 }
 

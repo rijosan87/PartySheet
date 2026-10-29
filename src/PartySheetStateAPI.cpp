@@ -8,7 +8,10 @@
 #include "../includes/ImGui/InspectCard.h"
 #include "../includes/ImGui/Renderer.h"
 
+#include <array>
 #include <chrono>
+#include <mutex>
+#include <set>
 #include <unordered_map>
 
 namespace PartySheetAPI
@@ -62,7 +65,94 @@ namespace PartySheetAPI
         PanelBit(Panel::PartySheet)     | PanelBit(Panel::PartySheetV2) |
         PanelBit(Panel::CharacterSheet) | PanelBit(Panel::SettingsMenu);
 
-    class StateImpl final : public IPartySheetState1
+    // Callers may be on any thread; the input sink reads on the main thread.
+    static std::mutex s_SuppressMutex;
+    static std::array<std::set<SKSE::PluginHandle>, static_cast<std::size_t>(Panel::Count)> s_Suppressors;
+
+    // PartySheet and PartySheetV2 share partySheetHotkey and one Open/Close route.
+    static Panel CanonicalPanel(Panel a_panel)
+    {
+        return a_panel == Panel::PartySheetV2 ? Panel::PartySheet : a_panel;
+    }
+
+    bool IsHotkeySuppressedInternal(Panel a_panel)
+    {
+        if (a_panel >= Panel::Count) return false;
+        std::scoped_lock lock(s_SuppressMutex);
+        return !s_Suppressors[static_cast<std::size_t>(CanonicalPanel(a_panel))].empty();
+    }
+
+    static bool IsSheetOpen(Panel a_panel)
+    {
+        switch (CanonicalPanel(a_panel)) {
+        case Panel::PartySheet:     return PartySheet::IsVisible() || PartySheetV2::IsVisible();
+        case Panel::CharacterSheet: return CharacterSheet::GetSingleton()->IsVisible();
+        case Panel::InspectCard:    return InspectCard::IsVisible();
+        case Panel::SettingsMenu:   return ImGuiRenderer::IsVisible();
+        default:                    return false;
+        }
+    }
+
+    // Main thread. Gates mirror the hotkeys and are re-checked since a menu may have opened.
+    static void RunOpen(Panel a_panel, const std::string& a_caller)
+    {
+        auto* s = Settings::GetSingleton();
+        if (!s || IsSheetOpen(a_panel)) return;
+
+        switch (CanonicalPanel(a_panel)) {
+        case Panel::PartySheet:
+            if (MenuUtils::ShouldBlockCharacterSheet()) break;
+            PlayPanelSound(true);
+            if (s->psUseFullscreenMode) PartySheetV2::Toggle();
+            else                        PartySheet::Show();
+            break;
+        case Panel::CharacterSheet:
+            if (!s->enableCharacterSheet || MenuUtils::ShouldBlockCharacterSheet()) break;
+            CharacterSheet::GetSingleton()->Open();
+            if (CharacterSheet::GetSingleton()->IsVisible()) PlayPanelSound(true);
+            break;
+        case Panel::InspectCard:
+            if (MenuUtils::IsBlockingMenuOpen()) break;
+            if (OpenInspectCardFromAPI() != APIResult::OK) {
+                logger::info("[PartySheetAPI] OpenPanel(InspectCard) from '{}' dropped: no target or gate failed", a_caller);
+            }
+            break;
+        case Panel::SettingsMenu:
+            ImGuiRenderer::Toggle();
+            break;
+        default:
+            break;
+        }
+        PublishIfChanged();
+    }
+
+    static void RunClose(Panel a_panel)
+    {
+        switch (CanonicalPanel(a_panel)) {
+        case Panel::PartySheet:
+            // Toggle, not a raw flag flip: V1's Toggle also unfreezes time.
+            if (PartySheet::IsVisible())   { PlayPanelSound(false); PartySheet::Toggle(); }
+            if (PartySheetV2::IsVisible()) { PlayPanelSound(false); PartySheetV2::Toggle(); }
+            break;
+        case Panel::CharacterSheet:
+            if (CharacterSheet::GetSingleton()->IsVisible()) {
+                PlayPanelSound(false);
+                CharacterSheet::GetSingleton()->Close();
+            }
+            break;
+        case Panel::InspectCard:
+            if (InspectCard::IsVisible()) CloseInspectCardFromAPI();
+            break;
+        case Panel::SettingsMenu:
+            if (ImGuiRenderer::IsVisible()) ImGuiRenderer::Toggle();
+            break;
+        default:
+            break;
+        }
+        PublishIfChanged();
+    }
+
+    class StateImpl final : public IPartySheetState2
     {
     public:
         static StateImpl* GetSingleton() { static StateImpl s; return &s; }
@@ -112,6 +202,75 @@ namespace PartySheetAPI
         {
             return (BuildPanelMask() & kFullscreenMask) != 0;
         }
+
+        std::uint32_t GetInterfaceVersion() const override { return 2; }
+
+        APIResult OpenPanel(SKSE::PluginHandle a_myPluginHandle, Panel a_panel) override
+        {
+            return QueuePanel(a_myPluginHandle, a_panel, true);
+        }
+
+        APIResult ClosePanel(SKSE::PluginHandle a_myPluginHandle, Panel a_panel) override
+        {
+            return QueuePanel(a_myPluginHandle, a_panel, false);
+        }
+
+        APIResult SetHotkeySuppressed(SKSE::PluginHandle a_myPluginHandle,
+                                      Panel a_panel, bool a_suppressed) override
+        {
+            if (a_myPluginHandle == kInvalidPluginHandle) return APIResult::Refused_BadHandle;
+            if (a_panel >= Panel::Count)                  return APIResult::Refused_BadPanel;
+
+            bool changed;
+            {
+                std::scoped_lock lock(s_SuppressMutex);
+                auto& holders = s_Suppressors[static_cast<std::size_t>(CanonicalPanel(a_panel))];
+                changed = a_suppressed ? holders.insert(a_myPluginHandle).second
+                                       : holders.erase(a_myPluginHandle) > 0;
+            }
+            if (!changed) return APIResult::AlreadySet;
+
+            logger::info("[PartySheetAPI] hotkey for panel {} {} by '{}'",
+                         static_cast<std::uint32_t>(a_panel),
+                         a_suppressed ? "suppressed" : "released",
+                         ResolveCallerName(a_myPluginHandle));
+            return APIResult::OK;
+        }
+
+        bool IsHotkeySuppressed(Panel a_panel) const override
+        {
+            return IsHotkeySuppressedInternal(a_panel);
+        }
+
+    private:
+        static APIResult QueuePanel(SKSE::PluginHandle a_handle, Panel a_panel, bool a_open)
+        {
+            const char* caller = ResolveCallerName(a_handle);
+            logger::debug("[PartySheetAPI] {}Panel({}) from '{}'", a_open ? "Open" : "Close",
+                          static_cast<std::uint32_t>(a_panel), caller);
+
+            if (a_handle == kInvalidPluginHandle) return APIResult::Refused_BadHandle;
+            if (a_panel >= Panel::Count)          return APIResult::Refused_BadPanel;
+            if (IsSheetOpen(a_panel) == a_open)   return APIResult::AlreadySet;
+
+            if (a_open) {
+                auto* s = Settings::GetSingleton();
+                if (!s) return APIResult::Refused_Unavailable;
+                if (CanonicalPanel(a_panel) == Panel::CharacterSheet && !s->enableCharacterSheet)
+                    return APIResult::Refused_Unavailable;
+                if (CanonicalPanel(a_panel) != Panel::SettingsMenu && MenuUtils::IsBlockingMenuOpen())
+                    return APIResult::Refused_MenuOpen;
+            }
+
+            auto* tasks = SKSE::GetTaskInterface();
+            if (!tasks) return APIResult::Refused_Unavailable;
+            std::string callerName = caller;
+            tasks->AddTask([a_panel, a_open, callerName]() {
+                if (a_open) RunOpen(a_panel, callerName);
+                else        RunClose(a_panel);
+            });
+            return APIResult::OK;
+        }
     };
 
     void SetPendingReason(Reason a_reason) { s_PendingReason = a_reason; }
@@ -156,9 +315,13 @@ namespace PartySheetAPI
     void DispatchInterface()
     {
         if (auto* messaging = SKSE::GetMessagingInterface()) {
-            messaging->Dispatch(kMsg_Interface, StateImpl::GetSingleton(),
+            // v1 consumers require GetVersion()==1, so v2 gets its own message.
+            auto* impl = StateImpl::GetSingleton();
+            messaging->Dispatch(kMsg_Interface, static_cast<IPartySheetState1*>(impl),
                                 static_cast<std::uint32_t>(sizeof(void*)), nullptr);
-            logger::info("PartySheetAPI: interface dispatched (v1)");
+            messaging->Dispatch(kMsg_Interface2, static_cast<IPartySheetState2*>(impl),
+                                static_cast<std::uint32_t>(sizeof(void*)), nullptr);
+            logger::info("PartySheetAPI: interface dispatched (v1, v2)");
         }
     }
 }

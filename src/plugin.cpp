@@ -203,6 +203,49 @@ private:
     }
 
 public:
+    // Shared by the Inspect hotkey and API v2 so target/ISM state stays in sync. Caller handles the menu gate.
+    PartySheetAPI::APIResult OpenInspect() {
+        auto* settings = Settings::GetSingleton();
+        RE::Actor* target = GetLockedTargetFromTrueHUD();
+        if (!settings || !target) {
+            isStatsVisible = false;
+            lastTarget = RE::ActorHandle();
+            return PartySheetAPI::APIResult::Refused_Unavailable;
+        }
+
+        if (settings->requireAlteration == 1) {
+            auto player = RE::PlayerCharacter::GetSingleton();
+            if (player) {
+                float alterationLevel = player->AsActorValueOwner()->GetActorValue(RE::ActorValue::kAlteration);
+                if (alterationLevel < static_cast<float>(settings->requiredAlterationLevel)) {
+                    RE::SendHUDMessage::ShowHUDMessage(LocalizationManager::Get("InspectCard.LowAlterationEssence").c_str());
+                    return PartySheetAPI::APIResult::Refused_Unavailable;
+                }
+            }
+        }
+
+        if (PlayerStatus::GetTransformState() != PlayerStatus::TransformState::None)
+            return PartySheetAPI::APIResult::Refused_Unavailable;
+
+        InspectCard::Show(target);
+        isStatsVisible = true;
+        lastTarget = target->GetHandle();
+
+        if (settings->requireAlteration == 1) {
+            StartImmersiveEffect();
+        }
+        PlayUISound("UIMenuOK");
+        return PartySheetAPI::APIResult::OK;
+    }
+
+    void CloseInspect() {
+        PlayUISound("UIMenuCancel");
+        InspectCard::Hide();
+        isStatsVisible = false;
+        lastTarget = RE::ActorHandle();
+        StopImmersiveEffect();
+    }
+
     RE::BSEventNotifyControl ProcessEvent(RE::InputEvent* const* ev, RE::BSTEventSource<RE::InputEvent*>*) override {
         if (!ev || !*ev) {
             return RE::BSEventNotifyControl::kContinue;
@@ -379,7 +422,8 @@ public:
         // HOTKEY: Toggle ImGui Settings Menu (configurable via INI)
         if (IsHotkeyDevice(btn->GetDevice()) &&
             keyCode == static_cast<uint32_t>(settings->menuSettingsKey) &&
-            ModifierMatches(settings->menuSettingsModifier)) {
+            ModifierMatches(settings->menuSettingsModifier) &&
+            !PartySheetAPI::IsHotkeySuppressedInternal(PartySheetAPI::Panel::SettingsMenu)) {
             ImGuiRenderer::Toggle();
             return RE::BSEventNotifyControl::kContinue;
         }
@@ -403,7 +447,8 @@ public:
         if (IsHotkeyDevice(btn->GetDevice()) &&
             settings->partySheetHotkey >= 1 &&
             keyCode == static_cast<uint32_t>(settings->partySheetHotkey) &&
-            ModifierMatches(settings->partySheetModifier)) {
+            ModifierMatches(settings->partySheetModifier) &&
+            !PartySheetAPI::IsHotkeySuppressedInternal(PartySheetAPI::Panel::PartySheet)) {
             if (MenuUtils::ShouldBlockCharacterSheet()) {
                 return RE::BSEventNotifyControl::kContinue;
             }
@@ -489,53 +534,14 @@ public:
         if (IsHotkeyDevice(btn->GetDevice()) &&
             settings->inspectCardHotkey >= 1 &&
             keyCode == static_cast<uint32_t>(settings->inspectCardHotkey) &&
-            ModifierMatches(settings->inspectCardModifier)) {
+            ModifierMatches(settings->inspectCardModifier) &&
+            !PartySheetAPI::IsHotkeySuppressedInternal(PartySheetAPI::Panel::InspectCard)) {
             if (MenuUtils::IsBlockingMenuOpen()) {
                 return RE::BSEventNotifyControl::kContinue;
             }
 
-            if (InspectCard::IsVisible()) {
-                PlayUISound("UIMenuCancel");
-                InspectCard::Hide();
-                isStatsVisible = false;
-                lastTarget = RE::ActorHandle();
-                StopImmersiveEffect();
-                return RE::BSEventNotifyControl::kContinue;
-            }
-
-            RE::Actor* target = GetLockedTargetFromTrueHUD();
-
-            if (!target) {
-                isStatsVisible = false;
-                lastTarget = RE::ActorHandle();
-                return RE::BSEventNotifyControl::kContinue;
-            }
-
-            if (settings->requireAlteration == 1) {
-                auto player = RE::PlayerCharacter::GetSingleton();
-                if (player) {
-                    float alterationLevel = player->AsActorValueOwner()->GetActorValue(RE::ActorValue::kAlteration);
-                    if (alterationLevel < static_cast<float>(settings->requiredAlterationLevel)) {
-                        // Requirement not met - show notification and abort
-                        RE::SendHUDMessage::ShowHUDMessage(LocalizationManager::Get("InspectCard.LowAlterationEssence").c_str());
-                        return RE::BSEventNotifyControl::kContinue;
-                    }
-                }
-            }
-
-            if (PlayerStatus::GetTransformState() != PlayerStatus::TransformState::None)
-                return RE::BSEventNotifyControl::kContinue;
-
-            InspectCard::Show(target);
-            isStatsVisible = true;
-            lastTarget = target->GetHandle();
-            
-            if (settings->requireAlteration == 1) {
-                StartImmersiveEffect();
-            }
-
-            PlayUISound("UIMenuOK");
-
+            if (InspectCard::IsVisible()) CloseInspect();
+            else                          OpenInspect();
             return RE::BSEventNotifyControl::kContinue;
         }
 
@@ -544,7 +550,8 @@ public:
             settings->enableCharacterSheet &&
             settings->characterSheetHotkey >= 1 &&
             keyCode == static_cast<uint32_t>(settings->characterSheetHotkey) &&
-            ModifierMatches(settings->characterSheetModifier)) {
+            ModifierMatches(settings->characterSheetModifier) &&
+            !PartySheetAPI::IsHotkeySuppressedInternal(PartySheetAPI::Panel::CharacterSheet)) {
             if (settings->debugEnableCSLogging)
                 logger::info("[DEBUG-CS] CS hotkey + modifier matched, calling Toggle()");
             bool wasVisible = CharacterSheet::GetSingleton()->IsVisible();
@@ -569,6 +576,13 @@ public:
 };
 
 static InputHandler g_inputHandler;
+
+namespace PartySheetAPI
+{
+    APIResult OpenInspectCardFromAPI() { return g_inputHandler.OpenInspect(); }
+    void      CloseInspectCardFromAPI() { g_inputHandler.CloseInspect(); }
+    void      PlayPanelSound(bool a_opening) { PlayUISound(a_opening ? "UIMenuOK" : "UIMenuCancel"); }
+}
 
 class TweenMenuListener : public RE::BSTEventSink<SKSE::ModCallbackEvent> {
 public:
