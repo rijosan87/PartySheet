@@ -104,6 +104,14 @@ Quest and follower mods can ship their own filter files without touching the bas
 
 For example, a mod named `MyFollowerMod` can ship `MyFollowerMod_party_whitelist.ini` and its followers will appear in the HUD without any user configuration.
 
+### Showing Only Chosen Followers
+
+To hide every follower and quest ally except a few, add a line containing only `*` to `party_blacklist.ini` (or any `*_party_blacklist.ini`), then list the ones to keep in `party_whitelist.ini` as `Plugin.esp|0xFormID`. Use the NPC base form ID with the plugin that owns it, not the placed reference.
+
+- Summons are not affected by `*`. Use the Show Summons setting for them.
+- A name or FormID listed in the blacklist stays hidden even if it is also whitelisted.
+- A whitelisted actor still has to be detected as a follower or quest ally to appear.
+
 ### Quest Ally Tracking (Beta)
 
 Quest Ally Tracking automatically detects temporary allies (like Hadvar, Delphine, or Serana during quests) and displays them in the Follower HUD. This feature can be enabled or disabled in the settings menu.

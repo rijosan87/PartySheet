@@ -1066,7 +1066,8 @@ namespace FollowerHUD {
     static std::set<RE::FormID> g_BlacklistFormIDs;
     static std::set<std::string> g_BlacklistNames;
     static bool g_BlacklistLoaded = false;
-    
+    static bool g_BlacklistAll = false;
+
     static void LoadBlacklist() {
         if (g_BlacklistLoaded) return;
 
@@ -1077,29 +1078,39 @@ namespace FollowerHUD {
             g_BlacklistFormIDs,
             &g_BlacklistNames);
 
+        // A bare "*" line parses as a name entry; lift it out as the hide-all wildcard.
+        g_BlacklistAll = g_BlacklistNames.erase("*") > 0;
+
         g_BlacklistLoaded = true;
         logger::info("Blacklist: Total {} FormIDs and {} names loaded from all sources",
             g_BlacklistFormIDs.size(), g_BlacklistNames.size());
+        if (g_BlacklistAll) {
+            logger::info("Blacklist: '*' wildcard active, hiding all followers and quest allies except party_whitelist.ini FormIDs (summons unaffected)");
+        }
     }
-    
-    static bool IsBlacklisted(RE::Actor* actor) {
+
+    static bool IsWhitelisted(RE::Actor* actor);
+
+    // Summons pass applyWildcard=false: Show Summons already governs them.
+    static bool IsBlacklisted(RE::Actor* actor, bool applyWildcard = true) {
         if (!actor) return false;
-        
+
         if (!g_BlacklistLoaded) {
             LoadBlacklist();
         }
-        
+
         auto baseForm = actor->GetActorBase();
         if (baseForm && g_BlacklistFormIDs.count(baseForm->GetFormID())) {
             return true;
         }
-        
+
         const char* name = actor->GetName();
         if (name && g_BlacklistNames.count(name)) {
             return true;
         }
-        
-        return false;
+
+        // Explicit entries above win over a whitelist entry.
+        return applyWildcard && g_BlacklistAll && !IsWhitelisted(actor);
     }
     
     static std::set<RE::FormID> g_WhitelistFormIDs;
@@ -1515,7 +1526,7 @@ namespace FollowerHUD {
         merged.reserve(g_CachedSummons.size() + g_CachedFollowers.size() + g_CachedQuestAllies.size());
         
         for (auto* actor : g_CachedSummons) {
-            if (IsActorValid(actor) && !IsBlacklisted(actor)) merged.push_back(actor);
+            if (IsActorValid(actor) && !IsBlacklisted(actor, false)) merged.push_back(actor);
         }
         for (auto* actor : g_CachedFollowers) {
             if (IsActorValid(actor) && !IsBlacklisted(actor)) merged.push_back(actor);
@@ -1560,7 +1571,7 @@ namespace FollowerHUD {
         
         if (settings->showSummons) {
             for (auto* actor : g_CachedSummons) {
-                if (IsActorValid(actor) && actor->Is3DLoaded() && !actor->IsDead() && !IsBlacklisted(actor)) {
+                if (IsActorValid(actor) && actor->Is3DLoaded() && !actor->IsDead() && !IsBlacklisted(actor, false)) {
                     RE::FormID formID = actor->GetFormID();
                     if (seenFormIDs.find(formID) == seenFormIDs.end()) {
                         seenFormIDs.insert(formID);
