@@ -359,7 +359,7 @@ namespace PlayerHUDBarPresets
         s.phEmblemFillColor = 0xFF111A31;
         s.phPortraitBorderColor = 0xFF17536A;
         s.phPortraitOffsetX = 37;
-        s.phPortraitOffsetY = 20;
+        s.phPortraitOffsetY = 18;
         s.phPortraitSize = 66;
         s.phPortraitColumnSpacing = 20;
         s.phBarStyleEnabled = true;
@@ -376,7 +376,7 @@ namespace PlayerHUDBarPresets
         s.phStaminaBarStyleIndex = FindStyle("BarStyle_19.png");
         s.phBarStyleIndex = s.phHealthBarStyleIndex > 0 ? s.phHealthBarStyleIndex : 1;
         s.phHealthBarWidth = 300;
-        s.phMagickaBarWidth = 300;
+        s.phMagickaBarWidth = 256;
         s.phStaminaBarWidth = 102;
         s.phBarHeight = 25;
         s.phMagickaBarHeight = 18;
@@ -385,10 +385,10 @@ namespace PlayerHUDBarPresets
         s.phMagickaColor = 0xFF1E439F;
         s.phStaminaColor = 0xFF1F731F;
         s.phBarSpacing = 0;
-        s.phHpOffsetX = 13;
+        s.phHpOffsetX = 16;
         s.phHpOffsetY = 68;
-        s.phMpOffsetX = 13;
-        s.phMpOffsetY = 67;
+        s.phMpOffsetX = 17;
+        s.phMpOffsetY = 65;
         s.phSpOffsetX = -68;
         s.phSpOffsetY = 6;
         s.phDamageGhost = true;
