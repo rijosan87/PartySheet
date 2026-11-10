@@ -531,6 +531,7 @@ public:
     // Player HUD - Survival Widget
     // ============================================================
     bool          enablePlayerSurvivalWidget = true;
+    bool          phSurvivalStackWarning = true;
     std::int32_t  phSurvivalPosX        = 470;
     std::int32_t  phSurvivalPosY        = 25;
     std::int32_t  phSurvivalScale       = 100;         // Whole-widget master scale: 50-200%

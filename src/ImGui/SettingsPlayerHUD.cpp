@@ -1533,6 +1533,10 @@ namespace ImGuiRenderer::SettingsUI {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Shows Cold / Hunger / Fatigue cards when Survival Mode (ccqdrsse001-survivalmode.esl) is active.");
 
+            ImGui::Checkbox("Stacking Warning##phSurvStackWarn", &settings->phSurvivalStackWarning);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Shows a game message once per load when vanilla Survival Mode runs beside\nRND, Last Seed or Frostfall, when SunHelm and Frostfall both track cold,\nor when RND is installed but not started.");
+
             if (settings->enablePlayerSurvivalWidget) {
                 ImGui::Spacing();
                 ImGui::Separator();

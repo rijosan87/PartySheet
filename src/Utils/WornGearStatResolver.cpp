@@ -207,4 +207,12 @@ namespace WornGearStatResolver {
         }
         return data;
     }
+
+    std::uint32_t SkillBit(RE::ActorValue skill)
+    {
+        for (const auto& b : kSkillBits)
+            if (b.baseAV == skill) return b.bit;
+        return 0;
+    }
+
 }

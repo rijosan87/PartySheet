@@ -39,4 +39,7 @@ namespace WornGearStatResolver {
     };
 
     WornGearData Resolve(RE::Actor* actor);
+
+    std::uint32_t SkillBit(RE::ActorValue skill);
+
 }

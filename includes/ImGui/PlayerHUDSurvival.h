@@ -3,7 +3,6 @@
 // STATUS: Working
 // Player HUD Survival stats widget.
 
-
 #include <imgui.h>
 #include <optional>
 #include <vector>
@@ -46,6 +45,8 @@ namespace PlayerHUDSurvival {
     std::optional<VitalityStatus> GetVitality();
 
     bool IsVitalitySpell(RE::SpellItem* spell);
+
+    std::string GetStackWarning();
 
     void RenderHUD();
     void RenderPreview();

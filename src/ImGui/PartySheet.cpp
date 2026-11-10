@@ -9,6 +9,8 @@
 #include "../includes/ActorStats.h"
 #include "../includes/MenuUtils.h"
 #include "../includes/PerfStats.h"
+#include "../includes/SurvivalSymptoms.h"
+#include "../includes/ImGui/WidgetDrawHelpers.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -1140,10 +1142,11 @@ namespace PartySheet {
                         const char* nameKey;
                         float val;
                         int category;
+                        RE::ActorValue av;
                     };
                     std::vector<SkillVal> skillVals;
                     for (const auto& sk : skills) {
-                        skillVals.push_back({sk.iconName, sk.label, sk.nameKey, actorStats.skills.GetSkillValue(sk.av), sk.category});
+                        skillVals.push_back({sk.iconName, sk.label, sk.nameKey, actorStats.skills.GetSkillValue(sk.av), sk.category, sk.av});
                     }
                     
                     // Show all 18 skills flat, 3 per row, sequential array order
@@ -1186,9 +1189,27 @@ namespace PartySheet {
                             ImGui::SameLine(0, 8.0f);
                         }
                         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (skillIconSize - ImGui::GetFontSize()) / 2.0f);
-                        ImGui::TextColored(ImVec4(0.7f, 0.8f, 0.9f, 1.0f), "%.0f", sv.val);
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("%s: %.0f", LocalizationManager::Get(sv.nameKey).c_str(), sv.val);
+                        const auto& cuts = SurvivalSymptoms::GetSkillCauses(actor, sv.av);
+                        const ImVec4 valCol = cuts.empty() ? ImVec4(0.7f, 0.8f, 0.9f, 1.0f)
+                                                           : ImGui::ColorConvertU32ToFloat4(IM_COL32(0xE0, 0x5A, 0x4A, 0xFF));
+                        ImGui::TextColored(valCol, "%.0f", sv.val);
+                        bool hovered = ImGui::IsItemHovered();
+                        if (!cuts.empty()) {
+                            const float fh = ImGui::GetFontSize();
+                            ImGui::SameLine(0, 3.0f);
+                            ImVec2 aPos = ImGui::GetCursorScreenPos();
+                            WidgetDraw::DrawSymptomArrow(ImGui::GetWindowDrawList(), aPos, fh);
+                            ImGui::Dummy(ImVec2(fh * 0.55f, fh));
+                            hovered |= ImGui::IsItemHovered();
+                        }
+                        if (hovered) {
+                            if (cuts.empty()) {
+                                ImGui::SetTooltip("%s: %.0f", LocalizationManager::Get(sv.nameKey).c_str(), sv.val);
+                            } else {
+                                char head[96];
+                                snprintf(head, sizeof(head), "%s: %.0f", LocalizationManager::Get(sv.nameKey).c_str(), sv.val);
+                                SurvivalSymptoms::ShowCausesTooltip(cuts, head);
+                            }
                         }
                         ImGui::EndGroup();
 

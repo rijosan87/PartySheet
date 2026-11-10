@@ -125,6 +125,7 @@ namespace PartySheetV2 {
         float       timeRemaining = -1.0f;
         RE::SpellItem* sourceSpell = nullptr;
         RE::ActorValue primaryAV = RE::ActorValue::kNone;
+        RE::EffectSetting* mgef = nullptr;
     };
 
     static std::string FormatMagnitude(float magnitude, RE::ActorValue primaryAV, bool isHostile) {
@@ -240,6 +241,7 @@ namespace PartySheetV2 {
             entry.isHostile   = isHostile;
             entry.sourceSpell = srcSpell;
             entry.primaryAV   = base->data.primaryAV;
+            entry.mgef        = base;
             out.push_back(entry);
         }
         return out;
@@ -345,71 +347,6 @@ namespace PartySheetV2 {
         return TextureManager::GetEffectIcon(iconId);
     }
 
-    static std::string LocalizedAVName(RE::ActorValue av) {
-        using AV = RE::ActorValue;
-        auto L = [](const char* key, const char* eng) {
-            std::string v = LocalizationManager::Get(key);
-            return (v.empty() || v == key) ? std::string(eng) : v;
-        };
-        switch (av) {
-            case AV::kHealth:  return L("Health",  "Health");
-            case AV::kMagicka: return L("Magicka", "Magicka");
-            case AV::kStamina: return L("Stamina", "Stamina");
-            case AV::kHealRate:        return L("HealthRegen",     "Health Regen");
-            case AV::kMagickaRate:     return L("MagickaRegen",    "Magicka Regen");
-            case AV::kStaminaRate:     return L("StaminaRegen",    "Stamina Regen");
-            case AV::kHealRateMult:    return L("HealthRegenMult", "Health Regen Mult");
-            case AV::kMagickaRateMult: return L("MagickaRegenMult","Magicka Regen Mult");
-            case AV::kStaminaRateMult: return L("StaminaRegenMult","Stamina Regen Mult");
-            case AV::kResistFire:    return L("Resistances.Fire",    "Fire Resist");
-            case AV::kResistFrost:   return L("Resistances.Frost",   "Frost Resist");
-            case AV::kResistShock:   return L("Resistances.Shock",   "Shock Resist");
-            case AV::kResistMagic:   return L("Resistances.Magic",   "Magic Resist");
-            case AV::kPoisonResist:  return L("Resistances.Poison",  "Poison Resist");
-            case AV::kResistDisease: return L("Resistances.Disease", "Disease Resist");
-            case AV::kOneHanded:
-            case AV::kOneHandedModifier:   return L("OneHanded",   "One-Handed");
-            case AV::kTwoHanded:
-            case AV::kTwoHandedModifier:   return L("TwoHanded",   "Two-Handed");
-            case AV::kArchery:
-            case AV::kMarksmanModifier:    return L("Archery",     "Archery");
-            case AV::kBlock:
-            case AV::kBlockModifier:       return L("Block",       "Block");
-            case AV::kSmithing:
-            case AV::kSmithingModifier:    return L("Smithing",    "Smithing");
-            case AV::kHeavyArmor:
-            case AV::kHeavyArmorModifier:  return L("HeavyArmor",  "Heavy Armor");
-            case AV::kLightArmor:
-            case AV::kLightArmorModifier:  return L("LightArmor",  "Light Armor");
-            case AV::kPickpocket:
-            case AV::kPickpocketModifier:  return L("Pickpocket",  "Pickpocket");
-            case AV::kLockpicking:
-            case AV::kLockpickingModifier: return L("Lockpicking", "Lockpicking");
-            case AV::kSneak:
-            case AV::kSneakingModifier:    return L("Sneak",       "Sneak");
-            case AV::kAlchemy:
-            case AV::kAlchemyModifier:     return L("Alchemy",     "Alchemy");
-            case AV::kSpeech:
-            case AV::kSpeechcraftModifier: return L("Speech",      "Speech");
-            case AV::kAlteration:
-            case AV::kAlterationModifier:  return L("Alteration",  "Alteration");
-            case AV::kConjuration:
-            case AV::kConjurationModifier: return L("Conjuration", "Conjuration");
-            case AV::kDestruction:
-            case AV::kDestructionModifier: return L("Destruction", "Destruction");
-            case AV::kIllusion:
-            case AV::kIllusionModifier:    return L("Illusion",    "Illusion");
-            case AV::kRestoration:
-            case AV::kRestorationModifier: return L("Restoration", "Restoration");
-            case AV::kEnchanting:
-            case AV::kEnchantingModifier:  return L("Enchanting",  "Enchanting");
-            default:
-                if (const char* n = EffectCategories::GetActorValueName(av); n && n[0] && std::strcmp(n, "Unknown") != 0)
-                    return n;
-                return "";
-        }
-    }
-
     static std::string RaceMagnitudeLine(RE::MagicItem* item) {
         if (!item) return "";
         RE::EffectSetting* base = item->GetAVEffect();
@@ -423,7 +360,7 @@ namespace PartySheetV2 {
         float mag = eff ? eff->GetMagnitude() : 0.0f;
         if (mag <= 0.0f) return "";
 
-        std::string label = LocalizedAVName(av);
+        std::string label = EffectCategories::LocalizedAVName(av);
         if (label.empty()) return "";
 
         const bool isPct = EffectCategories::IsPercentageMagnitude(av);
@@ -523,13 +460,61 @@ namespace PartySheetV2 {
     }
 
     static std::string StoneLineText(const EffectEntry& e, const std::string& stoneTitle) {
+        if (e.valStr.empty() && e.mgef) {
+            const char* d = e.mgef->magicItemDescription.c_str();
+            if (d && d[0]) {
+                std::string txt = d;
+                txt.erase(std::remove_if(txt.begin(), txt.end(),
+                    [](char c) { return c == '<' || c == '>'; }), txt.end());
+                return txt;
+            }
+        }
         bool echoesTitle = !e.name.empty() &&
             (e.name == stoneTitle || e.name.rfind(stoneTitle, 0) == 0);
-        if (echoesTitle && e.primaryAV != RE::ActorValue::kNone) {
-            std::string label = LocalizedAVName(e.primaryAV);
+        if (echoesTitle && e.primaryAV != RE::ActorValue::kNone && !e.valStr.empty()) {
+            std::string label = EffectCategories::LocalizedAVName(e.primaryAV);
             if (!label.empty()) return label;
         }
         return e.name;
+    }
+
+    static std::string ResolveStoneMessage(RE::SpellItem* stone) {
+        if (!stone) return {};
+        RE::FormID msgId = 0;
+        switch (stone->GetFormID()) {
+            case 0x000E5F4C: msgId = 0x016869; break;
+            case 0x000E5F47: msgId = 0x01683A; break;
+            case 0x000E5F45: msgId = 0x016867; break;
+            case 0x000E5F58: msgId = 0x016838; break;
+            case 0x000E5F54: msgId = 0x016837; break;
+            case 0x000E5F4E:
+            case 0x0010E439:
+            case 0x00103A94: msgId = 0x016835; break;
+            case 0x000E5F51: msgId = 0x016836; break;
+            case 0x000E5F5A: msgId = 0x016839; break;
+            case 0x000E7328: msgId = 0x016868; break;
+            case 0x000E7329: msgId = 0x01683B; break;
+            case 0x000E5F61: msgId = 0x016844; break;
+            case 0x000E732A: msgId = 0x016865; break;
+            default: break;
+        }
+        auto* dh = RE::TESDataHandler::GetSingleton();
+        if (!msgId && dh) {
+            if (auto* steed = dh->LookupForm(0x000E5F5E, "ccQDRSSE001-SurvivalMode.esl"); steed == stone)
+                msgId = 0x016866;
+        }
+        if (!msgId || !dh) return {};
+        auto* f = dh->LookupForm(msgId, "Skyrim.esm");
+        auto* msg = f ? f->As<RE::BGSMessage>() : nullptr;
+        if (!msg) return {};
+        RE::BSString buf;
+        msg->GetDescription(buf, msg);
+        std::string out = buf.c_str() ? buf.c_str() : "";
+        out.erase(std::remove_if(out.begin(), out.end(),
+            [](char c){ return c == '<' || c == '>'; }), out.end());
+        for (size_t p = out.find("%%"); p != std::string::npos; p = out.find("%%", p + 1))
+            out.erase(p, 1);
+        return out;
     }
 
     static std::string ResolveStoneDescription(RE::SpellItem* stone) {
@@ -543,7 +528,15 @@ namespace PartySheetV2 {
                 [](char c){ return c == '<' || c == '>'; }), out.end());
             return out;
         }
-        return {};
+        {
+            RE::BSString buf;
+            stone->GetDescription(buf, stone);
+            std::string out = buf.c_str() ? buf.c_str() : "";
+            out.erase(std::remove_if(out.begin(), out.end(),
+                [](char c){ return c == '<' || c == '>'; }), out.end());
+            if (!out.empty()) return out;
+        }
+        return ResolveStoneMessage(stone);
     }
 
     void RenderEffectsModal(RE::Actor* actor) {
@@ -645,7 +638,6 @@ namespace PartySheetV2 {
         auto equipmentEntries = GetPermanentEffects(actor, EffectBucket::Equipment);
         auto blessingEntries  = GetPermanentEffects(actor, EffectBucket::Blessing);
         auto activeEntries    = GetActive(actor);
-        auto raceEntries      = GetRaceAbilities(actor);
         auto spellSchools     = GetKnownSpells(actor);
         std::vector<PlayerHUDDisease::ActiveDisease> diseaseEntries;
         if (actor->IsPlayerRef())
@@ -733,12 +725,11 @@ namespace PartySheetV2 {
         };
 
         static std::string s_none, s_other;
-        static std::string s_secRace, s_secPassive, s_secEquipment, s_secBlessings, s_secActive, s_secSpells, s_secDiseases, s_secNeeds, s_secVitality;
+        static std::string s_secPassive, s_secEquipment, s_secBlessings, s_secActive, s_secSpells, s_secDiseases, s_secNeeds, s_secVitality;
         static std::string s_schoolAlt, s_schoolConj, s_schoolDest, s_schoolIllu, s_schoolRest;
         if (s_none.empty()) {
             s_none          = LocalizationManager::Get("Common.None");
             s_other         = LocalizationManager::Get("Common.Other");
-            s_secRace       = LocalizationManager::Get("PartySheetV2.SectionRace");
             s_secPassive    = LocalizationManager::Get("PartySheetV2.SectionPassive");
             s_secEquipment  = LocalizationManager::Get("PartySheetV2.SectionEquipment");
             s_secBlessings  = LocalizationManager::Get("PartySheetV2.SectionBlessings");
@@ -754,91 +745,8 @@ namespace PartySheetV2 {
             s_schoolDest    = LocalizationManager::Get("Skills.Destruction");
             s_schoolIllu    = LocalizationManager::Get("Skills.Illusion");
             s_schoolRest    = LocalizationManager::Get("Skills.Restoration");
-            for (auto* s : { &s_secRace,&s_secPassive,&s_secEquipment,&s_secBlessings,&s_secActive,&s_secSpells,&s_secDiseases,&s_secNeeds,&s_secVitality })
+            for (auto* s : { &s_secPassive,&s_secEquipment,&s_secBlessings,&s_secActive,&s_secSpells,&s_secDiseases,&s_secNeeds,&s_secVitality })
                 for (char& c : *s) c = static_cast<char>(toupper(c));
-        }
-
-        DrawSectionHeader(s_secRace.c_str());
-        if (raceEntries.empty()) {
-            ImVec2 rp = ImGui::GetCursorScreenPos();
-            ImGui::SetWindowFontScale(FontSmall());
-            cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(rp.x + 4.0f * sc, rp.y), kTextMuted, s_none.c_str());
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::Dummy(ImVec2(bodyW, rowH));
-        } else {
-            const int   cols     = 2;
-            const float colGap   = 10.0f * sc;
-            const float rowGap    = 8.0f  * sc;
-            const float cardW    = (bodyW - colGap * (cols - 1)) / cols;
-            const float iconSz   = 48.0f * sc;
-            const float iconPad  = 6.0f  * sc;
-            const float textGapX = 10.0f * sc;
-            const float lineGap  = 2.0f  * sc;
-
-            ImGui::SetWindowFontScale(FontBody());
-            float titleH = ImGui::GetTextLineHeight();
-            ImGui::SetWindowFontScale(FontSmall());
-            float subH   = ImGui::GetTextLineHeight();
-            ImGui::SetWindowFontScale(1.0f);
-            bool anyMag = false;
-            for (const auto& e : raceEntries) if (!e.magLine.empty()) { anyMag = true; break; }
-            const float textStackH = titleH + lineGap + subH + (anyMag ? lineGap + subH : 0.0f);
-            const float cardH    = (std::max)(iconSz, textStackH) + 10.0f * sc;
-
-            ImVec2 origin = ImGui::GetCursorScreenPos();
-            int n = static_cast<int>(raceEntries.size());
-            int gridRows = (n + cols - 1) / cols;
-
-            for (int i = 0; i < n; ++i) {
-                const auto& e = raceEntries[i];
-                int r = i / cols, c = i % cols;
-                float cx = origin.x + c * (cardW + colGap);
-                float cy = origin.y + r * (cardH + rowGap);
-
-                cdl->AddRectFilled(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    IM_COL32(22, 22, 30, 200), 3.0f);
-                cdl->AddRect(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    kBorderDim, 3.0f, 0, 1.0f);
-
-                float iconX = cx + iconPad;
-                float iconY = cy + (cardH - iconSz) * 0.5f;
-                if (e.icon)
-                    HUDDraw::DrawIconStyled(cdl, ImVec2(iconX, iconY), iconSz,
-                        reinterpret_cast<ImTextureID>(e.icon), 0xFFFFFFFF, IconFxDefault());
-
-                float blockH = titleH
-                             + (e.typeLabel.empty() ? 0.0f : lineGap + subH)
-                             + (e.magLine.empty()   ? 0.0f : lineGap + subH);
-                float textX = iconX + iconSz + textGapX;
-                float textMaxW = (cx + cardW) - textX - 6.0f * sc;
-                float ty = cy + (cardH - blockH) * 0.5f;
-
-                cdl->PushClipRect(ImVec2(textX, cy), ImVec2(textX + textMaxW, cy + cardH), true);
-
-                ImGui::SetWindowFontScale(FontBody());
-                cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                    ImVec2(textX, ty), kTextMain, e.name.c_str());
-                ty += titleH;
-
-                if (!e.typeLabel.empty()) {
-                    ty += lineGap;
-                    ImGui::SetWindowFontScale(FontSmall());
-                    cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                        ImVec2(textX, ty), kTextMuted, e.typeLabel.c_str());
-                    ty += subH;
-                }
-                if (!e.magLine.empty()) {
-                    ty += lineGap;
-                    ImGui::SetWindowFontScale(FontSmall());
-                    cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                        ImVec2(textX, ty), kBuff, e.magLine.c_str());
-                }
-                cdl->PopClipRect();
-                ImGui::SetWindowFontScale(1.0f);
-            }
-
-            ImGui::Dummy(ImVec2(bodyW, gridRows * cardH + (gridRows - 1) * rowGap + 6.0f * sc));
         }
 
         struct StoneLine { std::string text; bool isHostile; };
@@ -856,7 +764,7 @@ namespace PartySheetV2 {
                 if (it == stoneCards.end()) {
                     StoneCard sCard;
                     sCard.title = title;
-                    sCard.icon  = TextureManager::GetPartyIcon("stone");
+                    sCard.icon  = TextureManager::GetPartyIcon("standing_stone");
                     sCard.description = ResolveStoneDescription(e.sourceSpell);
                     it = stoneCards.insert(stoneCards.end(), std::move(sCard));
                 }
@@ -1425,6 +1333,17 @@ namespace PartySheetV2 {
         if (!needEntries.empty()) {
             DrawSectionHeader(s_secNeeds.c_str());
 
+            if (const std::string warn = PlayerHUDSurvival::GetStackWarning(); !warn.empty()) {
+                ImGui::SetWindowFontScale(FontSmall());
+                ImGui::PushStyleColor(ImGuiCol_Text, kTextMuted);
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + bodyW);
+                ImGui::TextUnformatted(warn.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::PopStyleColor();
+                ImGui::SetWindowFontScale(1.0f);
+                ImGui::Dummy(ImVec2(bodyW, 6.0f * sc));
+            }
+
             ImGui::SetWindowFontScale(FontBody());
             float titleH = ImGui::GetTextLineHeight();
             ImGui::SetWindowFontScale(FontSmall());
@@ -1764,6 +1683,408 @@ namespace PartySheetV2 {
         ImGui::PopStyleColor(4);
 
         ImGui::End();
+    }
+
+    struct TipLine { std::string text; ImU32 col; };
+    struct TipRow  {
+        ID3D11ShaderResourceView* icon = nullptr;
+        std::string name, type;
+        std::vector<TipLine> lines;
+        int tone = 0;
+    };
+
+    static void DrawCompactTooltip(const std::string& title, const std::vector<TipRow>& rows,
+                                   const std::string& emptyText, float sc) {
+        auto* s = Settings::GetSingleton();
+        const float fBody  = s->psV2FontBody  * sc;
+        const float fSmall = s->psV2FontSmall * sc;
+        const float iconSz  = 32.0f * sc;
+        const float textGap = 10.0f * sc;
+        const float rowGap  = 8.0f  * sc;
+        const float lineGap = 2.0f  * sc;
+        const float wrapW   = 300.0f * sc;
+
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, IM_COL32(20, 23, 29, 245));
+        ImGui::PushStyleColor(ImGuiCol_Border,  kBorderDim);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * sc, 10.0f * sc));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(0.0f, 0.0f));
+        ImGui::BeginTooltip();
+        ImDrawList* tdl = ImGui::GetWindowDrawList();
+        ImFont* font = ImGui::GetFont();
+        const float baseSz = ImGui::GetFontSize();
+        auto Measure = [&](float scale, const std::string& t, float wrap = 0.0f) {
+            return font->CalcTextSizeA(baseSz * scale, FLT_MAX, wrap, t.c_str());
+        };
+
+        float rowW = Measure(fSmall, title).x;
+        for (const auto& r : rows) {
+            float w = Measure(fBody, r.name).x;
+            if (!r.type.empty()) w += textGap * 0.5f + Measure(fSmall, r.type).x;
+            for (const auto& l : r.lines) w = (std::max)(w, (std::min)(Measure(fSmall, l.text).x, wrapW));
+            rowW = (std::max)(rowW, iconSz + textGap + w);
+        }
+        if (rows.empty()) rowW = (std::max)(rowW, Measure(fSmall, emptyText).x);
+        const float textW = rowW - iconSz - textGap;
+
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        const float subH = Measure(fSmall, "A").y;
+        tdl->AddText(font, baseSz * fSmall, p, kAccent, title.c_str());
+        float ruleY = p.y + subH + 4.0f * sc;
+        tdl->AddLine(ImVec2(p.x, ruleY), ImVec2(p.x + rowW, ruleY), IM_COL32(212, 175, 55, 70), 1.0f);
+        ImGui::Dummy(ImVec2(rowW, subH + 10.0f * sc));
+
+        if (rows.empty()) {
+            ImVec2 ep = ImGui::GetCursorScreenPos();
+            tdl->AddText(font, baseSz * fSmall, ep, kTextMuted, emptyText.c_str());
+            ImGui::Dummy(ImVec2(rowW, subH));
+        }
+
+        const float titleH = Measure(fBody, "A").y;
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const auto& r = rows[i];
+            float textH = titleH;
+            for (const auto& l : r.lines) textH += lineGap + Measure(fSmall, l.text, textW).y;
+            const float rowH = (std::max)(iconSz, textH);
+            ImVec2 rp = ImGui::GetCursorScreenPos();
+            if (r.tone != 0)
+                tdl->AddRectFilled(ImVec2(rp.x - 8.0f * sc, rp.y + 2.0f * sc),
+                    ImVec2(rp.x - 5.0f * sc, rp.y + rowH - 2.0f * sc),
+                    r.tone > 0 ? kBuff : kDebuff, 1.0f * sc);
+            if (r.icon)
+                HUDDraw::DrawIconStyled(tdl, ImVec2(rp.x, rp.y + (rowH - iconSz) * 0.5f), iconSz,
+                    reinterpret_cast<ImTextureID>(r.icon), 0xFFFFFFFF, IconFxDefault());
+
+            float tx = rp.x + iconSz + textGap;
+            float ty = rp.y + (rowH - textH) * 0.5f;
+            tdl->AddText(font, baseSz * fBody, ImVec2(tx, ty), kTextMain, r.name.c_str());
+            if (!r.type.empty()) {
+                float nameW = Measure(fBody, r.name).x;
+                tdl->AddText(font, baseSz * fSmall, ImVec2(tx + nameW + textGap * 0.5f, ty + titleH - subH),
+                    kTextMuted, r.type.c_str());
+            }
+            ty += titleH;
+            for (const auto& l : r.lines) {
+                ty += lineGap;
+                tdl->AddText(font, baseSz * fSmall, ImVec2(tx, ty), l.col, l.text.c_str(), nullptr, textW);
+                ty += Measure(fSmall, l.text, textW).y;
+            }
+            ImGui::Dummy(ImVec2(rowW, rowH + (i + 1 < rows.size() ? rowGap : 0.0f)));
+        }
+
+        ImGui::EndTooltip();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
+    }
+
+    void DrawRaceTooltip(RE::Actor* actor, float sc) {
+        auto entries = GetRaceAbilities(actor);
+        if (entries.empty()) return;
+        auto* race = actor->GetRace();
+        std::string title = (race && race->GetFullName()) ? race->GetFullName() : "";
+        for (char& c : title) c = static_cast<char>(toupper(c));
+        std::vector<TipRow> rows;
+        for (auto& e : entries) {
+            TipRow r{ e.icon, e.name, e.typeLabel, {} };
+            if (!e.magLine.empty()) { r.lines.push_back({ e.magLine, kBuff }); r.tone = 1; }
+            rows.push_back(std::move(r));
+        }
+        DrawCompactTooltip(title, rows, {}, sc);
+    }
+
+    RE::SpellItem* GetStandingStone(RE::Actor* actor) {
+        if (!actor) return nullptr;
+        static constexpr RE::FormID kStones[] = {
+            0x000E5F4C, 0x000E5F47, 0x000E5F45, 0x000E5F58, 0x000E5F54, 0x000E5F4E,
+            0x000E5F51, 0x000E5F5A, 0x000E7328, 0x000E7329, 0x000E5F61, 0x000E732A };
+        for (auto id : kStones)
+            if (auto* sp = RE::TESForm::LookupByID<RE::SpellItem>(id); sp && actor->HasSpell(sp))
+                return sp;
+        if (auto* dh = RE::TESDataHandler::GetSingleton())
+            if (auto* steed = dh->LookupForm<RE::SpellItem>(0x000E5F5E, "ccQDRSSE001-SurvivalMode.esl");
+                steed && actor->HasSpell(steed))
+                return steed;
+        return nullptr;
+    }
+
+    static std::string FormatTimeLeft(float secs) {
+        char buf[16];
+        if (secs >= 3600.0f)    snprintf(buf, sizeof(buf), "%.0fh", secs / 3600.0f);
+        else if (secs >= 60.0f) snprintf(buf, sizeof(buf), "%.0fm", secs / 60.0f);
+        else                    snprintf(buf, sizeof(buf), "%.0fs", secs);
+        return buf;
+    }
+
+    static std::vector<TipRow> StatSourceRows(RE::Actor* actor, RE::ActorValue pool) {
+        using AV = RE::ActorValue;
+        using Src = EffectCategories::EffectSource;
+        std::vector<TipRow> rows;
+        auto* mt   = actor ? actor->AsMagicTarget() : nullptr;
+        auto* list = mt ? mt->GetActiveEffectList() : nullptr;
+        if (!list) return rows;
+
+        auto Feeds = [pool](AV av) {
+            if (av == AV::kNone) return false;
+            switch (pool) {
+                case AV::kHealth:  return av == AV::kHealth  || av == AV::kHealRate    || av == AV::kHealRateMult;
+                case AV::kStamina: return av == AV::kStamina || av == AV::kStaminaRate || av == AV::kStaminaRateMult;
+                case AV::kMagicka: return av == AV::kMagicka || av == AV::kMagickaRate || av == AV::kMagickaRateMult;
+                default:           return av == pool || EffectCategories::GetSkillTarget(av) == pool;
+            }
+        };
+
+        static std::string kPassive, kEquip, kBlessing, kPotion, kSpell, kRace, kDisease, kNeed;
+        if (kPassive.empty()) {
+            kPassive  = LocalizationManager::Get("PartySheetV2.SourcePassive");
+            kEquip    = LocalizationManager::Get("PartySheetV2.SourceEquipment");
+            kBlessing = LocalizationManager::Get("PartySheetV2.SourceBlessing");
+            kPotion   = LocalizationManager::Get("PartySheetV2.SourcePotion");
+            kSpell    = LocalizationManager::Get("PartySheetV2.SpellTypeSpell");
+            kRace     = LocalizationManager::Get("PartySheetV2.SourceRace");
+            kDisease  = LocalizationManager::Get("Symptom.KindDisease");
+            kNeed     = LocalizationManager::Get("Symptom.KindNeed");
+        }
+
+        std::unordered_set<RE::SpellItem*> raceSpells;
+        if (auto* race = actor->GetRace(); race && race->actorEffects && race->actorEffects->spells)
+            for (std::uint32_t i = 0; i < race->actorEffects->numSpells; ++i)
+                if (auto* sp = race->actorEffects->spells[i]) raceSpells.insert(sp);
+
+        for (auto* ae : *list) {
+            if (!ae) continue;
+            if (ae->flags.any(RE::ActiveEffect::Flag::kDispelled) ||
+                ae->flags.any(RE::ActiveEffect::Flag::kInactive)) continue;
+            auto* base = ae->GetBaseObject();
+            if (!base) continue;
+            AV av = base->data.primaryAV;
+            if (!Feeds(av)) {
+                const AV av2 = base->GetArchetype() == RE::EffectSetting::Archetype::kDualValueModifier
+                    ? base->data.secondaryAV : AV::kNone;
+                if (!Feeds(av2)) continue;
+                av = av2;
+            }
+
+            float mag = std::abs(ae->magnitude);
+            if (mag <= 0.0f && ae->effect) mag = std::abs(ae->effect->GetMagnitude());
+            const bool isPct = EffectCategories::IsPercentageMagnitude(av);
+            if (isPct && mag > 0.0f && mag < 1.0f) mag *= 100.0f;
+            if (mag < 0.5f) continue;
+            const bool hostile = base->IsHostile() || base->IsDetrimental() || ae->magnitude < 0.0f;
+
+            auto* sp  = ae->spell ? ae->spell->As<RE::SpellItem>() : nullptr;
+            const Src src = EffectCategories::GetEffectSource(ae);
+            TipRow r;
+            const char* spName = ae->spell ? ae->spell->GetFullName() : nullptr;
+            r.name = (spName && spName[0]) ? spName : (base->GetFullName() ? base->GetFullName() : "");
+
+            if (src == Src::Enchantment || IsKye2ArmorSource(ae->spell)) {
+                if (ae->source && ae->source->GetName() && ae->source->GetName()[0]) {
+                    r.name = ae->source->GetName();
+                    r.icon = TextureManager::GetItemIcon(ae->source, "");
+                }
+                r.type = kEquip;
+            } else if (src == Src::Potion || src == Src::Food) {
+                r.type = kPotion;
+                RE::TESForm* item = ae->source ? static_cast<RE::TESForm*>(ae->source)
+                                               : static_cast<RE::TESForm*>(ae->spell);
+                r.icon = TextureManager::GetItemIcon(item, "potion");
+            } else if (src == Src::Blessing) {
+                r.type = kBlessing;
+                r.icon = ResolveBlessingIcon(sp);
+            } else if (sp && sp->GetSpellType() == RE::MagicSystem::SpellType::kDisease) {
+                r.type = kDisease;
+            } else if (sp && (PlayerHUDSurvival::IsNeedSpell(sp) || PlayerHUDSurvival::IsVitalitySpell(sp))) {
+                r.type = kNeed;
+            } else if (sp && raceSpells.count(sp)) {
+                r.type = kRace;
+            } else if (src == Src::Ability) {
+                r.type = kPassive;
+            } else {
+                r.type = kSpell;
+            }
+            if (!r.icon) r.icon = ResolveMagicIcon(ae->spell);
+
+            if (ae->duration > 0.0f) {
+                float left = ae->duration - ae->elapsedSeconds;
+                if (left > 0.0f) r.type += " \xC2\xB7 " + FormatTimeLeft(left);
+            }
+
+            r.tone = hostile ? -1 : 1;
+            r.lines.push_back({ FormatMagnitude(mag, av, hostile), hostile ? kDebuff : kBuff });
+
+            auto it = std::find_if(rows.begin(), rows.end(), [&](const TipRow& x) {
+                return x.name == r.name && x.tone == r.tone; });
+            if (it == rows.end()) rows.push_back(std::move(r));
+        }
+        return rows;
+    }
+
+    bool HasStatPassives(RE::Actor* actor, RE::ActorValue pool) {
+        return !StatSourceRows(actor, pool).empty();
+    }
+
+    void DrawStatTooltip(RE::Actor* actor, const std::string& title, RE::ActorValue pool, float sc) {
+        auto rows = StatSourceRows(actor, pool);
+        if (rows.empty()) return;
+        std::string t = title;
+        for (char& c : t) c = static_cast<char>(toupper(c));
+        DrawCompactTooltip(t, rows, {}, sc);
+    }
+
+    void DrawPassiveTooltip(RE::Actor* actor, const std::string& title, float sc, bool stoneOnly) {
+        static std::string s_noneTxt;
+        if (s_noneTxt.empty()) s_noneTxt = LocalizationManager::Get("Common.None");
+
+        RE::SpellItem* stone = stoneOnly ? GetStandingStone(actor) : nullptr;
+        TipRow stoneRow;
+        if (stone) {
+            using ST = RE::MagicSystem::SpellType;
+            const auto t = stone->GetSpellType();
+            stoneRow.icon = TextureManager::GetPartyIcon("standing_stone");
+            stoneRow.name = stone->GetFullName() ? stone->GetFullName() : "";
+            stoneRow.type = LocalizationManager::Get((t == ST::kPower || t == ST::kLesserPower)
+                ? "PartySheetV2.SpellTypePower" : "PartySheetV2.SpellTypeAbility");
+            std::string desc = ResolveStoneDescription(stone);
+            if (!desc.empty()) stoneRow.lines.push_back({ std::move(desc), kTextMuted });
+        }
+        const bool stoneHasDesc = !stoneRow.lines.empty();
+
+        std::vector<TipRow> rows;
+        std::vector<TipRow> plain;
+        for (auto& e : GetPermanentEffects(actor, EffectBucket::Passive)) {
+            ImU32 col = e.isHostile ? kDebuff : kBuff;
+            if (e.sourceSpell && IsStandingStoneSource(e.sourceSpell)) {
+                if (stone && !stoneHasDesc) {
+                    std::string txt = StoneLineText(e, stoneRow.name);
+                    if (!e.valStr.empty()) { txt += " "; txt += e.valStr; }
+                    bool dup = std::any_of(stoneRow.lines.begin(), stoneRow.lines.end(),
+                        [&](const TipLine& l) { return l.text == txt; });
+                    if (!dup) stoneRow.lines.push_back({ std::move(txt), col });
+                }
+                continue;
+            }
+            if (stoneOnly) continue;
+            TipRow r{ ResolveMagicIcon(e.sourceSpell), e.name, {}, {} };
+            r.tone = e.isHostile ? -1 : 1;
+            if (!e.valStr.empty()) r.lines.push_back({ e.valStr, col });
+            plain.push_back(std::move(r));
+        }
+        if (stone) rows.push_back(std::move(stoneRow));
+        for (auto& r : plain) rows.push_back(std::move(r));
+        DrawCompactTooltip(title, rows, s_noneTxt, sc);
+    }
+
+    namespace {
+        RE::TESForm* Home(RE::FormID id, const char* file) {
+            auto* dh = RE::TESDataHandler::GetSingleton();
+            return dh ? dh->LookupForm(id, file) : nullptr;
+        }
+        bool Has(RE::Actor* a, RE::FormID id, const char* file) {
+            auto* sp = Home(id, file);
+            return sp && sp->Is(RE::FormType::Spell) && a->HasSpell(sp->As<RE::SpellItem>());
+        }
+        bool GlobalOn(RE::FormID id) {
+            auto* g = Home(id, "Skyrim.esm");
+            return g && g->Is(RE::FormType::Global) && g->As<RE::TESGlobal>()->value > 0.0f;
+        }
+    }
+
+    CurseInfo GetCurse(RE::Actor* actor) {
+        CurseInfo c;
+        if (!actor) return c;
+        const bool isPlayer = actor->IsPlayerRef();
+        auto* race = actor->GetRace();
+
+        bool vamp = actor->HasKeywordString("Vampire")
+                 || Has(actor, 0x00283B, "Dawnguard.esm")
+                 || (race && race == Home(0x00283A, "Dawnguard.esm"))
+                 || (isPlayer && GlobalOn(0x0ED06D));
+        if (vamp) {
+            c.kind = CurseInfo::Kind::Vampire;
+            static constexpr RE::FormID kStage[4] = { 0x02E1C3, 0x0ED099, 0x0ED09D, 0x0ED09E };
+            for (int i = 0; i < 4; ++i)
+                if (Has(actor, kStage[i], "Skyrim.esm")) { c.stage = i + 1; break; }
+            return c;
+        }
+        bool wolf = (race && race->GetFormID() == 0x000CDD84)
+                 || Has(actor, 0x092C48, "Skyrim.esm")
+                 || (isPlayer && GlobalOn(0x0ED06C));
+        if (!wolf)
+            if (auto* fac = Home(0x07C90A, "Skyrim.esm"); fac && fac->Is(RE::FormType::Faction))
+                wolf = actor->IsInFaction(fac->As<RE::TESFaction>());
+        if (wolf) c.kind = CurseInfo::Kind::Werewolf;
+        return c;
+    }
+
+    void DrawCurseTooltip(RE::Actor* actor, const std::string& title, float sc) {
+        struct Id { RE::FormID id; const char* file; };
+        static constexpr Id kVampire[] = {
+            { 0x00283B, "Dawnguard.esm" },
+            { 0x0ED0A4, "Skyrim.esm" }, { 0x0ED0A5, "Skyrim.esm" }, { 0x0ED0A6, "Skyrim.esm" }, { 0x0ED0A7, "Skyrim.esm" },
+            { 0x08D5BF, "Skyrim.esm" }, { 0x08D5C0, "Skyrim.esm" }, { 0x08D5C1, "Skyrim.esm" }, { 0x08D5C2, "Skyrim.esm" },
+            { 0x0C4DE2, "Skyrim.esm" },
+            { 0x088821, "Skyrim.esm" },
+            { 0x0C4DE1, "Skyrim.esm" },
+            { 0x0F5B54, "Skyrim.esm" }, { 0x10F1E7, "Skyrim.esm" },
+            { 0x02E1C3, "Skyrim.esm" }, { 0x0ED099, "Skyrim.esm" }, { 0x0ED09D, "Skyrim.esm" }, { 0x0ED09E, "Skyrim.esm" },
+            { 0x10F1EB, "Skyrim.esm" }, { 0x10F1EA, "Skyrim.esm" }, { 0x10F1E9, "Skyrim.esm" }, { 0x10F1E8, "Skyrim.esm" },
+            { 0x0C1E8B, "Skyrim.esm" }, { 0x0ED09A, "Skyrim.esm" }, { 0x0ED09B, "Skyrim.esm" }, { 0x0ED09C, "Skyrim.esm" },
+        };
+        static constexpr Id kWerewolf[] = {
+            { 0x092C48, "Skyrim.esm" },
+            { 0x0F8306, "Skyrim.esm" },
+        };
+        const auto c = GetCurse(actor);
+        if (c.kind == CurseInfo::Kind::None) return;
+        const bool vamp = c.kind == CurseInfo::Kind::Vampire;
+        const Id* ids = vamp ? kVampire : kWerewolf;
+        const size_t n = vamp ? std::size(kVampire) : std::size(kWerewolf);
+
+        using ST = RE::MagicSystem::SpellType;
+        std::vector<TipRow> rows;
+        for (size_t i = 0; i < n; ++i) {
+            auto* f = Home(ids[i].id, ids[i].file);
+            auto* sp = (f && f->Is(RE::FormType::Spell)) ? f->As<RE::SpellItem>() : nullptr;
+            if (!sp || !actor->HasSpell(sp)) continue;
+            const char* nm = sp->GetFullName();
+            if (!nm || !nm[0]) continue;
+            if (std::any_of(rows.begin(), rows.end(), [&](const TipRow& r) { return r.name == nm; })) continue;
+
+            TipRow r;
+            r.name = nm;
+            const auto t = sp->GetSpellType();
+            r.type = LocalizationManager::Get((t == ST::kPower || t == ST::kLesserPower)
+                ? "PartySheetV2.SpellTypePower"
+                : (t == ST::kSpell ? "PartySheetV2.SpellTypeSpell" : "PartySheetV2.SourcePassive"));
+            r.icon = (t == ST::kPower || t == ST::kLesserPower) ? TextureManager::GetPartyIcon("power")
+                                                               : ResolveMagicIcon(sp);
+            bool bad = false;
+            for (auto* eff : sp->effects) {
+                if (!eff || !eff->baseEffect) continue;
+                bad = bad || eff->baseEffect->IsDetrimental() || eff->baseEffect->IsHostile();
+            }
+            for (auto* eff : sp->effects) {
+                if (!eff || !eff->baseEffect) continue;
+                const char* d = eff->baseEffect->magicItemDescription.c_str();
+                if (!d || !d[0]) continue;
+                std::string txt = d;
+                auto Fill = [&txt](const char* tok, const std::string& val) {
+                    for (size_t pos; (pos = txt.find(tok)) != std::string::npos;)
+                        txt.replace(pos, std::strlen(tok), val);
+                };
+                char mb[16], db[16];
+                snprintf(mb, sizeof(mb), "%.0f", eff->effectItem.magnitude);
+                snprintf(db, sizeof(db), "%u", eff->effectItem.duration);
+                Fill("<mag>", mb);
+                Fill("<dur>", db);
+                txt.erase(std::remove_if(txt.begin(), txt.end(), [](char ch){ return ch == '<' || ch == '>'; }), txt.end());
+                r.lines.push_back({ std::move(txt), kTextMuted });
+                break;
+            }
+            r.tone = (t == ST::kAbility) ? (bad ? -1 : 1) : 0;
+            rows.push_back(std::move(r));
+        }
+        std::string none = LocalizationManager::Get("Common.None");
+        DrawCompactTooltip(title, rows, none, sc);
     }
 
 }

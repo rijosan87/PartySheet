@@ -3,7 +3,6 @@
 // STATUS: Working
 // Player HUD debuffs display.
 
-
 #include <RE/Skyrim.h>
 #include <imgui.h>
 
@@ -22,7 +21,7 @@ namespace PlayerHUDPenalties {
     };
     TemporaryData GetTemporaryPenalties(RE::Actor* player);
 
-    void DrawPenaltySegment(ImDrawList* dl, float x, float y, float barW, float barH,
-                            float penaltyFrac, ImU32 tintColor, void* barFillTex,
-                            float rightOffsetFrac = 0.0f);
+    bool DrawBarSlice(ImDrawList* dl, float x, float y, float barW, float barH,
+                      float u0, float u1, ImU32 tint, void* barFillTex);
+
 }

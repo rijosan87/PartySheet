@@ -15,6 +15,7 @@
 #include "../../includes/MenuUtils.h"
 #include "../../includes/SpellIconManager.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/Utils/SkillRowTint.h"
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
@@ -28,6 +29,18 @@ static constexpr int CAROUSEL_ITEMS_PER_PAGE = 3;
 static constexpr int CAROUSEL_ITEMS_FACTION = 2;
 static constexpr int CAROUSEL_ITEMS_CHAMPION = 3;
 static constexpr int CAROUSEL_ITEMS_THANE = 2;
+
+static void SetHUDMenusHidden(bool hidden)
+{
+    auto ui = RE::UI::GetSingleton();
+    if (!ui) return;
+    for (std::string_view name : { RE::HUDMenu::MENU_NAME, std::string_view{ "TrueHUD" } }) {
+        auto menu = ui->GetMenu(name);
+        if (menu && menu->uiMovie) {
+            menu->uiMovie->SetVisible(!hidden);
+        }
+    }
+}
 
 static HUDDraw::IconFx IconFxDefault() {
     HUDDraw::IconFx fx{};
@@ -551,9 +564,7 @@ void CharacterSheet::Toggle()
     _visible = !_visible;
     
     if (ui) {
-        if (!ui->IsMenuOpen("InventoryMenu") && !ui->IsMenuOpen("MagicMenu")) {
-            ui->ShowMenus(!_visible);
-        }
+        SetHUDMenusHidden(_visible);
     }
 
     if (_visible) {
@@ -586,13 +597,8 @@ void CharacterSheet::Open()
 
     _visible = true;
 
-    auto ui = RE::UI::GetSingleton();
-    if (ui) {
-        if (!ui->IsMenuOpen("InventoryMenu") && !ui->IsMenuOpen("MagicMenu")) {
-            ui->ShowMenus(false);
-        }
-    }
-    
+    SetHUDMenusHidden(true);
+
     auto settings = Settings::GetSingleton();
     if (settings->csEnableCameraControl) {
         SaveCameraState();
@@ -607,10 +613,7 @@ void CharacterSheet::Close()
     
     _visible = false;
 
-    auto ui = RE::UI::GetSingleton();
-    if (ui) {
-        ui->ShowMenus(true);
-    }
+    SetHUDMenusHidden(false);
 
     auto settings = Settings::GetSingleton();
     if (settings->csEnableCameraControl) {
@@ -1394,12 +1397,8 @@ void CharacterSheet::Render()
                 logger::info("[DEBUG-CS] Render() auto-closing — blocked by menu");
             _visible = false;
             RestoreCameraState();
-            ui->ShowMenus(true);
+            SetHUDMenusHidden(false);
             return;
-        }
-
-        if (invOpen || magOpen) {
-            ui->ShowMenus(true);
         }
     }
     
@@ -2156,18 +2155,11 @@ void CharacterSheet::DrawUI()
             ImU32 rowBgEven = IM_COL32(std::min((int)skbR + 20, 255), std::min((int)skbG + 20, 255), std::min((int)skbB + 20, 255), skbA);
             ImU32 rowBgOdd  = IM_COL32(skbR, skbG, skbB, skbA);
             
+            const auto wornGear = WornGearStatResolver::Resolve(player);
+
             auto DrawSkillRow = [&](float x, float y, int rowIndex, const char* name, float level, const char* iconName, RE::ActorValue av) {
-                float permMod = player->GetActorValueModifier(RE::ACTOR_VALUE_MODIFIER::kPermanent, av);
-                float tempMod = player->GetActorValueModifier(RE::ACTOR_VALUE_MODIFIER::kTemporary, av);
-                float totalMod = permMod + tempMod;
-                bool hasModifier = std::abs(totalMod) > 0.01f;
-                
-                ImU32 bgCol;
-                if (hasModifier) {
-                    bgCol = IM_COL32(45, 60, 100, 200);
-                } else {
-                    bgCol = (rowIndex % 2 == 0) ? rowBgEven : rowBgOdd;
-                }
+                const auto tint = SkillRowTint::Get(player, av, wornGear);
+                const ImU32 bgCol = tint.on ? tint.bg : ((rowIndex % 2 == 0) ? rowBgEven : rowBgOdd);
                 drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + skillColWidth, y + skillRowHeight), bgCol);
                 
                 auto icon = TextureManager::GetPartyIcon(iconName);
@@ -2176,8 +2168,8 @@ void CharacterSheet::DrawUI()
                         (ImTextureID)icon, 0xFFFFFFFF, IconFxDefault());
                 }
                 
-                ImU32 nameCol = hasModifier ? IM_COL32(100, 180, 255, 255) : skillNameColor;
-                ImU32 valCol = hasModifier ? IM_COL32(130, 200, 255, 255) : skillValColor;
+                const ImU32 nameCol = tint.on ? tint.name  : skillNameColor;
+                const ImU32 valCol  = tint.on ? tint.value : skillValColor;
                 
                 float textY = y + (skillRowHeight - skillFontSz) / 2.0f + textYOffset;
                 auto* font = ImGui::GetFont();
@@ -2190,6 +2182,8 @@ void CharacterSheet::DrawUI()
                 ImVec2 valSize = font->CalcTextSizeA(skillFontSz, FLT_MAX, 0.0f, valText);
                 drawList->AddText(font, skillFontSz, ImVec2(rightEdge - valSize.x + 1.0f, textY + 1.0f), IM_COL32(0,0,0,120), valText);
                 drawList->AddText(font, skillFontSz, ImVec2(rightEdge - valSize.x, textY), valCol, valText);
+
+                SkillRowTint::HoverTooltip(tint, ImVec2(x, y), ImVec2(x + skillColWidth, y + skillRowHeight));
             };
             
             auto* font = ImGui::GetFont();

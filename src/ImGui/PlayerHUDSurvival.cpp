@@ -28,8 +28,9 @@ static constexpr const char* kStarfrostESP = "Starfrost.esp";
 static constexpr const char* kSunHelmESP   = "SunHelmSurvival.esp";
 static constexpr const char* kFrostfallESP = "Frostfall.esp";
 static constexpr const char* kLastSeedESP  = "LastSeed.esp";
+static constexpr const char* kRndESP       = "RealisticNeedsandDiseases.esp";
 
-enum class Backend  { None, VanillaCC, Starfrost, SunHelm, Frostfall, LastSeed };
+enum class Backend  { None, VanillaCC, Starfrost, SunHelm, Frostfall, LastSeed, RND };
 enum class Axis     { Cold, Hunger, Fatigue, Thirst, Exposure, Wetness, Vitality, Alcohol, Skooma };
 enum class ReadMode { SpellArray, MGEFArray, GlobalVar };
 
@@ -103,6 +104,15 @@ static const AxisDef kLastSeedAxes[] = {
       { 0x00F7D8 }, {}, kLastSeedESP, nullptr },
 };
 
+static const AxisDef kRndAxes[] = {
+    { Axis::Hunger,  "hunger",  ReadMode::SpellArray, 5, 0, true,
+      { 0x001D97, 0x001D99, 0x001D9B, 0x001D9D, 0x00231B, 0x00231C }, {}, kRndESP, nullptr },
+    { Axis::Thirst,  "thirst",  ReadMode::SpellArray, 4, 0, true,
+      { 0x001DA1, 0x001DA3, 0x001DA5, 0x002DFA, 0x002DFC, 0 }, {}, kRndESP, nullptr },
+    { Axis::Fatigue, "fatigue", ReadMode::SpellArray, 4, 0, false,
+      { 0x00BACD, 0x00231E, 0x002320, 0x001DB3, 0x001DB5, 0 }, {}, kRndESP, nullptr },
+};
+
 // Selected backend state. Set once at the end of Init(), read everywhere else.
 static Backend   g_backend   = Backend::None;
 static AvailRule g_availRule = AvailRule::ModeGlobal;
@@ -125,6 +135,23 @@ static bool LastSeedLive()
 {
     return g_lastSeedActive && g_lastSeedRunning && g_lastSeedRunning->value == 2.0f;
 }
+
+static bool           g_rndActive  = false;
+static RE::TESGlobal* g_rndRunning = nullptr;
+
+static bool RndLive()
+{
+    return g_rndActive && g_rndRunning && g_rndRunning->value == 1.0f;
+}
+
+static RE::TESGlobal* g_rndState  = nullptr;
+static bool           g_rndSeenOn = false;
+
+static bool RndStateOn() { return g_rndState && g_rndState->value == 1.0f; }
+
+enum class Stack { RND, LastSeed, Frostfall, SunHelmCold, RndNotStarted, Count };
+static bool g_stackFired[static_cast<int>(Stack::Count)] = {};
+static std::chrono::steady_clock::time_point g_stackNextCheck{};
 
 static constexpr RE::FormID kVitalitySpells[8] = {
     0x00F258,
@@ -179,7 +206,8 @@ static const char* BackendName()
         case Backend::VanillaCC: return "VanillaCC";
         case Backend::Frostfall: return "Frostfall";
         case Backend::LastSeed:  return "LastSeed";
-        default:                 return "None";
+        case Backend::RND:       return "RND";
+        default:                return "None";
     }
 }
 
@@ -236,6 +264,16 @@ void Init()
 
     std::vector<ResolvedAxis> axes;
 
+    g_backend    = Backend::None;
+    g_rndActive  = false;
+    g_rndRunning = nullptr;
+    g_rndState   = nullptr;
+    if (dh->LookupModByName(kRndESP)) {
+        auto st = dh->LookupForm(RE::FormID(0x012C4C), kRndESP);
+        g_rndState = st ? st->As<RE::TESGlobal>() : nullptr;
+    }
+    g_rndSeenOn = RndStateOn();
+
     if (dh->LookupModByName(kLastSeedESP) &&
         BuildAxes(dh, kLastSeedAxes, static_cast<int>(std::size(kLastSeedAxes)), axes)) {
         g_lastSeedActive = true;
@@ -245,6 +283,13 @@ void Init()
         g_lastSeedRunning = lsRun ? lsRun->As<RE::TESGlobal>() : nullptr;
         logger::debug("PlayerHUDSurvival: LastSeed.esp detected - needs backend (running={}).",
                       g_lastSeedRunning ? static_cast<int>(g_lastSeedRunning->value) : -1);
+    } else if (g_rndSeenOn &&
+               BuildAxes(dh, kRndAxes, static_cast<int>(std::size(kRndAxes)), axes)) {
+        g_rndActive  = true;
+        g_rndRunning = g_rndState;
+        g_backend   = Backend::RND;
+        g_availRule = AvailRule::BackendGlobal;
+        logger::debug("PlayerHUDSurvival: {} running - needs backend.", kRndESP);
     } else if (dh->LookupModByName(kSunHelmESP) &&
         BuildAxes(dh, kSunHelmAxes, static_cast<int>(std::size(kSunHelmAxes)), axes)) {
         g_backend   = Backend::SunHelm;
@@ -283,6 +328,9 @@ void Init()
         logger::debug("PlayerHUDSurvival: Frostfall.esp detected - cold axes appended (running={}).",
                       g_frostfallRunning ? static_cast<int>(g_frostfallRunning->value) : -1);
     }
+
+    for (auto& f : g_stackFired) f = false;
+    g_stackNextCheck = std::chrono::steady_clock::now() + std::chrono::seconds(10);
 
     if (axes.empty()) {
         g_backend = Backend::None;
@@ -341,7 +389,9 @@ bool IsAvailable()
         return false;
 
     case AvailRule::BackendGlobal:
-        return g_backend == Backend::LastSeed ? LastSeedLive() : FrostfallLive();
+        if (g_backend == Backend::LastSeed) return LastSeedLive();
+        if (g_backend == Backend::RND)      return RndLive();
+        return FrostfallLive();
     }
     return false;
 }
@@ -350,6 +400,7 @@ static int ReadAxisStage(RE::Actor* player, const ResolvedAxis& a)
 {
     switch (a.def->mode) {
     case ReadMode::SpellArray: {
+        if (a.def->plugin == kRndESP && !RndLive()) return -1;
         if (a.def->hideWhenNoSpell && !HasAnySpell(player, a.spells)) return -1;
         for (int i = 5; i >= 0; --i)
             if (a.spells[i] && player->HasSpell(a.spells[i])) return i;
@@ -401,6 +452,78 @@ int GetThirstStage()  { return GetStage(Axis::Thirst); }
 static int GetExposureStage() { return GetStage(Axis::Exposure); }
 static int GetWetnessStage()  { return GetStage(Axis::Wetness); }
 
+static int MaxStageFor(Axis axis)
+{
+    for (const auto& a : g_axes)
+        if (a.def->axis == axis) return a.def->maxStage;
+    return 5;
+}
+
+static bool CcOn() { return g_modeEnabled && g_modeEnabled->value == 1.0f; }
+
+static bool ConflictHolds(Stack s)
+{
+    switch (s) {
+        case Stack::RND:       return CcOn() && RndLive();
+        case Stack::LastSeed:  return CcOn() && LastSeedLive();
+        case Stack::Frostfall: return CcOn() && FrostfallLive();
+        case Stack::SunHelmCold:
+            return g_backend == Backend::SunHelm && FrostfallLive() && GetStage(Axis::Cold) >= 0;
+        case Stack::RndNotStarted:
+            return g_rndState && !RndStateOn() && g_backend != Backend::LastSeed;
+        default: return false;
+    }
+}
+
+static const char* StackKey(Stack s)
+{
+    switch (s) {
+        case Stack::RND:         return "Survival.StackWarnRND";
+        case Stack::LastSeed:    return "Survival.StackWarnLastSeed";
+        case Stack::Frostfall:   return "Survival.StackWarnFrostfall";
+        case Stack::SunHelmCold: return "Survival.StackWarnSunHelmCold";
+        case Stack::RndNotStarted: return "Survival.RndNotStarted";
+        default:                 return "";
+    }
+}
+
+static void TickStackWarning()
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (now < g_stackNextCheck) return;
+    g_stackNextCheck = now + std::chrono::seconds(5);
+
+    if (g_rndState && g_backend != Backend::LastSeed && RndStateOn() != g_rndSeenOn) {
+        logger::info("PlayerHUDSurvival: RND_State changed to {}, reselecting backend.",
+                     static_cast<int>(g_rndState->value));
+        Init();
+        return;
+    }
+
+    auto* settings = Settings::GetSingleton();
+    if (!settings || !settings->phSurvivalStackWarning) return;
+    for (int i = 0; i < static_cast<int>(Stack::Count); ++i) {
+        const auto s = static_cast<Stack>(i);
+        if (g_stackFired[i] || !ConflictHolds(s)) continue;
+        g_stackFired[i] = true;
+        std::string text = LocalizationManager::Get(StackKey(s));
+        if (auto* tasks = SKSE::GetTaskInterface()) {
+            tasks->AddTask([text = std::move(text)]() {
+                RE::SendHUDMessage::ShowHUDMessage(text.c_str());
+            });
+        }
+        break;
+    }
+}
+
+std::string GetStackWarning()
+{
+    for (int i = 0; i < static_cast<int>(Stack::Count); ++i)
+        if (ConflictHolds(static_cast<Stack>(i)))
+            return LocalizationManager::Get(StackKey(static_cast<Stack>(i)));
+    return {};
+}
+
 bool IsNeedSpell(RE::SpellItem* spell)
 {
     if (!spell) return false;
@@ -443,6 +566,16 @@ static std::string ResolveNeedStageName(const char* key, int stage)
         int row = !strcmp(key, "cold") ? 0 : !strcmp(key, "hunger") ? 1 : !strcmp(key, "fatigue") ? 2 : 3;
         snprintf(buf, sizeof(buf), "sh_%s_%d", key, s);
         return L(buf, shFall[row][s]);
+    }
+    if (g_backend == Backend::RND) {
+        static const char* rndFall[3][6] = {
+            { "Gluttony", "Satiated", "Peckish", "Hungry", "Very Hungry", "Starving" },
+            { "Quenched", "Slightly Thirsty", "Thirsty", "Very Thirsty", "Dehydrated", "Dehydrated" },
+            { "Not Tired", "Slightly Tired", "Tired", "Very Tired", "Exhausted", "Exhausted" },
+        };
+        int row = !strcmp(key, "hunger") ? 0 : !strcmp(key, "thirst") ? 1 : 2;
+        snprintf(buf, sizeof(buf), "rnd_%s_%d", key, s);
+        return L(buf, rndFall[row][s]);
     }
     if (g_backend == Backend::LastSeed) {
         static const char* lsFall[3][6] = {
@@ -533,25 +666,19 @@ std::vector<NeedStatus> GetActiveNeeds()
         out.push_back(std::move(ns));
     };
 
-    auto maxStageFor = [](Axis axis) {
-        for (const auto& a : g_axes)
-            if (a.def->axis == axis) return a.def->maxStage;
-        return 5;
-    };
-
-    if (g_backend == Backend::SunHelm || g_backend == Backend::LastSeed) {
-        add("hunger",  "need_hunger",  hungerStage,  maxStageFor(Axis::Hunger),  g_iconHunger);
-        add("thirst",  "need_thirst",  thirstStage,  maxStageFor(Axis::Thirst),  g_iconThirst);
-        add("fatigue", "need_fatigue", fatigueStage, maxStageFor(Axis::Fatigue), g_iconFatigue);
-        add("cold",    "need_cold",    coldStage,    maxStageFor(Axis::Cold),    g_iconCold);
+    if (g_backend == Backend::SunHelm || g_backend == Backend::LastSeed || g_backend == Backend::RND) {
+        add("hunger",  "need_hunger",  hungerStage,  MaxStageFor(Axis::Hunger),  g_iconHunger);
+        add("thirst",  "need_thirst",  thirstStage,  MaxStageFor(Axis::Thirst),  g_iconThirst);
+        add("fatigue", "need_fatigue", fatigueStage, MaxStageFor(Axis::Fatigue), g_iconFatigue);
+        add("cold",    "need_cold",    coldStage,    MaxStageFor(Axis::Cold),    g_iconCold);
     } else {
-        add("cold",    "need_cold",    coldStage,    maxStageFor(Axis::Cold),    g_iconCold);
-        add("hunger",  "need_hunger",  hungerStage,  maxStageFor(Axis::Hunger),  g_iconHunger);
-        add("fatigue", "need_fatigue", fatigueStage, maxStageFor(Axis::Fatigue), g_iconFatigue);
+        add("cold",    "need_cold",    coldStage,    MaxStageFor(Axis::Cold),    g_iconCold);
+        add("hunger",  "need_hunger",  hungerStage,  MaxStageFor(Axis::Hunger),  g_iconHunger);
+        add("fatigue", "need_fatigue", fatigueStage, MaxStageFor(Axis::Fatigue), g_iconFatigue);
     }
 
-    add("exposure", "need_exposure", exposureStage, maxStageFor(Axis::Exposure), g_iconExposure);
-    add("wetness",  "need_wetness",  wetnessStage,  maxStageFor(Axis::Wetness),  g_iconWetness);
+    add("exposure", "need_exposure", exposureStage, MaxStageFor(Axis::Exposure), g_iconExposure);
+    add("wetness",  "need_wetness",  wetnessStage,  MaxStageFor(Axis::Wetness),  g_iconWetness);
     return out;
 }
 
@@ -729,6 +856,30 @@ static void RenderWindow(bool allowDrag)
                                         lsFatigueLabelStr[2].c_str(), lsFatigueLabelStr[3].c_str(),
                                         lsFatigueLabelStr[4].c_str(), lsFatigueLabelStr[5].c_str() };
 
+    const std::string rndHungerLabelStr[6] = {
+        SfLabel("rnd_hunger_0", "Gluttony"),   SfLabel("rnd_hunger_1", "Satiated"),
+        SfLabel("rnd_hunger_2", "Peckish"),    SfLabel("rnd_hunger_3", "Hungry"),
+        SfLabel("rnd_hunger_4", "Very Hungry"),SfLabel("rnd_hunger_5", "Starving") };
+    const char* kRndHungerLabels[6] = { rndHungerLabelStr[0].c_str(), rndHungerLabelStr[1].c_str(),
+                                        rndHungerLabelStr[2].c_str(), rndHungerLabelStr[3].c_str(),
+                                        rndHungerLabelStr[4].c_str(), rndHungerLabelStr[5].c_str() };
+
+    const std::string rndThirstLabelStr[5] = {
+        SfLabel("rnd_thirst_0", "Quenched"),   SfLabel("rnd_thirst_1", "Slightly Thirsty"),
+        SfLabel("rnd_thirst_2", "Thirsty"),    SfLabel("rnd_thirst_3", "Very Thirsty"),
+        SfLabel("rnd_thirst_4", "Dehydrated") };
+    const char* kRndThirstLabels[6] = { rndThirstLabelStr[0].c_str(), rndThirstLabelStr[1].c_str(),
+                                        rndThirstLabelStr[2].c_str(), rndThirstLabelStr[3].c_str(),
+                                        rndThirstLabelStr[4].c_str(), rndThirstLabelStr[4].c_str() };
+
+    const std::string rndFatigueLabelStr[5] = {
+        SfLabel("rnd_fatigue_0", "Not Tired"), SfLabel("rnd_fatigue_1", "Slightly Tired"),
+        SfLabel("rnd_fatigue_2", "Tired"),     SfLabel("rnd_fatigue_3", "Very Tired"),
+        SfLabel("rnd_fatigue_4", "Exhausted") };
+    const char* kRndFatigueLabels[6] = { rndFatigueLabelStr[0].c_str(), rndFatigueLabelStr[1].c_str(),
+                                         rndFatigueLabelStr[2].c_str(), rndFatigueLabelStr[3].c_str(),
+                                         rndFatigueLabelStr[4].c_str(), rndFatigueLabelStr[4].c_str() };
+
     const std::string ffExposureLabelStr[7] = {
         SfLabel("ff_exposure_0", "Warm"),                SfLabel("ff_exposure_1", "Comfortable"),
         SfLabel("ff_exposure_2", "Cold"),                SfLabel("ff_exposure_3", "Very Cold"),
@@ -851,12 +1002,13 @@ static void RenderWindow(bool allowDrag)
 
     const bool sf = (g_backend == Backend::Starfrost);
 
-    const bool ls = (g_backend == Backend::LastSeed);
+    const bool ls  = (g_backend == Backend::LastSeed);
+    const bool rnd = (g_backend == Backend::RND);
     std::vector<NeedEntry> needs;
-    if (g_backend == Backend::SunHelm || ls) {
-        if (hungerStage  >= 0) needs.push_back({ needNameHunger.c_str(),  hungerStage,  settings->phSurvivalHungerColor,  ls ? kLsHungerLabels  : kShHungerLabels,  5, g_iconHunger,  "hunger"  });
-        if (thirstStage  >= 0) needs.push_back({ needNameThirst.c_str(),  thirstStage,  settings->phSurvivalThirstColor,  ls ? kLsThirstLabels  : kShThirstLabels,  5, g_iconThirst,  "thirst"  });
-        if (fatigueStage >= 0) needs.push_back({ needNameFatigue.c_str(), fatigueStage, settings->phSurvivalFatigueColor, ls ? kLsFatigueLabels : kShFatigueLabels, 5, g_iconFatigue, "fatigue" });
+    if (g_backend == Backend::SunHelm || ls || rnd) {
+        if (hungerStage  >= 0) needs.push_back({ needNameHunger.c_str(),  hungerStage,  settings->phSurvivalHungerColor,  rnd ? kRndHungerLabels  : ls ? kLsHungerLabels  : kShHungerLabels,  MaxStageFor(Axis::Hunger),  g_iconHunger,  "hunger"  });
+        if (thirstStage  >= 0) needs.push_back({ needNameThirst.c_str(),  thirstStage,  settings->phSurvivalThirstColor,  rnd ? kRndThirstLabels  : ls ? kLsThirstLabels  : kShThirstLabels,  MaxStageFor(Axis::Thirst),  g_iconThirst,  "thirst"  });
+        if (fatigueStage >= 0) needs.push_back({ needNameFatigue.c_str(), fatigueStage, settings->phSurvivalFatigueColor, rnd ? kRndFatigueLabels : ls ? kLsFatigueLabels : kShFatigueLabels, MaxStageFor(Axis::Fatigue), g_iconFatigue, "fatigue" });
         if (coldStage    >= 0) needs.push_back({ needNameCold.c_str(),    coldStage,    settings->phSurvivalColdColor,    kShColdLabels,    5, g_iconCold,    "cold"    });
     } else {
         needs.push_back({ needNameCold.c_str(),    coldStage,    settings->phSurvivalColdColor,
@@ -1305,6 +1457,8 @@ void ForceReposition() { g_ForcePos = true; }
 
 void RenderHUD()
 {
+    TickStackWarning();
+
     auto* settings = Settings::GetSingleton();
     if (!settings->enablePlayerHud || !settings->enablePlayerSurvivalWidget) return;
     auto* player = RE::PlayerCharacter::GetSingleton();

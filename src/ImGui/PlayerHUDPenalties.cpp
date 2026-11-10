@@ -59,25 +59,14 @@ namespace PlayerHUDPenalties {
         return out;
     }
 
-    void DrawPenaltySegment(ImDrawList* dl, float x, float y, float barW, float barH,
-                            float penaltyFrac, ImU32 tintColor, void* barFillTex,
-                            float rightOffsetFrac)
+    bool DrawBarSlice(ImDrawList* dl, float x, float y, float barW, float barH,
+                      float u0, float u1, ImU32 tint, void* barFillTex)
     {
-        if (penaltyFrac <= 0.0f) return;
-        const float frac        = std::clamp(penaltyFrac,       0.0f, 1.0f);
-        const float rightOffset = std::clamp(rightOffsetFrac,   0.0f, 1.0f);
-        const float rightEdge  = 1.0f - rightOffset;
-        const float segLeft    = std::max(0.0f, rightEdge - frac);
-        ImVec2 pMin = ImVec2(x + barW * segLeft,      y);
-        ImVec2 pMax = ImVec2(x + barW * rightEdge,    y + barH);
-        if (pMax.x <= pMin.x) return;
-
-        if (barFillTex) {
-            dl->AddImage(reinterpret_cast<ImTextureID>(barFillTex), pMin, pMax,
-                ImVec2(segLeft, 0.0f), ImVec2(rightEdge, 1.0f), tintColor);
-        } else {
-            dl->AddRectFilled(pMin, pMax, tintColor);
-        }
+        if (!barFillTex) return false;
+        dl->AddImage(reinterpret_cast<ImTextureID>(barFillTex),
+            ImVec2(x + barW * u0, y), ImVec2(x + barW * u1, y + barH),
+            ImVec2(u0, 0.0f), ImVec2(u1, 1.0f), tint);
+        return true;
     }
 
 }

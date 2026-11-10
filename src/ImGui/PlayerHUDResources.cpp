@@ -6,6 +6,8 @@
 #include "../../includes/HUDVisibility.h"
 #include "../../includes/LocalizationManager.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/SurvivalSymptoms.h"
+#include "../../includes/ImGui/WidgetDrawHelpers.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -381,7 +383,8 @@ namespace PlayerHUDResources {
             static_cast<int>(textCol.z * 255),
             static_cast<int>(textCol.w * 255));
 
-        auto DrawItem = [&](ID3D11ShaderResourceView* icon, const char* text, ImU32 iconTint) {
+        auto DrawItem = [&](ID3D11ShaderResourceView* icon, const char* text, ImU32 iconTint,
+                            const char* symptomTail = nullptr) {
             if (horiz && !firstItem)
                 ImGui::SameLine(0.0f, spacing);
             else if (!horiz && !firstItem)
@@ -401,6 +404,16 @@ namespace PlayerHUDResources {
             ImVec2 textPos = ImGui::GetCursorScreenPos();
             ImVec2 textSize = ImGui::CalcTextSize(text);
             HUDDraw::DrawTextStyled(dl, textPos, textColU32, text, HUDDraw::TextFx{});
+            if (symptomTail) {
+                const ImU32 red = IM_COL32(0xE0, 0x5A, 0x4A, 0) | (textColU32 & IM_COL32_A_MASK);
+                const ImVec2 tailPos(textPos.x + textSize.x, textPos.y);
+                const ImVec2 tailSize = ImGui::CalcTextSize(symptomTail);
+                HUDDraw::DrawTextStyled(dl, tailPos, red, symptomTail, HUDDraw::TextFx{});
+                const float arrowH = (std::max)(tailSize.y, ScalePx(16.0f));
+                const float arrowX = tailPos.x + tailSize.x + ScalePx(3.0f);
+                WidgetDraw::DrawSymptomArrow(dl, ImVec2(arrowX, tailPos.y + (tailSize.y - arrowH) * 0.5f), arrowH);
+                textSize.x += tailSize.x + ScalePx(3.0f) + arrowH * 0.55f;
+            }
             ImGui::Dummy(ImVec2(textSize.x, textSize.y));
         };
 
@@ -410,8 +423,15 @@ namespace PlayerHUDResources {
         }
 
         if (settings->presShowCarryWeight) {
-            snprintf(buf, sizeof(buf), "%.0f / %.0f", carryWeight, carryWeightMax);
-            DrawItem(iconWeight, buf, argbToU32(settings->presCarryColor));
+            if (SurvivalSymptoms::GetCarryWeight(player).on) {
+                char maxBuf[16];
+                snprintf(buf, sizeof(buf), "%.0f / ", carryWeight);
+                snprintf(maxBuf, sizeof(maxBuf), "%.0f", carryWeightMax);
+                DrawItem(iconWeight, buf, argbToU32(settings->presCarryColor), maxBuf);
+            } else {
+                snprintf(buf, sizeof(buf), "%.0f / %.0f", carryWeight, carryWeightMax);
+                DrawItem(iconWeight, buf, argbToU32(settings->presCarryColor));
+            }
         }
 
         if (settings->presShowTime) {

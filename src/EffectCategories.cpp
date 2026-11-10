@@ -2,6 +2,8 @@
 // Categorizes magic effects and provides icons.
 
 #include "../includes/EffectCategories.h"
+#include "../includes/LocalizationManager.h"
+#include <cstring>
 #include <string>
 #include <algorithm>
 
@@ -163,6 +165,131 @@ namespace EffectCategories {
             case RE::ActorValue::kCriticalChance: return "Critical Chance";
             default: return "Unknown";
         }
+    }
+    
+    std::string LocalizedAVName(RE::ActorValue av) {
+        using AV = RE::ActorValue;
+        auto L = [](const char* key, const char* eng) {
+            std::string v = LocalizationManager::Get(key);
+            return (v.empty() || v == key) ? std::string(eng) : v;
+        };
+        switch (av) {
+            case AV::kHealth:  return L("Health",  "Health");
+            case AV::kMagicka: return L("Magicka", "Magicka");
+            case AV::kStamina: return L("Stamina", "Stamina");
+            case AV::kHealRate:        return L("HealthRegen",     "Health Regen");
+            case AV::kMagickaRate:     return L("MagickaRegen",    "Magicka Regen");
+            case AV::kStaminaRate:     return L("StaminaRegen",    "Stamina Regen");
+            case AV::kHealRateMult:    return L("HealthRegenMult", "Health Regen Mult");
+            case AV::kMagickaRateMult: return L("MagickaRegenMult","Magicka Regen Mult");
+            case AV::kStaminaRateMult: return L("StaminaRegenMult","Stamina Regen Mult");
+            case AV::kResistFire:    return L("Resistances.Fire",    "Fire Resist");
+            case AV::kResistFrost:   return L("Resistances.Frost",   "Frost Resist");
+            case AV::kResistShock:   return L("Resistances.Shock",   "Shock Resist");
+            case AV::kResistMagic:   return L("Resistances.Magic",   "Magic Resist");
+            case AV::kPoisonResist:  return L("Resistances.Poison",  "Poison Resist");
+            case AV::kResistDisease: return L("Resistances.Disease", "Disease Resist");
+            case AV::kOneHanded:
+            case AV::kOneHandedModifier:   return L("OneHanded",   "One-Handed");
+            case AV::kTwoHanded:
+            case AV::kTwoHandedModifier:   return L("TwoHanded",   "Two-Handed");
+            case AV::kArchery:
+            case AV::kMarksmanModifier:    return L("Archery",     "Archery");
+            case AV::kBlock:
+            case AV::kBlockModifier:       return L("Block",       "Block");
+            case AV::kSmithing:
+            case AV::kSmithingModifier:    return L("Smithing",    "Smithing");
+            case AV::kHeavyArmor:
+            case AV::kHeavyArmorModifier:  return L("HeavyArmor",  "Heavy Armor");
+            case AV::kLightArmor:
+            case AV::kLightArmorModifier:  return L("LightArmor",  "Light Armor");
+            case AV::kPickpocket:
+            case AV::kPickpocketModifier:  return L("Pickpocket",  "Pickpocket");
+            case AV::kLockpicking:
+            case AV::kLockpickingModifier: return L("Lockpicking", "Lockpicking");
+            case AV::kSneak:
+            case AV::kSneakingModifier:    return L("Sneak",       "Sneak");
+            case AV::kAlchemy:
+            case AV::kAlchemyModifier:     return L("Alchemy",     "Alchemy");
+            case AV::kSpeech:
+            case AV::kSpeechcraftModifier: return L("Speech",      "Speech");
+            case AV::kAlteration:
+            case AV::kAlterationModifier:  return L("Alteration",  "Alteration");
+            case AV::kConjuration:
+            case AV::kConjurationModifier: return L("Conjuration", "Conjuration");
+            case AV::kDestruction:
+            case AV::kDestructionModifier: return L("Destruction", "Destruction");
+            case AV::kIllusion:
+            case AV::kIllusionModifier:    return L("Illusion",    "Illusion");
+            case AV::kRestoration:
+            case AV::kRestorationModifier: return L("Restoration", "Restoration");
+            case AV::kEnchanting:
+            case AV::kEnchantingModifier:  return L("Enchanting",  "Enchanting");
+            default:
+                if (const char* n = GetActorValueName(av); n && n[0] && std::strcmp(n, "Unknown") != 0)
+                    return n;
+                return "";
+        }
+    }
+
+    HudTarget GetHudTarget(RE::ActorValue av) {
+        using AV = RE::ActorValue;
+        switch (av) {
+            case AV::kHealth:  return HudTarget::HealthMax;
+            case AV::kMagicka: return HudTarget::MagickaMax;
+            case AV::kStamina: return HudTarget::StaminaMax;
+            case AV::kHealRate:    case AV::kHealRateMult:    return HudTarget::HealthRegen;
+            case AV::kMagickaRate: case AV::kMagickaRateMult: return HudTarget::MagickaRegen;
+            case AV::kStaminaRate: case AV::kStaminaRateMult: return HudTarget::StaminaRegen;
+            case AV::kOneHanded: case AV::kOneHandedModifier: return HudTarget::WeaponOneHanded;
+            case AV::kTwoHanded: case AV::kTwoHandedModifier: return HudTarget::WeaponTwoHanded;
+            case AV::kArchery:   case AV::kMarksmanModifier:  return HudTarget::WeaponRanged;
+            case AV::kWeaponSpeedMult: case AV::kMeleeDamage: return HudTarget::WeaponMelee;
+            case AV::kAttackDamageMult:                       return HudTarget::WeaponAny;
+            case AV::kBlock:     case AV::kBlockModifier:     return HudTarget::Shield;
+            case AV::kDamageResist:                           return HudTarget::Armor;
+            case AV::kHeavyArmor: case AV::kHeavyArmorModifier: return HudTarget::HeavyArmor;
+            case AV::kLightArmor: case AV::kLightArmorModifier: return HudTarget::LightArmor;
+            case AV::kShoutRecoveryMult:                        return HudTarget::Shout;
+            case AV::kCarryWeight:                              return HudTarget::CarryWeight;
+            case AV::kResistFire:    return HudTarget::ResistFire;
+            case AV::kResistFrost:   return HudTarget::ResistFrost;
+            case AV::kResistShock:   return HudTarget::ResistShock;
+            case AV::kResistMagic:   return HudTarget::ResistMagic;
+            case AV::kPoisonResist:  return HudTarget::ResistPoison;
+            case AV::kResistDisease: return HudTarget::ResistDisease;
+            case AV::kSpeedMult:     return HudTarget::Speed;
+            default: return HudTarget::None;
+        }
+    }
+
+    RE::ActorValue GetSkillTarget(RE::ActorValue av) {
+        const auto v = static_cast<int>(av);
+        constexpr int kSkill0 = static_cast<int>(RE::ActorValue::kOneHanded);
+        constexpr int kSkill1 = static_cast<int>(RE::ActorValue::kEnchanting);
+        constexpr int kMod0   = static_cast<int>(RE::ActorValue::kOneHandedModifier);
+        constexpr int kMod1   = static_cast<int>(RE::ActorValue::kEnchantingModifier);
+        static_assert(kSkill1 - kSkill0 == kMod1 - kMod0);
+        if (v >= kSkill0 && v <= kSkill1) return av;
+        if (v >= kMod0 && v <= kMod1) return static_cast<RE::ActorValue>(kSkill0 + (v - kMod0));
+        return RE::ActorValue::kNone;
+    }
+
+    bool PerkLowersAttackDamage(const RE::BGSPerk* perk) {
+        if (!perk) return false;
+        using F = RE::BGSEntryPointFunction::ENTRY_POINT_FUNCTION;
+        using FD = RE::BGSEntryPointFunctionData::ENTRY_POINT_FUNCTION_DATA;
+        for (auto* e : perk->perkEntries) {
+            if (!e || e->GetType() != RE::PERK_ENTRY_TYPE::kEntryPoint) continue;
+            auto* ep = static_cast<const RE::BGSEntryPointPerkEntry*>(e);
+            if (ep->entryData.entryPoint != RE::BGSEntryPoint::ENTRY_POINTS::kModAttackDamage) continue;
+            auto* fd = ep->functionData;
+            if (!fd || fd->GetType() != FD::kOneValue) continue;
+            const float v = static_cast<const RE::BGSEntryPointFunctionDataOneValue*>(fd)->data;
+            if (ep->entryData.function == F::kMultiplyValue && v < 1.0f) return true;
+            if (ep->entryData.function == F::kAddValue && v < 0.0f) return true;
+        }
+        return false;
     }
 
     bool IsNegativeArchetype(RE::EffectArchetypes::ArchetypeID archetype) {

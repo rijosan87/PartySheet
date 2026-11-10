@@ -59,4 +59,16 @@ namespace WidgetDraw {
         fdl->AddText(headingFont, fontSize, tPos, IM_COL32(255, 255, 255, 255), text);
     }
 
+    inline constexpr unsigned int kSymptomRedArgb = 0xFFE05A4Au;
+
+    inline void DrawSymptomArrow(ImDrawList* dl, ImVec2 topLeft, float boxH)
+    {
+        const float aw = boxH * 0.55f;
+        const float ah = aw * 0.75f;
+        const float y0 = topLeft.y + (boxH - ah) * 0.5f;
+        const ImVec2 a(topLeft.x, y0), b(topLeft.x + aw, y0), c(topLeft.x + aw * 0.5f, y0 + ah);
+        dl->AddTriangleFilled(a, b, c, IM_COL32(0xE0, 0x5A, 0x4A, 0xFF));
+        dl->AddTriangle(a, b, c, IM_COL32(6, 6, 8, 200), 1.0f);
+    }
+
 }

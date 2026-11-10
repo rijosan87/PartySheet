@@ -1,6 +1,7 @@
 #include "../../includes/ImGui/PlayerHUD.h"
 #include "../../includes/PlayerStatus.h"
 #include "../../includes/ImGui/PlayerHUDPenalties.h"
+#include "../../includes/SurvivalSymptoms.h"
 #include "../../includes/ImGui/PlayerHUDSurvival.h"
 #include "../../includes/ImGui/PlayerHUDDisease.h"
 #include "../../includes/Settings.h"
@@ -257,6 +258,7 @@ namespace PlayerHUD {
         auto stats = GetActorStats(player);
         const auto survivalPenalties = PlayerHUDPenalties::GetSurvivalPenalties();
         const auto tempPenalties = PlayerHUDPenalties::GetTemporaryPenalties(player);
+        const auto& symptoms = SurvivalSymptoms::Get(player, stats.healthRegen, stats.magickaRegen, stats.staminaRegen);
 
         // WindowPadding already insets the cursor by frameMargin on each side.
         float padX         = ScalePx(8.0f);
@@ -646,9 +648,8 @@ namespace PlayerHUD {
             }
             if (settings->phHaloEnable) {
                 // Match the bars' unpenalized max so Survival reductions remain visible.
-                auto fraction = [](float current, float maximum, float penalty) {
-                    const float usable = 1.0f - penalty;
-                    const float fullMax = maximum > 0.0f && usable > 0.0f ? maximum / usable : maximum;
+                auto fraction = [](float current, float maximum, float lostPoints) {
+                    const float fullMax = maximum + lostPoints;
                     return fullMax > 0.0f ? std::clamp(current / fullMax, 0.0f, 1.0f) : 0.0f;
                 };
                 const bool hasMagicka = !isWerewolf && !isWerebear;
@@ -656,11 +657,11 @@ namespace PlayerHUD {
                 const float otherShare = (1.0f - healthShare) * 0.5f;
                 const float shareSum = healthShare + otherShare * (hasMagicka ? 2.0f : 1.0f);
                 const HUDDraw::RingSegment segments[] = {
-                    { fraction(stats.health.current, stats.health.GetMax(), survivalPenalties.health),
+                    { fraction(stats.health.current, stats.health.GetMax(), symptoms.health.Lost()),
                       healthShare / shareSum, settings->phHealthColor },
-                    { fraction(stats.stamina.current, stats.stamina.GetMax(), survivalPenalties.stamina),
+                    { fraction(stats.stamina.current, stats.stamina.GetMax(), symptoms.stamina.Lost()),
                       otherShare / shareSum, settings->phStaminaColor },
-                    { fraction(stats.magicka.current, stats.magicka.GetMax(), survivalPenalties.magicka),
+                    { fraction(stats.magicka.current, stats.magicka.GetMax(), symptoms.magicka.Lost()),
                       hasMagicka ? otherShare / shareSum : 0.0f, settings->phMagickaColor },
                 };
                 HUDDraw::ResourceRingStyle ring;
@@ -849,9 +850,12 @@ namespace PlayerHUD {
             regenSP = stats.stamina.GetMax() * (stats.staminaRegen / 100.0f);
         }
 
-        const float statBonusHP = settings->phShowFortify ? (stats.health.perm  + stats.health.temp)  : 0.0f;
-        const float statBonusMP = settings->phShowFortify ? (stats.magicka.perm + stats.magicka.temp) : 0.0f;
-        const float statBonusSP = settings->phShowFortify ? (stats.stamina.perm + stats.stamina.temp) : 0.0f;
+        auto statBonus = [](const RichStat& v, const SurvivalSymptoms::Bar& b) {
+            return b.Lost() > 0.5f ? -b.Lost() : v.perm + v.temp;
+        };
+        const float statBonusHP = settings->phShowFortify ? statBonus(stats.health,  symptoms.health)  : 0.0f;
+        const float statBonusMP = settings->phShowFortify ? statBonus(stats.magicka, symptoms.magicka) : 0.0f;
+        const float statBonusSP = settings->phShowFortify ? statBonus(stats.stamina, symptoms.stamina) : 0.0f;
 
         auto DrawStatBonus = [&](float x, float y, float w, float h, float bonusVal, float a) {
             if (bonusVal == 0.0f) return;
@@ -902,27 +906,50 @@ namespace PlayerHUD {
             }
         }
 
-        // Survival penalty: near-black segment on the right
-        auto DrawPenaltyOverlay = [&](float x, float y, float w, float h, float penaltyPct, float a, ID3D11ShaderResourceView* fillTex) {
-            if (penaltyPct <= 0.0f) return;
-            const ImU32 tint = IM_COL32(20, 20, 20, static_cast<int>(220 * a));
-            if (fillTex) {
-                PlayerHUDPenalties::DrawPenaltySegment(dl, x, y, w, h, penaltyPct, tint, fillTex);
-            } else {
-                // A rectangle hides slanted right caps. Clip the bar's own silhouette to the penalty region.
-                const float left = x + w * (1.0f - std::clamp(penaltyPct, 0.0f, 1.0f));
-                dl->PushClipRect(ImVec2(left, y), ImVec2(x + w, y + h), true);
-                DrawCodeBarPulse(x, y, w, h, HUDDraw::PackedToArgb(tint));
-                dl->PopClipRect();
+        auto DrawSlice = [&](float x, float y, float w, float h, float u0, float u1, ImU32 tint,
+                             ID3D11ShaderResourceView* fillTex) {
+            u0 = std::clamp(u0, 0.0f, 1.0f);
+            u1 = std::clamp(u1, 0.0f, 1.0f);
+            if (u1 <= u0) return;
+            if (PlayerHUDPenalties::DrawBarSlice(dl, x, y, w, h, u0, u1, tint, fillTex)) return;
+            dl->PushClipRect(ImVec2(x + w * u0, y), ImVec2(x + w * u1, y + h), true);
+            DrawCodeBarPulse(x, y, w, h, HUDDraw::PackedToArgb(tint));
+            dl->PopClipRect();
+        };
+
+        auto DrawSymptoms = [&](float x, float y, float w, float h, float fillFrac, float maxNow,
+                                const SurvivalSymptoms::Bar& s, float a, ID3D11ShaderResourceView* fillTex) {
+            if (w <= 0.0f) return;
+            const float full  = maxNow + s.Lost();
+            const float needs = full > 0.0f ? (s.capPoints + s.needPoints) / full : 0.0f;
+            const float dis   = full > 0.0f ? s.diseasePoints / full : 0.0f;
+            const float total = std::min(needs + dis, 0.95f);
+            if (total > 0.0f) {
+                DrawSlice(x, y, w, h, 1.0f - total, 1.0f, IM_COL32(20, 20, 20, static_cast<int>(220 * a)), fillTex);
+                const float pitchU  = std::max(ScalePx(5.0f), 1.0f) / w;
+                const float stripeU = std::max(ScalePx(1.5f), 1.0f) / w;
+                const ImU32 stripe  = IM_COL32(150, 140, 120, static_cast<int>(70 * a));
+                for (float u = 1.0f - total + pitchU; u < 1.0f; u += pitchU)
+                    DrawSlice(x, y, w, h, u, u + stripeU, stripe, fillTex);
+                const float tickU = std::max(ScalePx(2.0f), 0.006f * w) / w;
+                DrawSlice(x, y, w, h, 1.0f - total, 1.0f - total + tickU,
+                          IM_COL32(242, 227, 181, static_cast<int>(230 * a)), fillTex);
+            }
+            if (s.regen != SurvivalSymptoms::Regen::kNormal && fillFrac > 0.005f && fillFrac < 0.995f) {
+                const float edgeU = std::max(ScalePx(4.0f), 0.02f * w) / w;
+                ImU32 tint;
+                if (s.regen == SurvivalSymptoms::Regen::kStopped) {
+                    tint = IM_COL32(207, 233, 255, static_cast<int>(200 * a));
+                } else {
+                    const float pulse = 0.5f + 0.5f * sinf(static_cast<float>(ImGui::GetTime()) * 1.2f);
+                    tint = IM_COL32(255, 255, 255, static_cast<int>(255 * a * (0.25f + 0.20f * pulse)));
+                }
+                DrawSlice(x, y, w, h, fillFrac - edgeU, fillFrac, tint, fillTex);
             }
         };
 
-        auto GetDisplayMax = [](float maxValue, float penaltyPct) {
-            const float usableFraction = 1.0f - penaltyPct;
-            if (maxValue <= 0.0f || usableFraction <= 0.0f) {
-                return maxValue;
-            }
-            return maxValue / usableFraction;
+        auto GetDisplayMax = [](float maxValue, float lostPoints) {
+            return maxValue + lostPoints;
         };
 
         float dynAlphaFrameMax = 0.0f;
@@ -930,9 +957,9 @@ namespace PlayerHUD {
 
         float highestStatMax = 0.0f;
         if (settings->phScaledBarWidth) {
-            const float hpDM = GetDisplayMax(stats.health.GetMax(),  survivalPenalties.health);
-            const float mpDM = GetDisplayMax(stats.magicka.GetMax(), survivalPenalties.magicka);
-            const float spDM = GetDisplayMax(stats.stamina.GetMax(), survivalPenalties.stamina);
+            const float hpDM = GetDisplayMax(stats.health.GetMax(), symptoms.health.Lost());
+            const float mpDM = GetDisplayMax(stats.magicka.GetMax(), symptoms.magicka.Lost());
+            const float spDM = GetDisplayMax(stats.stamina.GetMax(), symptoms.stamina.Lost());
             if (settings->phShowHealth)                                    highestStatMax = std::max(highestStatMax, hpDM);
             if (settings->phShowMagicka && !isWerewolf && !isWerebear)     highestStatMax = std::max(highestStatMax, mpDM);
             if (settings->phShowStamina)                                   highestStatMax = std::max(highestStatMax, spDM);
@@ -973,14 +1000,13 @@ namespace PlayerHUD {
             // Split-bar offset: draw at anchor + per-bar offset, but the stack advance
             const float bx = textX + ScalePx((float)settings->phHpOffsetX);
             const float by = curY  + ScalePx((float)settings->phHpOffsetY);
-            const float displayMax = GetDisplayMax(stats.health.GetMax(), survivalPenalties.health);
+            const float displayMax = GetDisplayMax(stats.health.GetMax(), symptoms.health.Lost());
             const float textMax = displayMax;
             const float barW = ResolveBarWidth(displayMax, settings->phHealthBarWidth);
             widestBarW = std::max(widestBarW, barW);
             const bool useCodeBar = !(hpTextures.bg && hpTextures.fill);
             float frac = (displayMax > 0.0f) ? std::clamp(stats.health.current / displayMax, 0.0f, 1.0f) : 0.0f;
-            const float survFrac = std::clamp(survivalPenalties.health, 0.0f, 1.0f);
-            const float dynA = ComputeDynamicAlpha(DynBar::HP, stats.health.current, displayMax, battleReadyNow, allowDrag);
+            const float dynA = ComputeDynamicAlpha(DynBar::HP, stats.health.current, stats.health.GetMax(), battleReadyNow, allowDrag);
             dynAlphaSeenThisFrame = true; dynAlphaFrameMax = std::max(dynAlphaFrameMax, dynA);
             ImU32 col  = IM_COL32((settings->phHealthColor >> 16) & 0xFF,
                                   (settings->phHealthColor >>  8) & 0xFF,
@@ -1002,7 +1028,7 @@ namespace PlayerHUD {
                     bar.ghostFraction = ghostFrac;
                     BarRenderer::Draw(dl, ImVec2(bx, by), bar);
                 }
-                DrawPenaltyOverlay(bx, by, barW, barH, survivalPenalties.health, dynA, hpTextures.fill);
+                DrawSymptoms(bx, by, barW, barH, frac, stats.health.GetMax(), symptoms.health, dynA, hpTextures.fill);
                 const float ax = bx + ScalePx(static_cast<float>(settings->phHpAnnotationOffsetX));
                 const float ay = by + ScalePx(static_cast<float>(settings->phHpAnnotationOffsetY));
                 DrawRegenPip(ax, ay, barH, regenHP, dynA);
@@ -1017,14 +1043,13 @@ namespace PlayerHUD {
             const float bx = textX + ScalePx((float)settings->phMpOffsetX);
             const float by = curY  + ScalePx((float)settings->phMpOffsetY);
             const float bh = barHMp;
-            const float displayMax = GetDisplayMax(stats.magicka.GetMax(), survivalPenalties.magicka);
+            const float displayMax = GetDisplayMax(stats.magicka.GetMax(), symptoms.magicka.Lost());
             const float textMax = displayMax;
             const float barW = ResolveBarWidth(displayMax, settings->phMagickaBarWidth);
             widestBarW = std::max(widestBarW, barW);
             const bool useCodeBar = !(mpTextures.bg && mpTextures.fill);
             float frac = (displayMax > 0.0f) ? std::clamp(stats.magicka.current / displayMax, 0.0f, 1.0f) : 0.0f;
-            const float survPenaltyFrac = std::clamp(survivalPenalties.magicka, 0.0f, 1.0f);
-            const float dynA = ComputeDynamicAlpha(DynBar::MP, stats.magicka.current, displayMax, battleReadyNow, allowDrag);
+            const float dynA = ComputeDynamicAlpha(DynBar::MP, stats.magicka.current, stats.magicka.GetMax(), battleReadyNow, allowDrag);
             dynAlphaSeenThisFrame = true; dynAlphaFrameMax = std::max(dynAlphaFrameMax, dynA);
             ImU32 col  = IM_COL32((settings->phMagickaColor >> 16) & 0xFF,
                                   (settings->phMagickaColor >>  8) & 0xFF,
@@ -1042,7 +1067,7 @@ namespace PlayerHUD {
                     bar.alpha = dynA;
                     BarRenderer::Draw(dl, ImVec2(bx, by), bar);
                 }
-                DrawPenaltyOverlay(bx, by, barW, bh, survivalPenalties.magicka, dynA, mpTextures.fill);
+                DrawSymptoms(bx, by, barW, bh, frac, stats.magicka.GetMax(), symptoms.magicka, dynA, mpTextures.fill);
                 const float ax = bx + ScalePx(static_cast<float>(settings->phMpAnnotationOffsetX));
                 const float ay = by + ScalePx(static_cast<float>(settings->phMpAnnotationOffsetY));
                 DrawRegenPip(ax, ay, bh, regenMP, dynA);
@@ -1070,14 +1095,13 @@ namespace PlayerHUD {
             const float bx = textX + ScalePx((float)settings->phSpOffsetX);
             const float by = curY  + ScalePx((float)settings->phSpOffsetY);
             const float bh = barHSp;
-            const float displayMax = GetDisplayMax(stats.stamina.GetMax(), survivalPenalties.stamina);
+            const float displayMax = GetDisplayMax(stats.stamina.GetMax(), symptoms.stamina.Lost());
             const float textMax = displayMax;
             const float barW = ResolveBarWidth(displayMax, settings->phStaminaBarWidth);
             widestBarW = std::max(widestBarW, barW);
             const bool useCodeBar = !(spTextures.bg && spTextures.fill);
             float frac = (displayMax > 0.0f) ? std::clamp(stats.stamina.current / displayMax, 0.0f, 1.0f) : 0.0f;
-            const float survFrac = std::clamp(survivalPenalties.stamina, 0.0f, 1.0f);
-            const float dynA = ComputeDynamicAlpha(DynBar::SP, stats.stamina.current, displayMax, battleReadyNow, allowDrag);
+            const float dynA = ComputeDynamicAlpha(DynBar::SP, stats.stamina.current, stats.stamina.GetMax(), battleReadyNow, allowDrag);
             dynAlphaSeenThisFrame = true; dynAlphaFrameMax = std::max(dynAlphaFrameMax, dynA);
             ImU32 col  = IM_COL32((settings->phStaminaColor >> 16) & 0xFF,
                                   (settings->phStaminaColor >>  8) & 0xFF,
@@ -1095,7 +1119,7 @@ namespace PlayerHUD {
                     bar.alpha = dynA;
                     BarRenderer::Draw(dl, ImVec2(bx, by), bar);
                 }
-                DrawPenaltyOverlay(bx, by, barW, bh, survivalPenalties.stamina, dynA, spTextures.fill);
+                DrawSymptoms(bx, by, barW, bh, frac, stats.stamina.GetMax(), symptoms.stamina, dynA, spTextures.fill);
                 const float ax = bx + ScalePx(static_cast<float>(settings->phSpAnnotationOffsetX));
                 const float ay = by + ScalePx(static_cast<float>(settings->phSpAnnotationOffsetY));
                 DrawRegenPip(ax, ay, bh, regenSP, dynA);

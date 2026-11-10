@@ -17,6 +17,7 @@
 #include "../../includes/Utils/TraitResolver.h"
 #include "../../includes/PerfStats.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/Utils/SkillRowTint.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -526,31 +527,65 @@ namespace PartySheetV2 {
         float penX    = origin.x;
 
         {
-            std::string raceClass;
-            if (auto* race = actor->GetRace())
-                raceClass += race->GetFullName();
-            if (!isPlayer) {
-                if (auto* base = actor->GetActorBase()) {
-                    if (auto* npc = base->As<RE::TESNPC>()) {
-                        if (npc->npcClass && npc->npcClass->GetFullName()[0] != '\0') {
-                            raceClass += "  |  ";
-                            raceClass += npc->npcClass->GetFullName();
-                        }
-                    }
-                }
+            auto Upper = [](std::string s) { for (char& c : s) c = static_cast<char>(toupper(c)); return s; };
+            std::string raceWord, midWord;
+            bool midMuted = false;
+            if (auto* race = actor->GetRace(); race && race->GetFullName()) raceWord = Upper(race->GetFullName());
+            if (isPlayer) {
+                auto* stone = GetStandingStone(actor);
+                if (stone && stone->GetFullName() && stone->GetFullName()[0]) midWord = Upper(stone->GetFullName());
+                else { midWord = Upper(LocalizationManager::Get("PartySheetV2.NoStone")); midMuted = true; }
+            } else if (auto* base = actor->GetActorBase()) {
+                if (auto* npc = base->As<RE::TESNPC>(); npc && npc->npcClass && npc->npcClass->GetFullName()[0] != '\0')
+                    midWord = Upper(npc->npcClass->GetFullName());
             }
-            raceClass += "  |  " + LocalizationManager::Get("Common.Level") + " ";
-            raceClass += std::to_string(actor->GetLevel());
-            for (char& c : raceClass) c = static_cast<char>(toupper(c));
+            std::string levelWord = Upper(LocalizationManager::Get("Common.Level") + " " + std::to_string(actor->GetLevel()));
+            const std::string sep = "  |  ";
 
             if (headingFont) ImGui::PushFont(headingFont);
             ImGui::SetWindowFontScale(FontHeading());
-            ImVec2 rcSz = ImGui::CalcTextSize(raceClass.c_str());
-            dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(penX, lineB_Y), kTheme.textMuted, raceClass.c_str());
-            penX += rcSz.x + 16.0f * sc;
+            const bool modalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
+            const float lineH = ImGui::GetTextLineHeight();
+
+            auto DrawWord = [&](const std::string& w, ImU32 col, bool hoverable) -> bool {
+                float ww = ImGui::CalcTextSize(w.c_str()).x;
+                bool hovered = false;
+                if (hoverable) {
+                    ImVec2 rMin(penX - 3.0f * sc, lineB_Y - 1.0f * sc);
+                    ImVec2 rMax(penX + ww + 3.0f * sc, lineB_Y + lineH + 2.0f * sc);
+                    hovered = !modalOpen && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(rMin, rMax);
+                    if (hovered) {
+                        dl->AddRectFilled(rMin, rMax, IM_COL32(29, 33, 41, 220), 2.0f * sc);
+                        dl->AddRect(rMin, rMax, IM_COL32(212, 175, 55, 85), 2.0f * sc, 0, 1.0f);
+                    }
+                    float uy = lineB_Y + lineH;
+                    for (float x = penX; x < penX + ww; x += 4.0f * sc)
+                        dl->AddLine(ImVec2(x, uy), ImVec2((std::min)(x + 1.5f * sc, penX + ww), uy),
+                            IM_COL32(136, 136, 136, 200), 1.0f);
+                }
+                dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(penX, lineB_Y), col, w.c_str());
+                penX += ww;
+                return hovered;
+            };
+            auto DrawSep = [&]() {
+                dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(penX, lineB_Y), kTheme.textMuted, sep.c_str());
+                penX += ImGui::CalcTextSize(sep.c_str()).x;
+            };
+
+            bool raceHover = false, midHover = false;
+            if (!raceWord.empty()) { raceHover = DrawWord(raceWord, kTheme.textMuted, true); DrawSep(); }
+            if (!midWord.empty()) {
+                ImU32 midCol = midMuted ? IM_COL32(136, 136, 136, 140) : kTheme.textMuted;
+                midHover = DrawWord(midWord, midCol, true);
+                DrawSep();
+            }
+            DrawWord(levelWord, kTheme.textMuted, false);
+            penX += 16.0f * sc;
             ImGui::SetWindowFontScale(1.0f);
             if (headingFont) ImGui::PopFont();
+
+            if (raceHover) DrawRaceTooltip(actor, sc);
+            if (midHover)  DrawPassiveTooltip(actor, midWord, sc, isPlayer);
         }
 
         {
@@ -629,6 +664,30 @@ namespace PartySheetV2 {
                 std::string prStr = LocalizationManager::Get("Common.Protected");
                 for (char& c : prStr) c = static_cast<char>(toupper(c));
                 DrawTag(prStr.c_str(), IM_COL32(180,140, 60, 200), IM_COL32(180,140, 60, 255));
+            }
+
+            if (auto curse = GetCurse(actor); curse.kind != CurseInfo::Kind::None) {
+                const bool vamp = curse.kind == CurseInfo::Kind::Vampire;
+                std::string cs = LocalizationManager::Get(vamp ? "PartySheetV2.Vampire" : "PartySheetV2.Werewolf");
+                for (char& c : cs) c = static_cast<char>(toupper(c));
+                const std::string title = cs;
+                if (vamp && curse.stage > 0) {
+                    std::string st = LocalizationManager::Get("PartySheetV2.Stage");
+                    for (char& c : st) c = static_cast<char>(toupper(c));
+                    cs += " \xC2\xB7 " + st + " " + std::to_string(curse.stage);
+                }
+                ImVec2 sz = ImGui::CalcTextSize(cs.c_str());
+                ImVec2 tMin(penX, tagY);
+                ImVec2 tMax(penX + sz.x + tpad * 2.0f, tagY + sz.y + tpadH * 2.0f);
+                const bool modalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
+                const bool hovered = !modalOpen && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(tMin, tMax);
+                if (hovered) dl->AddRectFilled(tMin, tMax, IM_COL32(60, 20, 20, 200), 2.0f * sc);
+                DrawTag(cs.c_str(), IM_COL32(200, 60, 60, 220), IM_COL32(230, 90, 90, 255));
+                if (hovered) {
+                    ImGui::SetWindowFontScale(1.0f);
+                    DrawCurseTooltip(actor, title, sc);
+                    ImGui::SetWindowFontScale(FontSmall());
+                }
             }
 
             if (!isPlayer) {
@@ -719,12 +778,14 @@ namespace PartySheetV2 {
         const float labelGap = 6.0f  * sc;
         ActorStats stats     = GetActorStats(actor);
 
-        struct VitalDef { std::string label; float cur; float max; ImU32 color; };
+        struct VitalDef { std::string label; float cur; float max; ImU32 color; RE::ActorValue av; };
         VitalDef vitals[3] = {
-            { LocalizationManager::Get("Stats.Health"),  stats.health.current,  stats.health.GetMax(),  kTheme.hp },
-            { LocalizationManager::Get("Stats.Stamina"), stats.stamina.current, stats.stamina.GetMax(), kTheme.sp },
-            { LocalizationManager::Get("Stats.Magicka"), stats.magicka.current, stats.magicka.GetMax(), kTheme.mp },
+            { LocalizationManager::Get("Stats.Health"),  stats.health.current,  stats.health.GetMax(),  kTheme.hp, RE::ActorValue::kHealth },
+            { LocalizationManager::Get("Stats.Stamina"), stats.stamina.current, stats.stamina.GetMax(), kTheme.sp, RE::ActorValue::kStamina },
+            { LocalizationManager::Get("Stats.Magicka"), stats.magicka.current, stats.magicka.GetMax(), kTheme.mp, RE::ActorValue::kMagicka },
         };
+        const bool vitalModalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
+        int hoveredVital = -1;
 
         const float vGap     = 24.0f * sc;
         const float leftColW = size.x - kCenterW * sc - kRightW * sc - 2.0f * kGap * sc;
@@ -742,6 +803,23 @@ namespace PartySheetV2 {
             snprintf(valBuf, sizeof(valBuf), "%.0f / %.0f", vt.cur, vt.max);
             ImVec2 valSz = ImGui::CalcTextSize(valBuf);
 
+            if (HasStatPassives(actor, vt.av)) {
+                float barBottom = barsY + labelSz.y + labelGap + barH;
+                ImVec2 hMin(vx - 3.0f * sc, barsY - 1.0f * sc);
+                ImVec2 hMax(vx + vitalW + 3.0f * sc, barBottom + 2.0f * sc);
+                bool hovered = !vitalModalOpen && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(hMin, hMax);
+                if (hovered) {
+                    dl->AddRectFilled(hMin, ImVec2(vx + labelSz.x + 3.0f * sc, barsY + labelSz.y + 2.0f * sc),
+                        IM_COL32(29, 33, 41, 220), 2.0f * sc);
+                    dl->AddRect(hMin, ImVec2(vx + labelSz.x + 3.0f * sc, barsY + labelSz.y + 2.0f * sc),
+                        IM_COL32(212, 175, 55, 85), 2.0f * sc, 0, 1.0f);
+                    hoveredVital = v;
+                }
+                float uy = barsY + labelSz.y;
+                for (float x = vx; x < vx + labelSz.x; x += 4.0f * sc)
+                    dl->AddLine(ImVec2(x, uy), ImVec2((std::min)(x + 1.5f * sc, vx + labelSz.x), uy),
+                        IM_COL32(136, 136, 136, 200), 1.0f);
+            }
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                 ImVec2(vx, barsY), kTheme.textMuted, vt.label.c_str());
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
@@ -764,6 +842,8 @@ namespace PartySheetV2 {
                     IM_COL32(0,0,0,0), IM_COL32(0,0,0,0));
             }
         }
+        if (hoveredVital >= 0)
+            DrawStatTooltip(actor, vitals[hoveredVital].label, vitals[hoveredVital].av, sc);
 
         ImGui::Dummy(size);
     }
@@ -850,26 +930,26 @@ namespace PartySheetV2 {
             ImVec2(origin.x + lineW,           sepY + 1.0f),
             IM_COL32(212,175,55,100), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0), IM_COL32(212,175,55,100));
 
-        struct SkillEntry { std::string name; float value; ID3D11ShaderResourceView* tex; };
+        struct SkillEntry { std::string name; float value; ID3D11ShaderResourceView* tex; RE::ActorValue av; };
         const SkillEntry skills[18] = {
-            { LocalizationManager::Get("Skills.OneHanded"),  sk.oneHanded.value,  s_SkillTex.oneHanded   },
-            { LocalizationManager::Get("Skills.TwoHanded"),  sk.twoHanded.value,  s_SkillTex.twoHanded   },
-            { LocalizationManager::Get("Skills.Block"),      sk.block.value,       s_SkillTex.block       },
-            { LocalizationManager::Get("Skills.HeavyArmor"), sk.heavyArmor.value,  s_SkillTex.heavyArmor  },
-            { LocalizationManager::Get("Skills.LightArmor"), sk.lightArmor.value,  s_SkillTex.lightArmor  },
-            { LocalizationManager::Get("Skills.Smithing"),   sk.smithing.value,    s_SkillTex.smithing    },
-            { LocalizationManager::Get("Skills.Sneak"),      sk.sneak.value,       s_SkillTex.sneak       },
-            { LocalizationManager::Get("Skills.Archery"),    sk.archery.value,     s_SkillTex.archery     },
-            { LocalizationManager::Get("Skills.Speech"),     sk.speech.value,      s_SkillTex.speech      },
-            { LocalizationManager::Get("Skills.Alchemy"),    sk.alchemy.value,     s_SkillTex.alchemy     },
-            { LocalizationManager::Get("Skills.Lockpicking"),sk.lockpicking.value, s_SkillTex.lockpicking },
-            { LocalizationManager::Get("Skills.Pickpocket"), sk.pickpocket.value,  s_SkillTex.pickpocket  },
-            { LocalizationManager::Get("Skills.Conjuration"),sk.conjuration.value, s_SkillTex.conjuration },
-            { LocalizationManager::Get("Skills.Illusion"),   sk.illusion.value,    s_SkillTex.illusion    },
-            { LocalizationManager::Get("Skills.Alteration"), sk.alteration.value,  s_SkillTex.alteration  },
-            { LocalizationManager::Get("Skills.Destruction"),sk.destruction.value, s_SkillTex.destruction },
-            { LocalizationManager::Get("Skills.Restoration"),sk.restoration.value, s_SkillTex.restoration },
-            { LocalizationManager::Get("Skills.Enchanting"), sk.enchanting.value,  s_SkillTex.enchanting  },
+            { LocalizationManager::Get("Skills.OneHanded"),  sk.oneHanded.value,  s_SkillTex.oneHanded, RE::ActorValue::kOneHanded },
+            { LocalizationManager::Get("Skills.TwoHanded"),  sk.twoHanded.value,  s_SkillTex.twoHanded, RE::ActorValue::kTwoHanded },
+            { LocalizationManager::Get("Skills.Block"),      sk.block.value,       s_SkillTex.block, RE::ActorValue::kBlock },
+            { LocalizationManager::Get("Skills.HeavyArmor"), sk.heavyArmor.value,  s_SkillTex.heavyArmor, RE::ActorValue::kHeavyArmor },
+            { LocalizationManager::Get("Skills.LightArmor"), sk.lightArmor.value,  s_SkillTex.lightArmor, RE::ActorValue::kLightArmor },
+            { LocalizationManager::Get("Skills.Smithing"),   sk.smithing.value,    s_SkillTex.smithing, RE::ActorValue::kSmithing },
+            { LocalizationManager::Get("Skills.Sneak"),      sk.sneak.value,       s_SkillTex.sneak, RE::ActorValue::kSneak },
+            { LocalizationManager::Get("Skills.Archery"),    sk.archery.value,     s_SkillTex.archery, RE::ActorValue::kArchery },
+            { LocalizationManager::Get("Skills.Speech"),     sk.speech.value,      s_SkillTex.speech, RE::ActorValue::kSpeech },
+            { LocalizationManager::Get("Skills.Alchemy"),    sk.alchemy.value,     s_SkillTex.alchemy, RE::ActorValue::kAlchemy },
+            { LocalizationManager::Get("Skills.Lockpicking"),sk.lockpicking.value, s_SkillTex.lockpicking, RE::ActorValue::kLockpicking },
+            { LocalizationManager::Get("Skills.Pickpocket"), sk.pickpocket.value,  s_SkillTex.pickpocket, RE::ActorValue::kPickpocket },
+            { LocalizationManager::Get("Skills.Conjuration"),sk.conjuration.value, s_SkillTex.conjuration, RE::ActorValue::kConjuration },
+            { LocalizationManager::Get("Skills.Illusion"),   sk.illusion.value,    s_SkillTex.illusion, RE::ActorValue::kIllusion },
+            { LocalizationManager::Get("Skills.Alteration"), sk.alteration.value,  s_SkillTex.alteration, RE::ActorValue::kAlteration },
+            { LocalizationManager::Get("Skills.Destruction"),sk.destruction.value, s_SkillTex.destruction, RE::ActorValue::kDestruction },
+            { LocalizationManager::Get("Skills.Restoration"),sk.restoration.value, s_SkillTex.restoration, RE::ActorValue::kRestoration },
+            { LocalizationManager::Get("Skills.Enchanting"), sk.enchanting.value,  s_SkillTex.enchanting, RE::ActorValue::kEnchanting },
         };
 
         // Row dimensions: icon + label LEFT, value RIGHT
@@ -903,12 +983,9 @@ namespace PartySheetV2 {
             if (ImGui::IsMouseHoveringRect(rMin, rMax))
                 dl->AddRectFilled(rMin, rMax, kTheme.hoverFill, 3.0f * sc);
 
-            const bool skillHighlighted       = (s_WornGearData.skillHighlightMask       & (1u << i)) != 0;
-            const bool situationalHighlighted = (s_WornGearData.situationalHighlightMask & (1u << i)) != 0;
-            if (skillHighlighted)
-                dl->AddRectFilled(rMin, rMax, BadgeStyle::Theme::SkillBlue().fill);
-            else if (situationalHighlighted)
-                dl->AddRectFilled(rMin, rMax, IM_COL32(80, 65, 30, 220));
+            const auto tint = SkillRowTint::Get(actor, s.av, s_WornGearData);
+            if (tint.on)
+                dl->AddRectFilled(rMin, rMax, tint.bg);
 
             dl->AddRect(rMin, rMax, IM_COL32(255, 255, 255, 18), 3.0f * sc, 0, 1.0f);
 
@@ -928,10 +1005,8 @@ namespace PartySheetV2 {
             float textY  = cy + (rowH - textLineH) * 0.5f;
             ImGui::SetWindowFontScale(FontBody());
             float maxLabelW = rMax.x - labelX - rowPadX * 4.0f;
-            const bool anyHighlighted = skillHighlighted || situationalHighlighted;
-            ImU32 highlightTextCol = skillHighlighted ? IM_COL32(255, 255, 255, 255) : IM_COL32(190, 165, 100, 255);
-            ImU32 labelCol = anyHighlighted ? highlightTextCol : kTheme.textMuted;
-            ImU32 valCol   = anyHighlighted ? highlightTextCol : kTheme.textMain;
+            const ImU32 labelCol = tint.on ? tint.name  : kTheme.textMuted;
+            const ImU32 valCol   = tint.on ? tint.value : kTheme.textMain;
             AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(),
                 ImVec2(labelX, textY), labelCol, s.name.c_str(), nullptr, maxLabelW);
             ImGui::SetWindowFontScale(1.0f);
@@ -944,6 +1019,10 @@ namespace PartySheetV2 {
                 ImVec2(rMax.x - rowPadX - valSz.x, textY),
                 valCol, valBuf);
             ImGui::SetWindowFontScale(1.0f);
+
+            if (!IsEffectsModalOpen() && !IsInventoryModalOpen() && !IsStatusModalOpen() &&
+                ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(rMin, rMax))
+                DrawStatTooltip(actor, s.name, s.av, sc);
         }
 
         float usedH = (sepY + 8.0f * sc) + 6.0f * (rowH + rowGapY) - origin.y;
@@ -1137,25 +1216,33 @@ namespace PartySheetV2 {
             bool                      isMult;
             ID3D11ShaderResourceView* tex;
             uint8_t                   resistBit = 0;
+            RE::ActorValue            av = RE::ActorValue::kNone;
         };
 
         const StatRowDef defRows[] = {
-            { LocalizationManager::Get("Stats.Armor"),         stats.armorRating,    500.0f, false, false, s_TexArmor,   0 },
+            { LocalizationManager::Get("Stats.Armor"),         stats.armorRating,    500.0f, false, false, s_TexArmor,   0, RE::ActorValue::kDamageResist },
             { LocalizationManager::Get("Stats.DamageResist"),   stats.damageResistPct, 80.0f, true,  false, s_TexDmgRes,  0 },
-            { LocalizationManager::Get("Stats.Magic"),         stats.resistMagic,     85.0f, true,  false, s_TexMagic,   WornGearStatResolver::kResistMagic  },
-            { LocalizationManager::Get("Resistances.Fire"),    stats.resistFire,     100.0f, true,  false, s_TexFire,    WornGearStatResolver::kResistFire   },
-            { LocalizationManager::Get("Resistances.Frost"),   stats.resistFrost,    100.0f, true,  false, s_TexFrost,   WornGearStatResolver::kResistFrost  },
-            { LocalizationManager::Get("Resistances.Shock"),   stats.resistShock,    100.0f, true,  false, s_TexShock,   WornGearStatResolver::kResistShock  },
-            { LocalizationManager::Get("Resistances.Poison"),  stats.resistPoison,   100.0f, true,  false, s_TexPoison,  WornGearStatResolver::kResistPoison },
-            { LocalizationManager::Get("Resistances.Disease"), stats.resistDisease,  100.0f, true,  false, s_TexDisease, 0 },
+            { LocalizationManager::Get("Stats.Magic"),         stats.resistMagic,     85.0f, true,  false, s_TexMagic,   WornGearStatResolver::kResistMagic, RE::ActorValue::kResistMagic },
+            { LocalizationManager::Get("Resistances.Fire"),    stats.resistFire,     100.0f, true,  false, s_TexFire,    WornGearStatResolver::kResistFire, RE::ActorValue::kResistFire },
+            { LocalizationManager::Get("Resistances.Frost"),   stats.resistFrost,    100.0f, true,  false, s_TexFrost,   WornGearStatResolver::kResistFrost, RE::ActorValue::kResistFrost },
+            { LocalizationManager::Get("Resistances.Shock"),   stats.resistShock,    100.0f, true,  false, s_TexShock,   WornGearStatResolver::kResistShock, RE::ActorValue::kResistShock },
+            { LocalizationManager::Get("Resistances.Poison"),  stats.resistPoison,   100.0f, true,  false, s_TexPoison,  WornGearStatResolver::kResistPoison, RE::ActorValue::kPoisonResist },
+            { LocalizationManager::Get("Resistances.Disease"), stats.resistDisease,  100.0f, true,  false, s_TexDisease, 0, RE::ActorValue::kResistDisease },
         };
 
+        const bool defModalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
+        const StatRowDef* hoveredDef = nullptr;
         float dY = defStartY;
         for (const auto& row : defRows) {
             DrawStatRow(dcOrigin.x, dY, dcColW,
                 row.label.c_str(), row.value, row.rangeMax, row.isPercent, row.isMult, row.tex, row.resistBit);
+            if (row.av != RE::ActorValue::kNone && !defModalOpen && ImGui::IsWindowHovered() &&
+                ImGui::IsMouseHoveringRect(ImVec2(dcOrigin.x, dY), ImVec2(dcOrigin.x + dcColW, dY + dRowH)))
+                hoveredDef = &row;
             dY += dRowH + dGapY;
         }
+        if (hoveredDef)
+            DrawStatTooltip(actor, hoveredDef->label, hoveredDef->av, sc);
 
         float combatOriginX = dcOrigin.x + dcColW + dcColGap;
         std::string combatTitle = LocalizationManager::Get("Stats.Combat");

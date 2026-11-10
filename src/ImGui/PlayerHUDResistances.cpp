@@ -8,6 +8,8 @@
 #include "../../includes/HUDVisibility.h"
 #include "../../includes/Utils/ColorUtils.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/SurvivalSymptoms.h"
+#include "../../includes/ImGui/WidgetDrawHelpers.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -181,6 +183,7 @@ namespace PlayerHUDResistances {
             ID3D11ShaderResourceView*    icon;
             ResistState                  state;
             float                        rangeMax;
+            bool                         symptom = false;
         };
         std::vector<ResistEntry> entries = {
             { "Armor",   armorRating,  "%.0f",   settings->prArmorColor,     iconArmor,     states.armor,      500.0f },
@@ -198,6 +201,20 @@ namespace PlayerHUDResistances {
             entries.push_back({ "Speed", speedMult, "%.0f%%", settings->prSpeedColor,
                                 TextureManager::GetPartyIcon("movespeed"), states.speed, 200.0f });
         }
+
+        {
+            const auto& sr = SurvivalSymptoms::GetResist(player);
+            const SurvivalSymptoms::Mark* marks[] = { &sr.armor, nullptr, &sr.fire, &sr.frost, &sr.shock,
+                                                      &sr.magic, &sr.poison, &sr.disease, &sr.speed };
+            for (std::size_t i = 0; i < entries.size() && i < std::size(marks); ++i) {
+                if (!marks[i] || !marks[i]->on) continue;
+                entries[i].symptom = true;
+                entries[i].state   = ResistState::Debuff;
+            }
+        }
+        const float symArrowH = iconSz * 0.7f;
+        const float symArrowW = symArrowH * 0.55f;
+        const ImU32 symRed    = IM_COL32(0xE0, 0x5A, 0x4A, 0xFF);
 
         float spacing = ScalePx(static_cast<float>(settings->prSpacing));
         bool  horiz   = (settings->prLayout == 1);
@@ -368,10 +385,14 @@ namespace PlayerHUDResistances {
                 if (e.icon)
                     DrawIconMeter(ImVec2(slot.x - iconSz * 0.5f, slot.y - iconSz * 0.5f),
                                   e.icon, iconSz, e.color, frac);
+                if (e.symptom)
+                    WidgetDraw::DrawSymptomArrow(dl, ImVec2(slot.x + iconSz * 0.5f - symArrowW * 0.5f,
+                                                            slot.y - iconSz * 0.5f - symArrowH * 0.5f), symArrowH);
 
                 if (settings->prShowValue) {
-                    ImU32  col2 = IM_COL32((e.color >> 16) & 0xFF, (e.color >> 8) & 0xFF,
-                                            e.color & 0xFF, (e.color >> 24) & 0xFF);
+                    ImU32  col2 = e.symptom ? symRed
+                                            : IM_COL32((e.color >> 16) & 0xFF, (e.color >> 8) & 0xFF,
+                                                       e.color & 0xFF, (e.color >> 24) & 0xFF);
                     char   valBuf[16];
                     snprintf(valBuf, sizeof(valBuf), e.fmt, e.value);
                     ImVec2 tsz = ImGui::CalcTextSize(valBuf);
@@ -408,6 +429,7 @@ namespace PlayerHUDResistances {
             ImU32 valueTextCol = (settings->prBgTintEnabled && settings->prBgStyle == 1 && settings->prChipNeutralText)
                                      ? IM_COL32(235, 232, 222, 255)
                                      : ImGui::ColorConvertFloat4ToU32(colV4);
+            if (e.symptom && !settings->prBgTintEnabled) valueTextCol = symRed;
 
             dl->ChannelsSetCurrent(1);
 
@@ -459,6 +481,12 @@ namespace PlayerHUDResistances {
 
             ImVec2 itemMin = ImGui::GetItemRectMin();
             ImVec2 itemMax = ImGui::GetItemRectMax();
+            if (e.symptom) {
+                const float inset = settings->prBgTintEnabled ? ScalePx(2.0f) : 0.0f;
+                const float edge  = settings->prBgTintEnabled ? pad : 0.0f;
+                WidgetDraw::DrawSymptomArrow(dl,
+                    ImVec2(itemMax.x + edge - inset - symArrowW, itemMin.y - edge + inset + ScalePx(2.0f)), symArrowH);
+            }
             if (settings->prBgTintEnabled) {
                 dl->ChannelsSetCurrent(0);
                 if (settings->prBgStyle == 1)

@@ -1,0 +1,5 @@
+#pragma once
+namespace BuildInfo
+{
+    inline constexpr const char* kGitHash = "@PS_GIT_HASH@";
+}

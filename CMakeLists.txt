@@ -107,6 +107,7 @@ add_commonlibsse_plugin(${PROJECT_NAME} MINIMUM_SKSE_VERSION 2.0.17 SOURCES
     src/ImGui/SettingsPinned.cpp
     src/ImGui/PlayerHUD.cpp
     src/ImGui/PlayerHUDPenalties.cpp
+    src/SurvivalSymptoms.cpp
     src/ImGui/PlayerHUDSurvival.cpp
     src/ImGui/PlayerHUDDisease.cpp
     src/ImGui/PlayerHUDEquipment.cpp
@@ -148,6 +149,31 @@ target_link_libraries(
 
 # Silence the stdext warnings
 target_compile_definitions(${PROJECT_NAME} PRIVATE _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING)
+
+# Version resource + git hash, regenerated on every build by cmake/BuildInfo.cmake (see its
+# header for why not configure time). Gives CrashLogger and Explorer a version to show, and
+# lets the load log line name the exact commit. BYPRODUCTS marks both outputs GENERATED, so
+# target_sources accepts version.rc before the first build has written it.
+# Separate from the SKSE plugin declaration (add_commonlibsse_plugin auto-gen), which this
+# does not touch: see memory reference_plugin_version_declaration.
+find_package(Git QUIET)
+set(PS_BUILDINFO_DIR "${CMAKE_CURRENT_BINARY_DIR}/buildinfo")
+add_custom_target(${PROJECT_NAME}_BuildInfo
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSRC=${CMAKE_CURRENT_SOURCE_DIR}"
+        "-DOUT=${PS_BUILDINFO_DIR}"
+        "-DGIT=${GIT_EXECUTABLE}"
+        "-DPROJECT_NAME=${PROJECT_NAME}"
+        "-DPROJECT_VERSION=${PROJECT_VERSION}"
+        "-DPROJECT_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}"
+        "-DPROJECT_VERSION_MINOR=${PROJECT_VERSION_MINOR}"
+        "-DPROJECT_VERSION_PATCH=${PROJECT_VERSION_PATCH}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/BuildInfo.cmake"
+    BYPRODUCTS "${PS_BUILDINFO_DIR}/version.rc" "${PS_BUILDINFO_DIR}/include/BuildInfo.h"
+    VERBATIM)
+add_dependencies(${PROJECT_NAME} ${PROJECT_NAME}_BuildInfo)
+target_sources(${PROJECT_NAME} PRIVATE "${PS_BUILDINFO_DIR}/version.rc")
+target_include_directories(${PROJECT_NAME} PRIVATE "${PS_BUILDINFO_DIR}/include")
 
 # When your SKSE .dll is compiled, this will automatically copy the .dll into your mods folder.
 # Only works if you configure DEPLOY_ROOT above (or set the SKYRIM_MODS_FOLDER environment variable)

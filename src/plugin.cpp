@@ -4,7 +4,13 @@
 #include <chrono>
 #include <thread>
 #include <functional>
+#include <cstddef>
+#include <ctime>
 #include <spdlog/sinks/basic_file_sink.h>
+
+#include "BuildInfo.h"
+
+extern "C" IMAGE_DOS_HEADER __ImageBase;
 
 #include "../includes/LocalizationManager.h"
 #include "../includes/PCH.h"
@@ -343,16 +349,18 @@ public:
             }
         }
 
-        auto e = *ev;
-
-        if (e->GetEventType() != RE::INPUT_EVENT_TYPE::kButton) {
-            return RE::BSEventNotifyControl::kContinue;
+        for (auto* e = *ev; e; e = e->next) {
+            if (e->GetEventType() != RE::INPUT_EVENT_TYPE::kButton) continue;
+            auto* btn = e->AsButtonEvent();
+            if (!btn) continue;
+            if (HandleButton(btn, settings) == RE::BSEventNotifyControl::kStop)
+                return RE::BSEventNotifyControl::kStop;
         }
+        return RE::BSEventNotifyControl::kContinue;
+    }
 
-        auto* btn = e->AsButtonEvent();
-        if (!btn) {
-            return RE::BSEventNotifyControl::kContinue;
-        }
+private:
+    RE::BSEventNotifyControl HandleButton(RE::ButtonEvent* btn, Settings* settings) {
         
         if (btn->GetDevice() == RE::INPUT_DEVICE::kMouse &&
             (ImGuiRenderer::IsVisible() || PartySheetV2::IsEffectsModalOpen() || PartySheetV2::IsInventoryModalOpen())) {
@@ -658,7 +666,24 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
     log->flush_on(spdlog::level::info);
     spdlog::set_default_logger(std::move(log));
 
-    logger::info("Party Sheet Plugin Loading…");
+    const auto* pluginDeclaration = SKSE::PluginDeclaration::GetSingleton();
+    const auto pluginVersion = pluginDeclaration ?
+        pluginDeclaration->GetVersion().string(".") : std::string{ "unknown" };
+    std::string linkTime{ "unknown" };
+    {
+        const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+            reinterpret_cast<const std::byte*>(&__ImageBase) + __ImageBase.e_lfanew);
+        const std::time_t stamp = nt->FileHeader.TimeDateStamp;
+        std::tm utc{};
+        if (gmtime_s(&utc, &stamp) == 0) {
+            char buf[32]{};
+            if (std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &utc) > 0) {
+                linkTime = buf;
+            }
+        }
+    }
+    logger::info("Party Sheet v{} ({}, built {} UTC) loading | Skyrim {}", pluginVersion,
+        BuildInfo::kGitHash, linkTime, REL::Module::get().version().string("."));
 
     Settings::GetSingleton()->Load();
 

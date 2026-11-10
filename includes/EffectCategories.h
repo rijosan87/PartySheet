@@ -1,11 +1,9 @@
 #pragma once
 
-// STATUS: Working
-// Categorizes magic effects and provides icons.
-
-
 #include <RE/Skyrim.h>
-// Effect display category
+#include <cstdint>
+#include <string>
+
 namespace EffectCategories {
     enum class EffectType {
         Standalone,
@@ -61,6 +59,25 @@ namespace EffectCategories {
     EffectType GetEffectType(RE::EffectArchetypes::ArchetypeID archetype);
     const char* GetArchetypeName(RE::EffectArchetypes::ArchetypeID archetype);
     const char* GetActorValueName(RE::ActorValue av);
+
+    std::string LocalizedAVName(RE::ActorValue av);
+
+    enum class HudTarget : std::uint8_t {
+        None,
+        HealthMax, MagickaMax, StaminaMax,
+        HealthRegen, MagickaRegen, StaminaRegen,
+        WeaponOneHanded, WeaponTwoHanded, WeaponRanged, WeaponMelee, WeaponAny, Shield,
+        Armor, HeavyArmor, LightArmor,
+        Shout,
+        CarryWeight,
+        ResistFire, ResistFrost, ResistShock, ResistMagic, ResistPoison, ResistDisease, Speed,
+    };
+    HudTarget GetHudTarget(RE::ActorValue av);
+
+    RE::ActorValue GetSkillTarget(RE::ActorValue av);
+
+    bool PerkLowersAttackDamage(const RE::BGSPerk* perk);
+    
     bool IsNegativeArchetype(RE::EffectArchetypes::ArchetypeID archetype);
     const char* GetStandaloneIconId(RE::EffectArchetypes::ArchetypeID archetype);
     const char* GetActorValueIconId(RE::ActorValue av);

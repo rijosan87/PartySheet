@@ -117,6 +117,18 @@ namespace {
         { "yellowtick",          "disease_yellowtick",          0x5C1CD8, kLastSeedESP,   0x5C1CD3, 0x5C1CD4, 0x5C1CD7, 0x5C1CD5, 0x5C1CD6, 0x5C1CD2 },
     };
 
+    constexpr const char* kRndESP = "RealisticNeedsandDiseases.esp";
+
+    const DiseaseDef kRndDiseases[] = {
+        { "rockjoint", "disease_rockjoint", 0x000B8782, "Skyrim.esm", 0x00F0AE, 0x00F0AF, 0x0010A24F, 0, 0, 0x010680 },
+        { "ataxia",    "disease_ataxia",    0x000B877C, "Skyrim.esm", 0x00A530, 0x00A534, 0x0010A24A, 0, 0, 0x010678 },
+        { "bonebreak", "disease_bonebreak", 0x000B877E, "Skyrim.esm", 0x00F623, 0x00F625, 0x0010A24C, 0, 0, 0x01067A },
+        { "brainrot",  "disease_brainrot",  0x000B877F, "Skyrim.esm", 0x00F62D, 0x00F62F, 0x0010A24D, 0, 0, 0x01067C },
+        { "rattles",   "disease_rattles",   0x000B8781, "Skyrim.esm", 0x00F61C, 0x00F61E, 0x0010A24E, 0, 0, 0x01067E },
+        { "witbane",   "disease_witbane",   0x000B8783, "Skyrim.esm", 0x00F0B4, 0x00F0B2, 0x0010A250, 0, 0, 0x010682 },
+        { "droops",    "disease_droops",    0x040285C1, "Dragonborn.esm", 0, 0, 0, 0, 0, 0 },
+    };
+
     struct ResolvedDisease {
         const DiseaseDef*         def;
         RE::SpellItem*            base;
@@ -133,6 +145,7 @@ namespace {
     bool g_ccLoaded         = false;
     bool g_sunhelmDisActive = false;
     bool g_lastSeedActive   = false;
+    bool g_rndDisActive     = false;
     bool g_initialized      = false;
     bool g_ForcePos         = false;
 
@@ -199,61 +212,6 @@ namespace {
         return (v.empty() || v == key) ? fallback : v;
     }
 
-    std::string LocalizedAVName(RE::ActorValue av) {
-        using AV = RE::ActorValue;
-        switch (av) {
-            case AV::kHealth:  return Loc("Health",  "Health");
-            case AV::kMagicka: return Loc("Magicka", "Magicka");
-            case AV::kStamina: return Loc("Stamina", "Stamina");
-            case AV::kHealRate:        return Loc("HealthRegen",     "Health Regen");
-            case AV::kMagickaRate:     return Loc("MagickaRegen",    "Magicka Regen");
-            case AV::kStaminaRate:     return Loc("StaminaRegen",    "Stamina Regen");
-            case AV::kHealRateMult:    return Loc("HealthRegenMult", "Health Regen Mult");
-            case AV::kMagickaRateMult: return Loc("MagickaRegenMult","Magicka Regen Mult");
-            case AV::kStaminaRateMult: return Loc("StaminaRegenMult","Stamina Regen Mult");
-            case AV::kOneHanded:
-            case AV::kOneHandedModifier:   return Loc("OneHanded",   "One-Handed");
-            case AV::kTwoHanded:
-            case AV::kTwoHandedModifier:   return Loc("TwoHanded",   "Two-Handed");
-            case AV::kArchery:
-            case AV::kMarksmanModifier:    return Loc("Archery",     "Archery");
-            case AV::kBlock:
-            case AV::kBlockModifier:       return Loc("Block",       "Block");
-            case AV::kSmithing:
-            case AV::kSmithingModifier:    return Loc("Smithing",    "Smithing");
-            case AV::kHeavyArmor:
-            case AV::kHeavyArmorModifier:  return Loc("HeavyArmor",  "Heavy Armor");
-            case AV::kLightArmor:
-            case AV::kLightArmorModifier:  return Loc("LightArmor",  "Light Armor");
-            case AV::kPickpocket:
-            case AV::kPickpocketModifier:  return Loc("Pickpocket",  "Pickpocket");
-            case AV::kLockpicking:
-            case AV::kLockpickingModifier: return Loc("Lockpicking", "Lockpicking");
-            case AV::kSneak:
-            case AV::kSneakingModifier:    return Loc("Sneak",       "Sneak");
-            case AV::kAlchemy:
-            case AV::kAlchemyModifier:     return Loc("Alchemy",     "Alchemy");
-            case AV::kSpeech:
-            case AV::kSpeechcraftModifier: return Loc("Speech",      "Speech");
-            case AV::kAlteration:
-            case AV::kAlterationModifier:  return Loc("Alteration",  "Alteration");
-            case AV::kConjuration:
-            case AV::kConjurationModifier: return Loc("Conjuration", "Conjuration");
-            case AV::kDestruction:
-            case AV::kDestructionModifier: return Loc("Destruction", "Destruction");
-            case AV::kIllusion:
-            case AV::kIllusionModifier:    return Loc("Illusion",    "Illusion");
-            case AV::kRestoration:
-            case AV::kRestorationModifier: return Loc("Restoration", "Restoration");
-            case AV::kEnchanting:
-            case AV::kEnchantingModifier:  return Loc("Enchanting",  "Enchanting");
-            default:
-                if (const char* n = EffectCategories::GetActorValueName(av); n && n[0] && std::strcmp(n, "Unknown") != 0)
-                    return n;
-                return "";
-        }
-    }
-
     std::string FormatPenalty(RE::SpellItem* form) {
         if (!form) return "";
         RE::EffectSetting* base = form->GetAVEffect();
@@ -272,7 +230,7 @@ namespace {
         if (ce) mag = ce->GetMagnitude();
         if (mag <= 0.0f) return "";
 
-        std::string label = LocalizedAVName(av);
+        std::string label = EffectCategories::LocalizedAVName(av);
         if (label.empty()) return "";
 
         const bool isPct = EffectCategories::IsPercentageMagnitude(av);
@@ -323,18 +281,23 @@ void Init()
 
     g_lastSeedActive = dh->LookupModByName(kLastSeedESP) != nullptr;
 
+    g_rndDisActive = !g_lastSeedActive && dh->LookupModByName(kRndESP) != nullptr;
+
     const DiseaseDef* table       = g_lastSeedActive   ? kLastSeedDiseases
+                                  : g_rndDisActive     ? kRndDiseases
                                   : g_sunhelmDisActive ? kSunHelmDiseases
                                                        : kDiseases;
     const size_t      count       = g_lastSeedActive   ? std::size(kLastSeedDiseases)
+                                  : g_rndDisActive     ? std::size(kRndDiseases)
                                   : g_sunhelmDisActive ? std::size(kSunHelmDiseases)
                                                        : std::size(kDiseases);
     const char*       stagePlugin = g_lastSeedActive   ? kLastSeedESP
+                                  : g_rndDisActive     ? kRndESP
                                   : g_sunhelmDisActive ? kSunHelmDisESP
                                                        : kSurvivalESL;
 
     g_maxStage = g_lastSeedActive ? 5
-               : (g_sunhelmDisActive || g_ccLoaded) ? 3
+               : (g_rndDisActive || g_sunhelmDisActive || g_ccLoaded) ? 3
                                                     : 1;
 
     for (size_t i = 0; i < count; ++i) {
@@ -365,6 +328,7 @@ void Init()
     logger::info("PlayerHUDDisease: Initialized ({} diseases tracked, backend = {}, maxStage = {}).",
                  g_table.size(),
                  g_lastSeedActive   ? "LastSeed.esp"
+                 : g_rndDisActive     ? "RealisticNeedsandDiseases.esp"
                  : g_sunhelmDisActive ? "SunHelmDiseases.esp"
                                       : (g_ccLoaded ? "CC Survival" : "vanilla"),
                  g_maxStage);
@@ -496,7 +460,7 @@ static void RenderWindow(bool allowDrag)
         return;
     }
 
-    const bool staged = g_lastSeedActive || g_sunhelmDisActive || SurvivalActive();
+    const bool staged = g_lastSeedActive || g_rndDisActive || g_sunhelmDisActive || SurvivalActive();
 
     auto StageWord = [&](int stage) -> std::string {
         if (g_lastSeedActive) {

@@ -103,6 +103,8 @@ void Settings::Load() {
     magickaDrainPerSecond   = GetPrivateProfileFloat(L"Behavior", L"MagickaDrainPerSecond",  magickaDrainPerSecond,   userPath);
     pauseGameInSettings     = GetPrivateProfileIntW(L"Behavior", L"PauseGameInSettings",     pauseGameInSettings ? 1 : 0, userPath) != 0;
 
+    phSurvivalStackWarning  = GetPrivateProfileIntW(L"PlayerSurvival", L"StackWarning", phSurvivalStackWarning ? 1 : 0, userPath) != 0;
+
     enableSoundEffects = GetPrivateProfileIntW(L"Audio", L"EnableSoundEffects", enableSoundEffects, userPath);
 
     wchar_t buffer[256];
@@ -1587,6 +1589,8 @@ void Settings::Save() {
     swprintf_s(hexBuf, L"%.1f", magickaDrainPerSecond);
     WritePrivateProfileStringW(L"Behavior", L"MagickaDrainPerSecond", hexBuf, userPath);
     WritePrivateProfileStringW(L"Behavior", L"PauseGameInSettings", pauseGameInSettings ? L"1" : L"0", userPath);
+
+    WritePrivateProfileStringW(L"PlayerSurvival", L"StackWarning", phSurvivalStackWarning ? L"1" : L"0", userPath);
     
     WritePrivateProfileStringW(L"Audio", L"EnableSoundEffects", toWStr(enableSoundEffects).c_str(), userPath);
     

@@ -12,6 +12,8 @@
 #include "../../includes/LocalizationManager.h"
 #include "../../includes/UIAnimation.h"
 #include "../../includes/PNGIIBridge.h"
+#include "../../includes/SurvivalSymptoms.h"
+#include "../../includes/ImGui/WidgetDrawHelpers.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -57,6 +59,7 @@ namespace PlayerHUDEquipment {
         float                             durabilityPct = -1.0f;
         std::string                       enchantType;
         int                               auraType      = 0;
+        bool                              symptom       = false;
     };
 
     static HUDDraw::BadgeStyle MakeBadgeStyle(std::uint32_t textColor) {
@@ -475,6 +478,26 @@ namespace PlayerHUDEquipment {
     static float SlotWidth(const Settings* s, SlotType type) {
         const float scale = (s->peLayout == 2) ? 1.0f : SlotScale(s, type);
         return ScalePx(static_cast<float>(s->peIconSize) * scale);
+    }
+
+    static constexpr std::uint32_t kSymptomRed = WidgetDraw::kSymptomRedArgb;
+
+    static bool HandSymptom(const SurvivalSymptoms::Equip& e, RE::TESForm* form) {
+        if (!form) return false;
+        if (auto* arm = form->As<RE::TESObjectARMO>(); arm && arm->IsShield()) return e.shield.on;
+        auto* w = form->As<RE::TESObjectWEAP>();
+        if (!w) return false;
+        using WT = RE::WEAPON_TYPE;
+        switch (w->GetWeaponType()) {
+        case WT::kOneHandSword: case WT::kOneHandDagger: case WT::kOneHandAxe: case WT::kOneHandMace:
+            return e.oneHanded.on || e.melee.on || e.any.on;
+        case WT::kTwoHandSword: case WT::kTwoHandAxe:
+            return e.twoHanded.on || e.melee.on || e.any.on;
+        case WT::kBow: case WT::kCrossbow:
+            return e.ranged.on || e.any.on;
+        default:
+            return false;
+        }
     }
 
     static float DrawSlot(
@@ -1075,12 +1098,26 @@ namespace PlayerHUDEquipment {
             }
         }
 
-        if (s->peShowDamage && data.weaponDamage >= 0.0f && data.ammoCount < 0) {
-            char damageStr[16];
-            snprintf(damageStr, sizeof(damageStr), "%.0f", data.weaponDamage);
-            HUDDraw::DrawBadge(dl,
-                ImVec2(screenPos.x + ScalePx(2.0f + s->peBadgeOffsetX), screenPos.y + h - ScalePx(2.0f + s->peBadgeOffsetY)),
-                3, damageStr, MakeBadgeStyle(0xFFFFEBA0));
+        {
+            const ImVec2 blAnchor(screenPos.x + ScalePx(2.0f + s->peBadgeOffsetX),
+                                  screenPos.y + h - ScalePx(2.0f + s->peBadgeOffsetY));
+            if (s->peShowDamage && data.weaponDamage >= 0.0f && data.ammoCount < 0) {
+                char damageStr[16];
+                snprintf(damageStr, sizeof(damageStr), "%.0f", data.weaponDamage);
+                const auto r = HUDDraw::DrawBadge(dl, blAnchor, 3, damageStr,
+                    MakeBadgeStyle(data.symptom ? kSymptomRed : 0xFFFFEBA0));
+                if (data.symptom) {
+                    const float bh = r.max.y - r.min.y;
+                    const float sz = (std::max)(bh, ScalePx(18.0f));
+                    WidgetDraw::DrawSymptomArrow(dl, ImVec2(r.max.x + ScalePx(2.0f), r.min.y + (bh - sz) * 0.5f), sz);
+                }
+            } else if (data.symptom && data.ammoCount < 0 &&
+                       (s->peShowDamage || def.type == SlotType::Shout ||
+                        (data.form && data.form->As<RE::SpellItem>()))) {
+                const float sz = (std::max)(HUDDraw::MeasureBadge("0", MakeBadgeStyle(kSymptomRed)).y,
+                                            ScalePx(18.0f));
+                WidgetDraw::DrawSymptomArrow(dl, ImVec2(blAnchor.x, blAnchor.y - sz), sz);
+            }
         }
 
         if (s->peShowDurability && data.durabilityPct >= 0.0f && data.ammoCount < 0) {
@@ -1253,6 +1290,21 @@ namespace PlayerHUDEquipment {
             GatherSlots(player, g_CachedSlots);
             LogSlots(player, g_CachedSlots);
             g_SlotsDirty = false;
+        }
+
+        {
+            const auto& equip = SurvivalSymptoms::GetEquip(player);
+            for (int i = 0; i < k_SlotCount; ++i) {
+                auto* form = g_CachedSlots[i].form;
+                if (k_Slots[i].type == SlotType::Shout) {
+                    g_CachedSlots[i].symptom = equip.shout.on && form && form->Is(RE::FormType::Shout);
+                } else if (auto* sp = form ? form->As<RE::SpellItem>() : nullptr) {
+                    g_CachedSlots[i].symptom =
+                        !SurvivalSymptoms::GetSkillCauses(player, sp->GetAssociatedSkill()).empty();
+                } else {
+                    g_CachedSlots[i].symptom = HandSymptom(equip, form);
+                }
+            }
         }
 
         {
