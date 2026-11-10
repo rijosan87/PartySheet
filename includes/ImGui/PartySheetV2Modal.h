@@ -18,6 +18,9 @@ namespace PartySheetV2 {
 
     void DrawPassiveTooltip(RE::Actor* actor, const std::string& title, float scale, bool stoneOnly);
 
+    bool HasBlessings(RE::Actor* actor);
+    void DrawBlessingsTooltip(RE::Actor* actor, const std::string& title, float scale);
+
     bool HasStatPassives(RE::Actor* actor, RE::ActorValue pool);
     void DrawStatTooltip(RE::Actor* actor, const std::string& title, RE::ActorValue pool, float scale);
 

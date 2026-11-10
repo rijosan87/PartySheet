@@ -9,6 +9,7 @@
 #include "../../includes/ImGui/PlayerHUDDisease.h"
 #include "../../includes/ImGui/PlayerHUDSurvival.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/ImGui/PartySheetV2Tooltip.h"
 
 #include <imgui.h>
 #include <RE/Skyrim.h>
@@ -139,19 +140,7 @@ namespace PartySheetV2 {
         return buf;
     }
 
-    static bool IsKye2ArmorSource(RE::MagicItem* spell) {
-        if (!spell) return false;
-        auto* file = spell->GetFile(0);
-        if (!file) return false;
-        std::string_view fn = file->GetFilename();
-        constexpr std::string_view kKye2Armors = "know_your_enemy_2_armors.esp";
-        if (fn.size() != kKye2Armors.size()) return false;
-        for (size_t i = 0; i < fn.size(); ++i)
-            if (std::tolower(static_cast<unsigned char>(fn[i])) !=
-                std::tolower(static_cast<unsigned char>(kKye2Armors[i])))
-                return false;
-        return true;
-    }
+    using Tip::IsKye2ArmorSource;
 
     static bool IsStandingStoneSource(RE::SpellItem* sp);
 
@@ -634,9 +623,6 @@ namespace PartySheetV2 {
         const float bodyW = modalW - 40.0f * sc - scrollbarW;
         const float bodyH = (std::max)(1.0f, modalH - (bodyY - wPos.y) - 16.0f * sc);
 
-        auto passiveEntries   = GetPermanentEffects(actor, EffectBucket::Passive);
-        auto equipmentEntries = GetPermanentEffects(actor, EffectBucket::Equipment);
-        auto blessingEntries  = GetPermanentEffects(actor, EffectBucket::Blessing);
         auto activeEntries    = GetActive(actor);
         auto spellSchools     = GetKnownSpells(actor);
         std::vector<PlayerHUDDisease::ActiveDisease> diseaseEntries;
@@ -725,14 +711,11 @@ namespace PartySheetV2 {
         };
 
         static std::string s_none, s_other;
-        static std::string s_secPassive, s_secEquipment, s_secBlessings, s_secActive, s_secSpells, s_secDiseases, s_secNeeds, s_secVitality;
+        static std::string s_secActive, s_secSpells, s_secDiseases, s_secNeeds, s_secVitality;
         static std::string s_schoolAlt, s_schoolConj, s_schoolDest, s_schoolIllu, s_schoolRest;
         if (s_none.empty()) {
             s_none          = LocalizationManager::Get("Common.None");
             s_other         = LocalizationManager::Get("Common.Other");
-            s_secPassive    = LocalizationManager::Get("PartySheetV2.SectionPassive");
-            s_secEquipment  = LocalizationManager::Get("PartySheetV2.SectionEquipment");
-            s_secBlessings  = LocalizationManager::Get("PartySheetV2.SectionBlessings");
             s_secActive     = LocalizationManager::Get("PartySheetV2.SectionActive");
             s_secSpells     = LocalizationManager::Get("PartySheetV2.SectionSpells");
             s_secDiseases   = LocalizationManager::Get("header_disease_status");
@@ -745,483 +728,8 @@ namespace PartySheetV2 {
             s_schoolDest    = LocalizationManager::Get("Skills.Destruction");
             s_schoolIllu    = LocalizationManager::Get("Skills.Illusion");
             s_schoolRest    = LocalizationManager::Get("Skills.Restoration");
-            for (auto* s : { &s_secPassive,&s_secEquipment,&s_secBlessings,&s_secActive,&s_secSpells,&s_secDiseases,&s_secNeeds,&s_secVitality })
+            for (auto* s : { &s_secActive,&s_secSpells,&s_secDiseases,&s_secNeeds,&s_secVitality })
                 for (char& c : *s) c = static_cast<char>(toupper(c));
-        }
-
-        struct StoneLine { std::string text; bool isHostile; };
-        struct StoneCard { std::string title; ID3D11ShaderResourceView* icon = nullptr;
-                           std::vector<StoneLine> lines;
-                           std::string description; };
-        std::vector<StoneCard> stoneCards;
-        std::vector<EffectEntry> plainPassives;
-        for (auto& e : passiveEntries) {
-            if (e.sourceSpell && IsStandingStoneSource(e.sourceSpell)) {
-                const char* sn = e.sourceSpell->GetFullName();
-                std::string title = (sn && sn[0]) ? sn : e.name;
-                auto it = std::find_if(stoneCards.begin(), stoneCards.end(),
-                    [&](const StoneCard& c) { return c.title == title; });
-                if (it == stoneCards.end()) {
-                    StoneCard sCard;
-                    sCard.title = title;
-                    sCard.icon  = TextureManager::GetPartyIcon("standing_stone");
-                    sCard.description = ResolveStoneDescription(e.sourceSpell);
-                    it = stoneCards.insert(stoneCards.end(), std::move(sCard));
-                }
-                if (it->description.empty()) {
-                    std::string lineTxt = StoneLineText(e, title);
-                    if (!e.valStr.empty()) { lineTxt += " "; lineTxt += e.valStr; }
-                    bool dup = std::any_of(it->lines.begin(), it->lines.end(),
-                        [&](const StoneLine& l) { return l.text == lineTxt; });
-                    if (!dup) it->lines.push_back({ std::move(lineTxt), e.isHostile });
-                }
-            } else {
-                plainPassives.push_back(e);
-            }
-        }
-
-        DrawSectionHeader(s_secPassive.c_str());
-        if (!stoneCards.empty()) {
-            static ID3D11ShaderResourceView* s_TexStone = nullptr;
-            if (!s_TexStone) s_TexStone = TextureManager::GetPartyIcon("magic");
-            const int   cols     = 2;
-            const float colGap   = 10.0f * sc;
-            const float rowGap   = 8.0f  * sc;
-            const float cardW    = (bodyW - colGap * (cols - 1)) / cols;
-            const float iconSz   = 48.0f * sc;
-            const float iconPad  = 6.0f  * sc;
-            const float textGapX = 10.0f * sc;
-            const float lineGap  = 2.0f  * sc;
-
-            ImGui::SetWindowFontScale(FontBody());
-            const float titleH = ImGui::GetTextLineHeight();
-            ImGui::SetWindowFontScale(FontSmall());
-            const float subH   = ImGui::GetTextLineHeight();
-            ImGui::SetWindowFontScale(1.0f);
-
-            const float textMaxW = cardW - (iconPad + iconSz + textGapX) - 6.0f * sc;
-
-            ImGui::SetWindowFontScale(FontSmall());
-            const float subFs = ImGui::GetFontSize();
-            ImFont* subFont = ImGui::GetFont();
-            std::vector<float> bodyH(stoneCards.size(), 0.0f);
-            float maxBodyH = 0.0f;
-            for (size_t i = 0; i < stoneCards.size(); ++i) {
-                const auto& sCard = stoneCards[i];
-                float h;
-                if (!sCard.description.empty())
-                    h = subFont->CalcTextSizeA(subFs, FLT_MAX, textMaxW, sCard.description.c_str()).y;
-                else
-                    h = (std::max)(size_t(1), sCard.lines.size()) * (lineGap + subH);
-                bodyH[i] = h;
-                maxBodyH = (std::max)(maxBodyH, h);
-            }
-            ImGui::SetWindowFontScale(1.0f);
-            const float textStackH = titleH + lineGap + maxBodyH;
-            const float cardH = (std::max)(iconSz, textStackH) + 10.0f * sc;
-
-            ImVec2 origin = ImGui::GetCursorScreenPos();
-            int n = static_cast<int>(stoneCards.size());
-            int gridRows = (n + cols - 1) / cols;
-
-            for (int i = 0; i < n; ++i) {
-                const auto& sCard = stoneCards[i];
-                int r = i / cols, c = i % cols;
-                float cx = origin.x + c * (cardW + colGap);
-                float cy = origin.y + r * (cardH + rowGap);
-
-                cdl->AddRectFilled(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    IM_COL32(22, 22, 30, 200), 3.0f);
-                cdl->AddRect(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    kBorderDim, 3.0f, 0, 1.0f);
-
-                float iconX = cx + iconPad;
-                float iconY = cy + (cardH - iconSz) * 0.5f;
-                ID3D11ShaderResourceView* tex = sCard.icon ? sCard.icon : s_TexStone;
-                if (tex)
-                    HUDDraw::DrawIconStyled(cdl, ImVec2(iconX, iconY), iconSz,
-                        reinterpret_cast<ImTextureID>(tex), 0xFFFFFFFF, IconFxDefault());
-
-                float blockH = titleH + lineGap + bodyH[i];
-                float textX = iconX + iconSz + textGapX;
-                float ty = cy + (cardH - blockH) * 0.5f;
-
-                cdl->PushClipRect(ImVec2(textX, cy), ImVec2(textX + textMaxW, cy + cardH), true);
-                ImGui::SetWindowFontScale(FontBody());
-                cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                    ImVec2(textX, ty), kTextMain, sCard.title.c_str());
-                ty += titleH + lineGap;
-                ImGui::SetWindowFontScale(FontSmall());
-                if (!sCard.description.empty()) {
-                    cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                        ImVec2(textX, ty), kTextMain, sCard.description.c_str(), nullptr, textMaxW);
-                } else {
-                    for (const auto& ln : sCard.lines) {
-                        cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                            ImVec2(textX, ty), ln.isHostile ? kDebuff : kBuff, ln.text.c_str());
-                        ty += lineGap + subH;
-                    }
-                }
-                cdl->PopClipRect();
-                ImGui::SetWindowFontScale(1.0f);
-            }
-
-            ImGui::Dummy(ImVec2(bodyW, gridRows * cardH + (gridRows - 1) * rowGap + 6.0f * sc));
-            if (!plainPassives.empty()) ImGui::Dummy(ImVec2(bodyW, 4.0f * sc));
-        }
-        if (plainPassives.empty() && stoneCards.empty()) {
-            ImVec2 rp = ImGui::GetCursorScreenPos();
-            ImGui::SetWindowFontScale(FontSmall());
-            cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(rp.x + 4.0f * sc, rp.y), kTextMuted, s_none.c_str());
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::Dummy(ImVec2(bodyW, rowH));
-        } else if (!plainPassives.empty()) {
-            const int   cols     = 2;
-            const float colGap   = 10.0f * sc;
-            const float rowGap   = 8.0f  * sc;
-            const float cardW    = (bodyW - colGap * (cols - 1)) / cols;
-            const float iconSz   = 48.0f * sc;
-            const float iconPad  = 6.0f  * sc;
-            const float textGapX = 10.0f * sc;
-            const float lineGap  = 2.0f  * sc;
-
-            ImGui::SetWindowFontScale(FontBody());
-            float titleH = ImGui::GetTextLineHeight();
-            ImGui::SetWindowFontScale(FontSmall());
-            float subH   = ImGui::GetTextLineHeight();
-            ImGui::SetWindowFontScale(1.0f);
-            bool anyVal = false;
-            for (const auto& e : plainPassives) if (!e.valStr.empty()) { anyVal = true; break; }
-            const float textStackH = titleH + (anyVal ? lineGap + subH : 0.0f);
-            const float cardH    = (std::max)(iconSz, textStackH) + 10.0f * sc;
-
-            ImVec2 origin = ImGui::GetCursorScreenPos();
-            int n = static_cast<int>(plainPassives.size());
-            int gridRows = (n + cols - 1) / cols;
-
-            for (int i = 0; i < n; ++i) {
-                const auto& e = plainPassives[i];
-                int r = i / cols, c = i % cols;
-                float cx = origin.x + c * (cardW + colGap);
-                float cy = origin.y + r * (cardH + rowGap);
-
-                cdl->AddRectFilled(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    IM_COL32(22, 22, 30, 200), 3.0f);
-                cdl->AddRect(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    kBorderDim, 3.0f, 0, 1.0f);
-
-                float iconX = cx + iconPad;
-                float iconY = cy + (cardH - iconSz) * 0.5f;
-                if (auto* tex = ResolveMagicIcon(e.sourceSpell))
-                    HUDDraw::DrawIconStyled(cdl, ImVec2(iconX, iconY), iconSz,
-                        reinterpret_cast<ImTextureID>(tex), 0xFFFFFFFF, IconFxDefault());
-
-                float blockH = titleH + (e.valStr.empty() ? 0.0f : lineGap + subH);
-                float textX = iconX + iconSz + textGapX;
-                float textMaxW = (cx + cardW) - textX - 6.0f * sc;
-                float ty = cy + (cardH - blockH) * 0.5f;
-
-                cdl->PushClipRect(ImVec2(textX, cy), ImVec2(textX + textMaxW, cy + cardH), true);
-                ImGui::SetWindowFontScale(FontBody());
-                cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                    ImVec2(textX, ty), kTextMain, e.name.c_str());
-                if (!e.valStr.empty()) {
-                    ImGui::SetWindowFontScale(FontSmall());
-                    ImU32 valCol = e.isHostile ? kDebuff : kBuff;
-                    cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                        ImVec2(textX, ty + titleH + lineGap), valCol, e.valStr.c_str());
-                }
-                cdl->PopClipRect();
-                ImGui::SetWindowFontScale(1.0f);
-            }
-
-            ImGui::Dummy(ImVec2(bodyW, gridRows * cardH + (gridRows - 1) * rowGap + 6.0f * sc));
-        }
-
-        DrawSectionHeader(s_secEquipment.c_str());
-        static ID3D11ShaderResourceView* s_TexEquipArmor = nullptr;
-        if (!s_TexEquipArmor) s_TexEquipArmor = TextureManager::GetPartyIcon("armor");
-        struct EffectSeg { std::string text; bool isHostile = false; };
-        struct EquipCard {
-            ID3D11ShaderResourceView* icon = nullptr;
-            std::string title;
-            std::vector<EffectSeg> effects;
-        };
-        auto pushSeg = [](std::vector<EffectSeg>& segs, const std::string& name,
-                          const std::string& val, bool isHostile) {
-            if (name.empty()) return;
-            std::string t = name;
-            if (!val.empty()) { t += " "; t += val; }
-            segs.push_back({ std::move(t), isHostile });
-        };
-
-        std::vector<EquipCard> cards;
-        std::unordered_set<std::string> wornEffectNames;
-
-        {
-            struct SlotDef { RE::BIPED_MODEL::BipedObjectSlot slot; const char* hint; };
-            static const SlotDef kSlots[] = {
-                { RE::BIPED_MODEL::BipedObjectSlot::kHead,   "type_helmet"    },
-                { RE::BIPED_MODEL::BipedObjectSlot::kBody,   "type_cuirass"   },
-                { RE::BIPED_MODEL::BipedObjectSlot::kFeet,   "type_boots"     },
-                { RE::BIPED_MODEL::BipedObjectSlot::kHands,  "type_gauntlets" },
-                { RE::BIPED_MODEL::BipedObjectSlot::kShield, "shield"         },
-                { RE::BIPED_MODEL::BipedObjectSlot::kAmulet, "type_amulet"    },
-                { RE::BIPED_MODEL::BipedObjectSlot::kRing,   "type_ring"      },
-            };
-            for (const auto& sd : kSlots) {
-                auto* armor = actor->GetWornArmor(sd.slot);
-                if (!armor) continue;
-                auto* ench = armor->As<RE::TESEnchantableForm>();
-                if (!ench || !ench->formEnchanting) continue;
-
-                EquipCard card;
-                const char* an = armor->GetName();
-                card.title = (an && an[0]) ? an : "Equipment";
-                card.icon  = TextureManager::GetItemIcon(armor, sd.hint);
-
-                for (auto* eff : ench->formEnchanting->effects) {
-                    if (!eff || !eff->baseEffect) continue;
-                    auto* base = eff->baseEffect;
-                    if (base->data.flags.any(RE::EffectSetting::EffectSettingData::Flag::kHideInUI))
-                        continue;
-                    const char* en = base->GetFullName();
-                    if (!en || !en[0]) continue;
-                    float mag = std::abs(eff->effectItem.magnitude);
-                    bool isHostile = base->IsHostile() || base->IsDetrimental();
-                    bool isPct = EffectCategories::IsPercentageMagnitude(base->data.primaryAV);
-                    if (isPct && mag > 0.0f && mag < 1.0f) mag *= 100.0f;
-                    std::string val = FormatMagnitude(mag, base->data.primaryAV, isHostile);
-                    pushSeg(card.effects, en, val, isHostile);
-                    wornEffectNames.insert(en);
-                }
-                cards.push_back(std::move(card));
-            }
-        }
-        size_t wornCardCount = cards.size();
-
-        {
-            for (auto& e : equipmentEntries) {
-                bool isKye2 = IsKye2ArmorSource(e.sourceSpell);
-                std::string title = e.source.empty() ? e.name : e.source;
-                if (!isKye2 && wornEffectNames.count(e.name)) continue;
-
-                auto it = std::find_if(cards.begin() + wornCardCount, cards.end(),
-                    [&](const EquipCard& c) { return c.title == title; });
-                if (it == cards.end()) {
-                    EquipCard c;
-                    c.title = title;
-                    c.icon  = isKye2 ? (s_TexEquipArmor ? s_TexEquipArmor : ResolveMagicIcon(e.sourceSpell))
-                                     : ResolveMagicIcon(e.sourceSpell);
-                    pushSeg(c.effects, e.name, e.valStr, e.isHostile);
-                    cards.push_back(std::move(c));
-                } else {
-                    pushSeg(it->effects, e.name, e.valStr, e.isHostile);
-                }
-            }
-        }
-
-        if (cards.empty()) {
-            ImVec2 rp = ImGui::GetCursorScreenPos();
-            ImGui::SetWindowFontScale(FontSmall());
-            cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(rp.x + 4.0f * sc, rp.y), kTextMuted, s_none.c_str());
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::Dummy(ImVec2(bodyW, rowH));
-        } else {
-            const int   cols     = 2;
-            const float colGap   = 10.0f * sc;
-            const float rowGap   = 8.0f  * sc;
-            const float cardW    = (bodyW - colGap * (cols - 1)) / cols;
-            const float iconSz   = 48.0f * sc;
-            const float iconPad  = 6.0f  * sc;
-            const float textGapX = 10.0f * sc;
-            const float subGap   = 2.0f  * sc;
-
-            const float textMaxW = cardW - (iconPad + iconSz + textGapX) - 6.0f * sc;
-
-            ImGui::SetWindowFontScale(FontBody());
-            const float titleH   = ImGui::GetTextLineHeight();
-            ImGui::SetWindowFontScale(1.0f);
-
-            auto drawSegs = [&](ImDrawList* cdl_, ImFont* fnt, float fs,
-                                const std::vector<EffectSeg>& segs,
-                                float x0, float y0, float wrapW, bool draw) -> float {
-                const float lineH = fs;
-                float cx = x0, cy = y0;
-                bool lineStart = true;
-                for (size_t si = 0; si < segs.size(); ++si) {
-                    ImU32 col = segs[si].isHostile ? kDebuff : kBuff;
-                    std::string piece = segs[si].text;
-                    if (si + 1 < segs.size()) piece += ", ";
-                    const char* s   = piece.c_str();
-                    const char* end = s + piece.size();
-                    while (s < end) {
-                        const char* ws = s;
-                        while (ws < end && *ws != ' ') ++ws;
-                        while (ws < end && *ws == ' ') ++ws;
-                        float w = fnt->CalcTextSizeA(fs, FLT_MAX, 0.0f, s, ws).x;
-                        if (!lineStart && cx + w > x0 + wrapW) { cx = x0; cy += lineH; lineStart = true; }
-                        if (draw && cdl_) cdl_->AddText(fnt, fs, ImVec2(cx, cy), col, s, ws);
-                        cx += w;
-                        lineStart = false;
-                        s = ws;
-                    }
-                }
-                return (cy - y0) + lineH;
-            };
-
-            float maxSubH = 0.0f;
-            std::vector<float> subHeights(cards.size(), 0.0f);
-            {
-                ImGui::SetWindowFontScale(FontSmall());
-                float fs = ImGui::GetFontSize();
-                ImFont* fnt = ImGui::GetFont();
-                for (size_t i = 0; i < cards.size(); ++i) {
-                    if (cards[i].effects.empty()) continue;
-                    float h = drawSegs(nullptr, fnt, fs, cards[i].effects,
-                                       0.0f, 0.0f, textMaxW, /*draw=*/false);
-                    subHeights[i] = h;
-                    maxSubH = (std::max)(maxSubH, h);
-                }
-                ImGui::SetWindowFontScale(1.0f);
-            }
-            const float textStackH = titleH + (maxSubH > 0.0f ? subGap + maxSubH : 0.0f);
-            const float cardH      = (std::max)(iconSz, textStackH) + 10.0f * sc;
-
-            ImVec2 origin = ImGui::GetCursorScreenPos();
-            int n = static_cast<int>(cards.size());
-            int gridRows = (n + cols - 1) / cols;
-
-            for (int i = 0; i < n; ++i) {
-                const auto& ec = cards[i];
-                int r = i / cols, c = i % cols;
-                float cx = origin.x + c * (cardW + colGap);
-                float cy = origin.y + r * (cardH + rowGap);
-
-                cdl->AddRectFilled(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    IM_COL32(22, 22, 30, 200), 3.0f);
-                cdl->AddRect(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    kBorderDim, 3.0f, 0, 1.0f);
-
-                float iconX = cx + iconPad;
-                float iconY = cy + (cardH - iconSz) * 0.5f;
-                ID3D11ShaderResourceView* iconTex = ec.icon ? ec.icon : s_TexEquipArmor;
-                DrawIconFit(cdl, iconTex, iconX, iconY, iconSz);
-
-                float thisBlockH = titleH + (subHeights[i] > 0.0f ? subGap + subHeights[i] : 0.0f);
-                float tx = iconX + iconSz + textGapX;
-                float ty = cy + (cardH - thisBlockH) * 0.5f;
-
-                cdl->PushClipRect(ImVec2(tx, cy), ImVec2(tx + textMaxW, cy + cardH), true);
-                ImGui::SetWindowFontScale(FontBody());
-                cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                    ImVec2(tx, ty), kTextMain, ec.title.c_str());
-                if (!ec.effects.empty()) {
-                    ImGui::SetWindowFontScale(FontSmall());
-                    drawSegs(cdl, ImGui::GetFont(), ImGui::GetFontSize(), ec.effects,
-                             tx, ty + titleH + subGap, textMaxW, /*draw=*/true);
-                }
-                cdl->PopClipRect();
-                ImGui::SetWindowFontScale(1.0f);
-            }
-
-            ImGui::Dummy(ImVec2(bodyW, gridRows * cardH + (gridRows - 1) * rowGap + 6.0f * sc));
-        }
-
-        DrawSectionHeader(s_secBlessings.c_str());
-        if (blessingEntries.empty()) {
-            ImVec2 rp = ImGui::GetCursorScreenPos();
-            ImGui::SetWindowFontScale(FontSmall());
-            cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(rp.x + 4.0f * sc, rp.y), kTextMuted, s_none.c_str());
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::Dummy(ImVec2(bodyW, rowH));
-        } else {
-            struct BlessingCard {
-                RE::SpellItem* spell = nullptr;
-                std::string    title;
-                std::string    subtitle;
-            };
-            auto appendEffect = [](std::string& sub, const EffectEntry& e) {
-                if (e.name.empty()) return;
-                if (!sub.empty()) sub += ", ";
-                sub += e.name;
-                if (!e.valStr.empty()) { sub += " "; sub += e.valStr; }
-            };
-            std::vector<BlessingCard> cards;
-            for (auto& e : blessingEntries) {
-                auto it = std::find_if(cards.begin(), cards.end(), [&](const BlessingCard& c) {
-                    return (e.sourceSpell && c.spell == e.sourceSpell) ||
-                           (!e.sourceSpell && c.title == (e.source.empty() ? e.name : e.source));
-                });
-                if (it == cards.end()) {
-                    BlessingCard c;
-                    c.spell = e.sourceSpell;
-                    c.title = e.source.empty() ? e.name : e.source;
-                    appendEffect(c.subtitle, e);
-                    cards.push_back(std::move(c));
-                } else {
-                    appendEffect(it->subtitle, e);
-                }
-            }
-
-            const int   cols     = 2;
-            const float colGap   = 10.0f * sc;
-            const float rowGap   = 8.0f  * sc;
-            const float cardW    = (bodyW - colGap * (cols - 1)) / cols;
-            const float iconSz   = 48.0f * sc;
-            const float cardH    = iconSz + 10.0f * sc;
-            const float iconPad  = 6.0f  * sc;
-            const float textGapX = 10.0f * sc;
-
-            ImVec2 origin = ImGui::GetCursorScreenPos();
-            int n = static_cast<int>(cards.size());
-            int gridRows = (n + cols - 1) / cols;
-
-            for (int i = 0; i < n; ++i) {
-                const auto& bc = cards[i];
-                int r = i / cols, c = i % cols;
-                float cx = origin.x + c * (cardW + colGap);
-                float cy = origin.y + r * (cardH + rowGap);
-
-                cdl->AddRectFilled(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    IM_COL32(22, 22, 30, 200), 3.0f);
-                cdl->AddRect(ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH),
-                    kBorderDim, 3.0f, 0, 1.0f);
-
-                float iconX = cx + iconPad;
-                float iconY = cy + (cardH - iconSz) * 0.5f;
-                if (auto* tex = ResolveBlessingIcon(bc.spell))
-                    HUDDraw::DrawIconStyled(cdl, ImVec2(iconX, iconY), iconSz,
-                        reinterpret_cast<ImTextureID>(tex), 0xFFFFFFFF, IconFxDefault());
-
-                ImGui::SetWindowFontScale(FontBody());
-                float titleH = ImGui::GetTextLineHeight();
-                ImGui::SetWindowFontScale(FontSmall());
-                float subH   = ImGui::GetTextLineHeight();
-                ImGui::SetWindowFontScale(1.0f);
-
-                float textBlockH = titleH + (bc.subtitle.empty() ? 0.0f : (subH + 2.0f * sc));
-                float textX = iconX + iconSz + textGapX;
-                float textY = cy + (cardH - textBlockH) * 0.5f;
-                float textMaxW = (cx + cardW) - textX - 6.0f * sc;
-
-                ImGui::SetWindowFontScale(FontBody());
-                cdl->PushClipRect(ImVec2(textX, cy), ImVec2(textX + textMaxW, cy + cardH), true);
-                cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                    ImVec2(textX, textY), kTextMain, bc.title.c_str());
-                if (!bc.subtitle.empty()) {
-                    ImGui::SetWindowFontScale(FontSmall());
-                    cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                        ImVec2(textX, textY + titleH + 2.0f * sc), kTextMuted, bc.subtitle.c_str());
-                }
-                cdl->PopClipRect();
-                ImGui::SetWindowFontScale(1.0f);
-            }
-
-            ImGui::Dummy(ImVec2(bodyW, gridRows * cardH + (gridRows - 1) * rowGap + 6.0f * sc));
         }
 
         DrawSectionHeader(s_secActive.c_str());
@@ -1685,96 +1193,9 @@ namespace PartySheetV2 {
         ImGui::End();
     }
 
-    struct TipLine { std::string text; ImU32 col; };
-    struct TipRow  {
-        ID3D11ShaderResourceView* icon = nullptr;
-        std::string name, type;
-        std::vector<TipLine> lines;
-        int tone = 0;
-    };
-
-    static void DrawCompactTooltip(const std::string& title, const std::vector<TipRow>& rows,
-                                   const std::string& emptyText, float sc) {
-        auto* s = Settings::GetSingleton();
-        const float fBody  = s->psV2FontBody  * sc;
-        const float fSmall = s->psV2FontSmall * sc;
-        const float iconSz  = 32.0f * sc;
-        const float textGap = 10.0f * sc;
-        const float rowGap  = 8.0f  * sc;
-        const float lineGap = 2.0f  * sc;
-        const float wrapW   = 300.0f * sc;
-
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, IM_COL32(20, 23, 29, 245));
-        ImGui::PushStyleColor(ImGuiCol_Border,  kBorderDim);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f * sc, 10.0f * sc));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(0.0f, 0.0f));
-        ImGui::BeginTooltip();
-        ImDrawList* tdl = ImGui::GetWindowDrawList();
-        ImFont* font = ImGui::GetFont();
-        const float baseSz = ImGui::GetFontSize();
-        auto Measure = [&](float scale, const std::string& t, float wrap = 0.0f) {
-            return font->CalcTextSizeA(baseSz * scale, FLT_MAX, wrap, t.c_str());
-        };
-
-        float rowW = Measure(fSmall, title).x;
-        for (const auto& r : rows) {
-            float w = Measure(fBody, r.name).x;
-            if (!r.type.empty()) w += textGap * 0.5f + Measure(fSmall, r.type).x;
-            for (const auto& l : r.lines) w = (std::max)(w, (std::min)(Measure(fSmall, l.text).x, wrapW));
-            rowW = (std::max)(rowW, iconSz + textGap + w);
-        }
-        if (rows.empty()) rowW = (std::max)(rowW, Measure(fSmall, emptyText).x);
-        const float textW = rowW - iconSz - textGap;
-
-        ImVec2 p = ImGui::GetCursorScreenPos();
-        const float subH = Measure(fSmall, "A").y;
-        tdl->AddText(font, baseSz * fSmall, p, kAccent, title.c_str());
-        float ruleY = p.y + subH + 4.0f * sc;
-        tdl->AddLine(ImVec2(p.x, ruleY), ImVec2(p.x + rowW, ruleY), IM_COL32(212, 175, 55, 70), 1.0f);
-        ImGui::Dummy(ImVec2(rowW, subH + 10.0f * sc));
-
-        if (rows.empty()) {
-            ImVec2 ep = ImGui::GetCursorScreenPos();
-            tdl->AddText(font, baseSz * fSmall, ep, kTextMuted, emptyText.c_str());
-            ImGui::Dummy(ImVec2(rowW, subH));
-        }
-
-        const float titleH = Measure(fBody, "A").y;
-        for (size_t i = 0; i < rows.size(); ++i) {
-            const auto& r = rows[i];
-            float textH = titleH;
-            for (const auto& l : r.lines) textH += lineGap + Measure(fSmall, l.text, textW).y;
-            const float rowH = (std::max)(iconSz, textH);
-            ImVec2 rp = ImGui::GetCursorScreenPos();
-            if (r.tone != 0)
-                tdl->AddRectFilled(ImVec2(rp.x - 8.0f * sc, rp.y + 2.0f * sc),
-                    ImVec2(rp.x - 5.0f * sc, rp.y + rowH - 2.0f * sc),
-                    r.tone > 0 ? kBuff : kDebuff, 1.0f * sc);
-            if (r.icon)
-                HUDDraw::DrawIconStyled(tdl, ImVec2(rp.x, rp.y + (rowH - iconSz) * 0.5f), iconSz,
-                    reinterpret_cast<ImTextureID>(r.icon), 0xFFFFFFFF, IconFxDefault());
-
-            float tx = rp.x + iconSz + textGap;
-            float ty = rp.y + (rowH - textH) * 0.5f;
-            tdl->AddText(font, baseSz * fBody, ImVec2(tx, ty), kTextMain, r.name.c_str());
-            if (!r.type.empty()) {
-                float nameW = Measure(fBody, r.name).x;
-                tdl->AddText(font, baseSz * fSmall, ImVec2(tx + nameW + textGap * 0.5f, ty + titleH - subH),
-                    kTextMuted, r.type.c_str());
-            }
-            ty += titleH;
-            for (const auto& l : r.lines) {
-                ty += lineGap;
-                tdl->AddText(font, baseSz * fSmall, ImVec2(tx, ty), l.col, l.text.c_str(), nullptr, textW);
-                ty += Measure(fSmall, l.text, textW).y;
-            }
-            ImGui::Dummy(ImVec2(rowW, rowH + (i + 1 < rows.size() ? rowGap : 0.0f)));
-        }
-
-        ImGui::EndTooltip();
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor(2);
-    }
+    using Tip::TipLine;
+    using Tip::TipRow;
+    using Tip::DrawCompactTooltip;
 
     void DrawRaceTooltip(RE::Actor* actor, float sc) {
         auto entries = GetRaceAbilities(actor);
@@ -1909,7 +1330,11 @@ namespace PartySheetV2 {
             }
 
             r.tone = hostile ? -1 : 1;
-            r.lines.push_back({ FormatMagnitude(mag, av, hostile), hostile ? kDebuff : kBuff });
+            std::string val;
+            if (av != pool && EffectCategories::GetSkillTarget(pool) == pool)
+                val = Tip::DescribeEffect(base, mag, ae->duration, hostile);
+            if (val.empty()) val = FormatMagnitude(mag, av, hostile);
+            r.lines.push_back({ std::move(val), hostile ? kDebuff : kBuff });
 
             auto it = std::find_if(rows.begin(), rows.end(), [&](const TipRow& x) {
                 return x.name == r.name && x.tone == r.tone; });
@@ -1971,6 +1396,57 @@ namespace PartySheetV2 {
         if (stone) rows.push_back(std::move(stoneRow));
         for (auto& r : plain) rows.push_back(std::move(r));
         DrawCompactTooltip(title, rows, s_noneTxt, sc);
+    }
+
+    bool HasBlessings(RE::Actor* actor) {
+        return !GetPermanentEffects(actor, EffectBucket::Blessing).empty();
+    }
+
+    void DrawBlessingsTooltip(RE::Actor* actor, const std::string& title, float sc) {
+        auto entries = GetPermanentEffects(actor, EffectBucket::Blessing);
+        if (entries.empty()) return;
+
+        auto TimeLeft = [actor](RE::SpellItem* sp) -> float {
+            float best = -1.0f;
+            auto* mt   = actor->AsMagicTarget();
+            auto* list = mt ? mt->GetActiveEffectList() : nullptr;
+            if (!sp || !list) return best;
+            for (auto* ae : *list)
+                if (ae && ae->spell == sp && ae->duration > 0.0f)
+                    best = (std::max)(best, ae->duration - ae->elapsedSeconds);
+            return best;
+        };
+
+        std::vector<TipRow> rows;
+        for (auto& e : entries) {
+            const std::string name = e.source.empty() ? e.name : e.source;
+            size_t k = 0;
+            for (; k < rows.size(); ++k)
+                if (rows[k].name == name) break;
+            if (k == rows.size()) {
+                TipRow r;
+                r.icon = ResolveBlessingIcon(e.sourceSpell);
+                r.name = name;
+                r.tone = 1;
+                float left = TimeLeft(e.sourceSpell);
+                if (left > 0.0f) r.type = FormatTimeLeft(left);
+                rows.push_back(std::move(r));
+            }
+            TipLine line;
+            if (!e.valStr.empty() && !e.name.empty()) {
+                line = { e.name + " " + e.valStr, e.isHostile ? kDebuff : kBuff };
+            } else if (e.mgef && e.mgef->magicItemDescription.c_str() && e.mgef->magicItemDescription.c_str()[0]) {
+                std::string d = e.mgef->magicItemDescription.c_str();
+                d.erase(std::remove_if(d.begin(), d.end(), [](char c) { return c == '<' || c == '>'; }), d.end());
+                line = { std::move(d), kTextMuted };
+            } else {
+                continue;
+            }
+            auto& ls = rows[k].lines;
+            if (std::none_of(ls.begin(), ls.end(), [&](const TipLine& l) { return l.text == line.text; }))
+                ls.push_back(std::move(line));
+        }
+        DrawCompactTooltip(title, rows, {}, sc);
     }
 
     namespace {
