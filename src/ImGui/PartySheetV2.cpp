@@ -19,6 +19,7 @@
 #include "../../includes/PerfStats.h"
 #include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/Utils/SkillRowTint.h"
+#include "../../includes/Utils/EffectAttribution.h"
 
 #include <imgui.h>
 #include <cstring>
@@ -534,7 +535,7 @@ namespace PartySheetV2 {
             bool midMuted = false;
             if (auto* race = actor->GetRace(); race && race->GetFullName()) raceWord = Upper(race->GetFullName());
             if (isPlayer) {
-                auto* stone = GetStandingStone(actor);
+                auto* stone = EffectAttribution::GetStandingStone(actor);
                 if (stone) midWord = Upper(LocalizationManager::Get("PartySheetV2.StoneLabel"));
                 else { midWord = Upper(LocalizationManager::Get("PartySheetV2.NoStone")); midMuted = true; }
                 midTitle = Upper(LocalizationManager::Get("PartySheetV2.StandingStone"));
@@ -855,11 +856,11 @@ namespace PartySheetV2 {
         const float labelGap = 6.0f  * sc;
         ActorStats stats     = GetActorStats(actor);
 
-        struct VitalDef { std::string label; float cur; float max; ImU32 color; RE::ActorValue av; float mod; float regen; RE::ActorValue rateAV; };
+        struct VitalDef { std::string label; VitalReadout v; ImU32 color; RE::ActorValue av; RE::ActorValue rateAV; };
         VitalDef vitals[3] = {
-            { LocalizationManager::Get("Stats.Health"),  stats.health.current,  stats.health.GetMax(),  kTheme.hp, RE::ActorValue::kHealth,  stats.health.perm  + stats.health.temp,  stats.healthRegen,  RE::ActorValue::kHealRate },
-            { LocalizationManager::Get("Stats.Stamina"), stats.stamina.current, stats.stamina.GetMax(), kTheme.sp, RE::ActorValue::kStamina, stats.stamina.perm + stats.stamina.temp, stats.staminaRegen, RE::ActorValue::kStaminaRate },
-            { LocalizationManager::Get("Stats.Magicka"), stats.magicka.current, stats.magicka.GetMax(), kTheme.mp, RE::ActorValue::kMagicka, stats.magicka.perm + stats.magicka.temp, stats.magickaRegen, RE::ActorValue::kMagickaRate },
+            { LocalizationManager::Get("Stats.Health"),  GetVital(actor, stats, RE::ActorValue::kHealth),  kTheme.hp, RE::ActorValue::kHealth,  RE::ActorValue::kHealRate },
+            { LocalizationManager::Get("Stats.Magicka"), GetVital(actor, stats, RE::ActorValue::kMagicka), kTheme.mp, RE::ActorValue::kMagicka, RE::ActorValue::kMagickaRate },
+            { LocalizationManager::Get("Stats.Stamina"), GetVital(actor, stats, RE::ActorValue::kStamina), kTheme.sp, RE::ActorValue::kStamina, RE::ActorValue::kStaminaRate },
         };
         int hoveredRegen = -1;
         static constexpr ImU32 kPenaltyRed = IM_COL32(220, 80, 80, 255);
@@ -878,11 +879,11 @@ namespace PartySheetV2 {
             ImGui::SetWindowFontScale(FontBody());
             ImVec2 labelSz = ImGui::CalcTextSize(vt.label.c_str());
 
-            const bool  reduced = vt.mod <= -0.5f;
-            const float lost    = reduced ? -vt.mod : 0.0f;
+            const bool  reduced = vt.v.bonus <= -0.5f;
+            const float lost    = vt.v.lost > 0.5f ? vt.v.lost : 0.0f;
             char curBuf[16], maxBuf[16];
-            snprintf(curBuf, sizeof(curBuf), "%.0f / ", vt.cur);
-            snprintf(maxBuf, sizeof(maxBuf), "%.0f", vt.max);
+            snprintf(curBuf, sizeof(curBuf), "%.0f / ", vt.v.current);
+            snprintf(maxBuf, sizeof(maxBuf), "%.0f", vt.v.FullMax());
             const float curW = ImGui::CalcTextSize(curBuf).x;
             ImVec2 valSz = ImGui::CalcTextSize(maxBuf);
             valSz.x += curW;
@@ -918,14 +919,14 @@ namespace PartySheetV2 {
             dl->AddRectFilled(bMin, bMax, IM_COL32(0, 0, 0, 130), 2.0f * sc);
             dl->AddRect(bMin, bMax, IM_COL32(255, 255, 255, 15), 2.0f * sc, 0, 1.0f);
 
-            const float full    = vt.max + lost;
-            const float usableW = (full > 0.0f) ? vitalW * (vt.max / full) : vitalW;
-            if (reduced && usableW < vitalW) {
+            const float full    = vt.v.max + lost;
+            const float usableW = (full > 0.0f) ? vitalW * (vt.v.max / full) : vitalW;
+            if (lost > 0.0f && usableW < vitalW) {
                 dl->AddRectFilled(ImVec2(vx + usableW, barY), bMax, IM_COL32(220, 80, 80, 110), 2.0f * sc);
                 dl->AddLine(ImVec2(vx + usableW, barY - 1.0f * sc), ImVec2(vx + usableW, barY + barH + 1.0f * sc),
                     kPenaltyRed, 1.5f * sc);
             }
-            float pct = (vt.max > 0.0f) ? std::clamp(vt.cur / vt.max, 0.0f, 1.0f) : 0.0f;
+            float pct = (vt.v.max > 0.0f) ? std::clamp(vt.v.current / vt.v.max, 0.0f, 1.0f) : 0.0f;
             if (pct > 0.0f) {
                 ImVec2 fMax(vx + usableW * pct, barY + barH);
                 dl->AddRectFilled(bMin, fMax, vt.color, 2.0f * sc);
@@ -936,7 +937,7 @@ namespace PartySheetV2 {
             }
 
             {
-                const float perSec = vt.max * (vt.regen / 100.0f);
+                const float perSec = vt.v.regenPerSec;
                 char rBuf[24];
                 snprintf(rBuf, sizeof(rBuf), "%+.1f/s", perSec);
                 ImGui::SetWindowFontScale(FontSmall());
@@ -1890,8 +1891,7 @@ namespace PartySheetV2 {
             return b->IsHostile() || b->IsDetrimental() || mag < 0.0f;
         };
 
-        auto* mt   = actor->AsMagicTarget();
-        auto* list = mt ? mt->GetActiveEffectList() : nullptr;
+        const auto& records = EffectAttribution::Get(actor);
 
         if (spell) {
             for (auto* eff : spell->effects)
@@ -1900,14 +1900,10 @@ namespace PartySheetV2 {
                             static_cast<float>(eff->effectItem.duration), kTextMuted);
         } else {
             bool fromLive = false;
-            if (list && !weap) {
-                for (auto* ae : *list) {
-                    if (!ae || ae->source != form) continue;
-                    if (ae->flags.any(RE::ActiveEffect::Flag::kDispelled) ||
-                        ae->flags.any(RE::ActiveEffect::Flag::kInactive)) continue;
-                    auto* base = ae->GetBaseObject();
-                    if (!base) continue;
-                    AddLine(item, base, ae->magnitude, 0.0f, IsBad(base, ae->magnitude) ? kDebuff : kBuff);
+            if (!weap) {
+                for (const auto& rec : records) {
+                    if (rec.item != form) continue;
+                    AddLine(item, rec.mgef, rec.rawMagnitude, 0.0f, rec.hostile ? kDebuff : kBuff);
                     fromLive = true;
                 }
             }
@@ -1932,16 +1928,13 @@ namespace PartySheetV2 {
         std::vector<TipRow> rows;
         rows.push_back(std::move(item));
 
-        if (bodySlot && list) {
+        if (bodySlot) {
             static ID3D11ShaderResourceView* s_TexArmorIco = nullptr;
             if (!s_TexArmorIco) s_TexArmorIco = TextureManager::GetPartyIcon("armor");
-            for (auto* ae : *list) {
-                if (!ae || !IsKye2ArmorSource(ae->spell)) continue;
-                if (ae->flags.any(RE::ActiveEffect::Flag::kDispelled) ||
-                    ae->flags.any(RE::ActiveEffect::Flag::kInactive)) continue;
-                auto* base = ae->GetBaseObject();
-                const char* sn = ae->spell->GetFullName();
-                if (!base || !sn || !sn[0]) continue;
+            for (const auto& rec : records) {
+                if (!rec.kye2Armor) continue;
+                const char* sn = rec.sourceName;
+                if (!sn[0]) continue;
                 auto it = std::find_if(rows.begin() + 1, rows.end(), [&](const TipRow& r) { return r.name == sn; });
                 if (it == rows.end()) {
                     Tip::TipRow r;
@@ -1951,7 +1944,7 @@ namespace PartySheetV2 {
                     rows.push_back(std::move(r));
                     it = rows.end() - 1;
                 }
-                AddLine(*it, base, ae->magnitude, 0.0f, IsBad(base, ae->magnitude) ? kDebuff : kBuff);
+                AddLine(*it, rec.mgef, rec.rawMagnitude, 0.0f, rec.hostile ? kDebuff : kBuff);
             }
             rows.erase(std::remove_if(rows.begin() + 1, rows.end(),
                 [](const TipRow& r) { return r.lines.empty(); }), rows.end());

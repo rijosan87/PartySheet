@@ -101,6 +101,22 @@ struct ActorStats {
     float staminaMax() const { return stamina.GetMax(); }
 };
 
+struct VitalReadout {
+    float current       = 0.0f;
+    float max           = 0.0f;
+    float lost          = 0.0f;
+    float capPoints     = 0.0f;
+    float needPoints    = 0.0f;
+    float diseasePoints = 0.0f;
+    float bonus         = 0.0f;
+    float regenPerSec   = 0.0f;
+    std::uint8_t regenState = 0;
+
+    float FullMax() const { return max + lost; }
+};
+
+VitalReadout GetVital(RE::Actor* actor, const ActorStats& stats, RE::ActorValue pool);
+
 // ============================================================================
 // ActorResistances: Lightweight resistance-only struct
 // ============================================================================

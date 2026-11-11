@@ -1,4 +1,5 @@
 #include "../includes/ActorStats.h"
+#include "../includes/SurvivalSymptoms.h"
 #include <RE/P/PlayerCharacter.h>
 #include <RE/T/TESForm.h>
 #include <RE/T/TESBoundObject.h>
@@ -438,4 +439,31 @@ std::vector<ActiveModifier> GetActiveModifiers(RE::Actor* actor) {
     }
     
     return results;
+}
+
+VitalReadout GetVital(RE::Actor* actor, const ActorStats& stats, RE::ActorValue pool) {
+    VitalReadout v;
+    const RichStat* stat = nullptr;
+    float regenPct = 0.0f;
+    const SurvivalSymptoms::Bar* bar = nullptr;
+    const auto& bars = SurvivalSymptoms::GetBars(actor);
+    switch (pool) {
+        case RE::ActorValue::kHealth:  stat = &stats.health;  regenPct = stats.healthRegen;  bar = &bars.health;  break;
+        case RE::ActorValue::kStamina: stat = &stats.stamina; regenPct = stats.staminaRegen; bar = &bars.stamina; break;
+        case RE::ActorValue::kMagicka: stat = &stats.magicka; regenPct = stats.magickaRegen; bar = &bars.magicka; break;
+        default: return v;
+    }
+    v.current       = stat->current;
+    v.max           = stat->GetMax();
+    v.capPoints     = bar->capPoints;
+    v.needPoints    = bar->needPoints;
+    v.diseasePoints = bar->diseasePoints;
+    v.lost          = bar->Lost();
+    v.bonus         = v.lost > 0.5f ? -v.lost : stat->perm + stat->temp;
+    v.regenPerSec   = v.max * (regenPct / 100.0f);
+
+    auto regen = bar->regen;
+    if (regen == SurvivalSymptoms::Regen::kSlowed && regenPct <= 0.001f) regen = SurvivalSymptoms::Regen::kStopped;
+    v.regenState = static_cast<std::uint8_t>(regen);
+    return v;
 }

@@ -131,20 +131,6 @@ namespace PartySheetV2::Tip {
         ImGui::PopStyleColor(2);
     }
 
-    inline bool IsKye2ArmorSource(RE::MagicItem* spell) {
-        if (!spell) return false;
-        auto* file = spell->GetFile(0);
-        if (!file) return false;
-        std::string_view fn = file->GetFilename();
-        constexpr std::string_view kKye2Armors = "know_your_enemy_2_armors.esp";
-        if (fn.size() != kKye2Armors.size()) return false;
-        for (size_t i = 0; i < fn.size(); ++i)
-            if (std::tolower(static_cast<unsigned char>(fn[i])) !=
-                std::tolower(static_cast<unsigned char>(kKye2Armors[i])))
-                return false;
-        return true;
-    }
-
     inline float DisplayMagnitude(const RE::EffectSetting* base, float mag) {
         mag = std::abs(mag);
         if (base && EffectCategories::IsPercentageMagnitude(base->data.primaryAV) && mag > 0.0f && mag < 1.0f)

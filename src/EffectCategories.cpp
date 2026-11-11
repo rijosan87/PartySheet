@@ -527,6 +527,12 @@ namespace EffectCategories {
         if (!spell) return EffectSource::Unknown;
         using ST = RE::MagicSystem::SpellType;
         auto spellType = spell->GetSpellType();
+
+        if (spellType == ST::kStaffEnchantment)
+            return EffectSource::Staff;
+
+        if (spellType == ST::kEnchantment)
+            return EffectSource::Enchantment;
         {
             const char* spellName = spell->GetFullName();
             if (spellName) {
@@ -549,10 +555,6 @@ namespace EffectCategories {
             return EffectSource::Shout;
         if (spellType == ST::kScroll)
             return EffectSource::Scroll;
-        if (spellType == ST::kStaffEnchantment)
-            return EffectSource::Staff;
-        if (spellType == ST::kEnchantment)
-            return EffectSource::Enchantment;
         if (spellType == ST::kPoison)
             return EffectSource::Potion;
         if (spellType == ST::kAbility)

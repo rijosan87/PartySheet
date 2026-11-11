@@ -14,8 +14,6 @@ namespace PartySheetV2 {
 
     void DrawRaceTooltip(RE::Actor* actor, float scale);
 
-    RE::SpellItem* GetStandingStone(RE::Actor* actor);
-
     void DrawPassiveTooltip(RE::Actor* actor, const std::string& title, float scale, bool stoneOnly);
 
     bool HasBlessings(RE::Actor* actor);

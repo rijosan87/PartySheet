@@ -34,6 +34,8 @@ namespace SurvivalSymptoms {
 
     const Snapshot& Get(RE::Actor* player, float hpRegen, float mpRegen, float spRegen);
 
+    const Snapshot& GetBars(RE::Actor* actor);
+
     const Equip& GetEquip(RE::Actor* player);
 
     const Mark& GetCarryWeight(RE::Actor* player);

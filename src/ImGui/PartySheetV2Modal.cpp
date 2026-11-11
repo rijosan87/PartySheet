@@ -9,6 +9,7 @@
 #include "../../includes/ImGui/PlayerHUDDisease.h"
 #include "../../includes/ImGui/PlayerHUDSurvival.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/Utils/EffectAttribution.h"
 #include "../../includes/ImGui/PartySheetV2Tooltip.h"
 
 #include <imgui.h>
@@ -18,8 +19,6 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
-#include <unordered_map>
-#include <unordered_set>
 #include <cstdio>
 #include <cstring>
 #include <cctype>
@@ -140,95 +139,40 @@ namespace PartySheetV2 {
         return buf;
     }
 
-    using Tip::IsKye2ArmorSource;
-
-    static bool IsStandingStoneSource(RE::SpellItem* sp);
-
-    enum class EffectBucket { Passive, Equipment, Blessing };
+    enum class EffectBucket { Passive, Blessing };
 
     static std::vector<EffectEntry> GetPermanentEffects(RE::Actor* actor, EffectBucket bucket) {
+        using Kind = EffectAttribution::OwnerKind;
         std::vector<EffectEntry> out;
         if (!actor) return out;
-        auto* mt = actor->AsMagicTarget();
-        if (!mt) return out;
-        auto* list = mt->GetActiveEffectList();
-        if (!list) return out;
 
-        std::unordered_set<RE::SpellItem*> raceSpells;
-        if (bucket == EffectBucket::Passive) {
-            if (auto* race = actor->GetRace()) {
-                if (auto* ae = race->actorEffects; ae && ae->spells) {
-                    for (std::uint32_t i = 0; i < ae->numSpells; ++i)
-                        if (auto* sp = ae->spells[i]) raceSpells.insert(sp);
-                }
-            }
-        }
-
-        for (auto* ae : *list) {
-            if (!ae) continue;
-            if (ae->flags.any(RE::ActiveEffect::Flag::kDispelled) ||
-                ae->flags.any(RE::ActiveEffect::Flag::kInactive))   continue;
-            auto* base = ae->GetBaseObject();
-            if (!base) continue;
-            if (base->data.flags.any(RE::EffectSetting::EffectSettingData::Flag::kHideInUI)) continue;
-            const char* nm = base->GetFullName();
-            if (!nm || !nm[0]) continue;
-            auto src = EffectCategories::GetEffectSource(ae);
+        for (const auto& rec : EffectAttribution::Get(actor)) {
+            auto* base = rec.mgef;
+            if (rec.hiddenInUI) continue;
+            if (rec.effectName[0] == '\0') continue;
             bool match = false;
             switch (bucket) {
                 case EffectBucket::Passive:
-                    match = (src == EffectCategories::EffectSource::Ability) && ae->duration <= 0.0f;
-                    if (match && base->data.primaryAV == RE::ActorValue::kNone &&
-                        !(ae->spell && IsStandingStoneSource(ae->spell->As<RE::SpellItem>())))
+                    match = (rec.kind == Kind::Passive || rec.kind == Kind::Stone) &&
+                            rec.mechanism == EffectCategories::EffectSource::Ability &&
+                            rec.duration <= 0.0f;
+                    if (match && rec.primaryAV == RE::ActorValue::kNone && rec.kind != Kind::Stone)
                         match = false;
-                    if (match && ae->spell) {
-                        if (auto* sp = ae->spell->As<RE::SpellItem>(); sp && raceSpells.count(sp))
-                            match = false;
-                    }
-                    if (match && IsKye2ArmorSource(ae->spell))
-                        match = false;
-                    if (match && ae->spell) {
-                        if (auto* sp = ae->spell->As<RE::SpellItem>();
-                            sp && (PlayerHUDSurvival::IsNeedSpell(sp) ||
-                                   PlayerHUDSurvival::IsVitalitySpell(sp)))
-                            match = false;
-                    }
-                    break;
-                case EffectBucket::Equipment:
-                    match = ((src == EffectCategories::EffectSource::Enchantment) && ae->duration <= 0.0f)
-                          || IsKye2ArmorSource(ae->spell);
                     break;
                 case EffectBucket::Blessing:
-                    match = (src == EffectCategories::EffectSource::Blessing);
+                    match = (rec.kind == Kind::Blessing);
                     break;
             }
             if (!match) continue;
 
-            bool isHostile = base->IsHostile() || base->IsDetrimental() ||
-                             (ae->magnitude < 0.0f);
-
-            std::string srcName;
-            RE::SpellItem* srcSpell = ae->spell ? ae->spell->As<RE::SpellItem>() : nullptr;
-            if (ae->spell) {
-                const char* sn = ae->spell->GetFullName();
-                if (sn && sn[0]) srcName = sn;
-            }
-
-            float mag = std::abs(ae->magnitude);
-            if (mag <= 0.0f && ae->effect) {
-                mag = std::abs(ae->effect->GetMagnitude());
-            }
-            bool isPct = EffectCategories::IsPercentageMagnitude(base->data.primaryAV);
-            if (isPct && mag > 0.0f && mag < 1.0f) {
-                mag *= 100.0f;
-            }
+            const float mag = EffectAttribution::DisplayMagnitude(rec, base->data.primaryAV);
 
             EffectEntry entry;
-            entry.source      = srcName;
-            entry.name        = nm;
-            entry.valStr      = FormatMagnitude(mag, base->data.primaryAV, isHostile);
-            entry.isHostile   = isHostile;
-            entry.sourceSpell = srcSpell;
+            entry.source      = rec.sourceName;
+            entry.name        = rec.effectName;
+            entry.valStr      = FormatMagnitude(mag, base->data.primaryAV, rec.hostile);
+            entry.isHostile   = rec.hostile;
+            entry.sourceSpell = rec.spellItem;
             entry.primaryAV   = base->data.primaryAV;
             entry.mgef        = base;
             out.push_back(entry);
@@ -313,29 +257,6 @@ namespace PartySheetV2 {
         return TextureManager::GetPartyIcon(stem);
     }
 
-    static ID3D11ShaderResourceView* ResolveMagicIcon(RE::MagicItem* item) {
-        if (!item) return nullptr;
-        RE::EffectSetting* base = item->GetAVEffect();
-        if (!base) {
-            if (item->effects.empty() || !item->effects[0]) return nullptr;
-            base = item->effects[0]->baseEffect;
-        }
-        if (!base) return nullptr;
-
-        std::string iconId;
-        auto effectType = EffectCategories::GetEffectType(base->GetArchetype());
-        if (effectType == EffectCategories::EffectType::Standalone)
-            iconId = EffectCategories::GetStandaloneIconId(base->GetArchetype());
-        else if (effectType == EffectCategories::EffectType::Modifier)
-            iconId = EffectCategories::GetActorValueIconId(base->data.primaryAV);
-        else {
-            const char* nm = base->GetFullName();
-            iconId = EffectCategories::GetScriptEffectIconId(nm ? nm : "", base->data.associatedSkill);
-        }
-        if (iconId.empty()) return nullptr;
-        return TextureManager::GetEffectIcon(iconId);
-    }
-
     static std::string RaceMagnitudeLine(RE::MagicItem* item) {
         if (!item) return "";
         RE::EffectSetting* base = item->GetAVEffect();
@@ -357,21 +278,6 @@ namespace PartySheetV2 {
         if (isPct) snprintf(buf, sizeof(buf), "%s +%.0f%%", label.c_str(), mag);
         else       snprintf(buf, sizeof(buf), "%s +%.0f",   label.c_str(), mag);
         return buf;
-    }
-
-    static ID3D11ShaderResourceView* ResolveBlessingIcon(RE::SpellItem* spell) {
-        if (spell) {
-            static const std::unordered_map<std::string, const char*> kOverrides = {
-            };
-            if (const char* ed = spell->GetFormEditorID(); ed && ed[0]) {
-                auto it = kOverrides.find(ed);
-                if (it != kOverrides.end()) {
-                    if (auto* tex = TextureManager::GetPartyIcon(it->second))
-                        return tex;
-                }
-            }
-        }
-        return TextureManager::GetPartyIcon("blessing");
     }
 
     struct RaceEntry {
@@ -410,42 +316,13 @@ namespace PartySheetV2 {
             const bool isPower = (spellType == ST::kPower || spellType == ST::kLesserPower);
             ID3D11ShaderResourceView* icon = isPower
                 ? TextureManager::GetPartyIcon("power")
-                : ResolveMagicIcon(sp);
+                : EffectAttribution::ResolveMagicIcon(sp);
 
             std::string magLine = isPower ? std::string() : RaceMagnitudeLine(sp);
 
             out.push_back({ nm, typeStr, std::move(magLine), icon });
         }
         return out;
-    }
-
-    static bool IsStandingStoneSource(RE::SpellItem* sp) {
-        if (!sp) return false;
-        switch (sp->GetFormID()) {
-            case 0x000E5F4C:
-            case 0x000E5F47:
-            case 0x000E5F45:
-            case 0x000E5F58:
-            case 0x000E5F54:
-            case 0x000E5F4E:
-            case 0x0010E439:
-            case 0x00103A94:
-            case 0x000E5F51:
-            case 0x000E5F5A:
-            case 0x000E7328:
-            // Ritual/Serpent/Shadow are POWERS in vanilla (activated, never reach the passive
-            case 0x000E7329:
-            case 0x000E5F61:
-            case 0x000E732A:
-                return true;
-            default:
-                break;
-        }
-        if (auto* dh = RE::TESDataHandler::GetSingleton()) {
-            if (auto* steed = dh->LookupForm(0x000E5F5E, "ccQDRSSE001-SurvivalMode.esl"))
-                if (sp == steed) return true;
-        }
-        return false;
     }
 
     static std::string StoneLineText(const EffectEntry& e, const std::string& stoneTitle) {
@@ -1212,21 +1089,6 @@ namespace PartySheetV2 {
         DrawCompactTooltip(title, rows, {}, sc);
     }
 
-    RE::SpellItem* GetStandingStone(RE::Actor* actor) {
-        if (!actor) return nullptr;
-        static constexpr RE::FormID kStones[] = {
-            0x000E5F4C, 0x000E5F47, 0x000E5F45, 0x000E5F58, 0x000E5F54, 0x000E5F4E,
-            0x000E5F51, 0x000E5F5A, 0x000E7328, 0x000E7329, 0x000E5F61, 0x000E732A };
-        for (auto id : kStones)
-            if (auto* sp = RE::TESForm::LookupByID<RE::SpellItem>(id); sp && actor->HasSpell(sp))
-                return sp;
-        if (auto* dh = RE::TESDataHandler::GetSingleton())
-            if (auto* steed = dh->LookupForm<RE::SpellItem>(0x000E5F5E, "ccQDRSSE001-SurvivalMode.esl");
-                steed && actor->HasSpell(steed))
-                return steed;
-        return nullptr;
-    }
-
     static std::string FormatTimeLeft(float secs) {
         char buf[16];
         if (secs >= 3600.0f)    snprintf(buf, sizeof(buf), "%.0fh", secs / 3600.0f);
@@ -1237,11 +1099,7 @@ namespace PartySheetV2 {
 
     static std::vector<TipRow> StatSourceRows(RE::Actor* actor, RE::ActorValue pool) {
         using AV = RE::ActorValue;
-        using Src = EffectCategories::EffectSource;
         std::vector<TipRow> rows;
-        auto* mt   = actor ? actor->AsMagicTarget() : nullptr;
-        auto* list = mt ? mt->GetActiveEffectList() : nullptr;
-        if (!list) return rows;
 
         auto Feeds = [pool](AV av) {
             if (av == AV::kNone) return false;
@@ -1255,87 +1113,32 @@ namespace PartySheetV2 {
             }
         };
 
-        static std::string kPassive, kEquip, kBlessing, kPotion, kSpell, kRace, kDisease, kNeed;
-        if (kPassive.empty()) {
-            kPassive  = LocalizationManager::Get("PartySheetV2.SourcePassive");
-            kEquip    = LocalizationManager::Get("PartySheetV2.SourceEquipment");
-            kBlessing = LocalizationManager::Get("PartySheetV2.SourceBlessing");
-            kPotion   = LocalizationManager::Get("PartySheetV2.SourcePotion");
-            kSpell    = LocalizationManager::Get("PartySheetV2.SpellTypeSpell");
-            kRace     = LocalizationManager::Get("PartySheetV2.SourceRace");
-            kDisease  = LocalizationManager::Get("Symptom.KindDisease");
-            kNeed     = LocalizationManager::Get("Symptom.KindNeed");
+        for (const auto& rec : EffectAttribution::Get(actor)) {
+            auto* base = rec.mgef;
+            AV av = rec.primaryAV;
+            if (!Feeds(av)) {
+                if (!Feeds(rec.secondaryAV)) continue;
+                av = rec.secondaryAV;
         }
 
-        std::unordered_set<RE::SpellItem*> raceSpells;
-        if (auto* race = actor->GetRace(); race && race->actorEffects && race->actorEffects->spells)
-            for (std::uint32_t i = 0; i < race->actorEffects->numSpells; ++i)
-                if (auto* sp = race->actorEffects->spells[i]) raceSpells.insert(sp);
-
-        for (auto* ae : *list) {
-            if (!ae) continue;
-            if (ae->flags.any(RE::ActiveEffect::Flag::kDispelled) ||
-                ae->flags.any(RE::ActiveEffect::Flag::kInactive)) continue;
-            auto* base = ae->GetBaseObject();
-            if (!base) continue;
-            AV av = base->data.primaryAV;
-            if (!Feeds(av)) {
-                const AV av2 = base->GetArchetype() == RE::EffectSetting::Archetype::kDualValueModifier
-                    ? base->data.secondaryAV : AV::kNone;
-                if (!Feeds(av2)) continue;
-                av = av2;
-            }
-
-            float mag = std::abs(ae->magnitude);
-            if (mag <= 0.0f && ae->effect) mag = std::abs(ae->effect->GetMagnitude());
-            const bool isPct = EffectCategories::IsPercentageMagnitude(av);
-            if (isPct && mag > 0.0f && mag < 1.0f) mag *= 100.0f;
+            const float mag = EffectAttribution::DisplayMagnitude(rec, av);
             if (mag < 0.5f) continue;
-            const bool hostile = base->IsHostile() || base->IsDetrimental() || ae->magnitude < 0.0f;
-
-            auto* sp  = ae->spell ? ae->spell->As<RE::SpellItem>() : nullptr;
-            const Src src = EffectCategories::GetEffectSource(ae);
+            const bool hostile = rec.hostile;
             TipRow r;
-            const char* spName = ae->spell ? ae->spell->GetFullName() : nullptr;
-            r.name = (spName && spName[0]) ? spName : (base->GetFullName() ? base->GetFullName() : "");
+            r.name = EffectAttribution::OwnerName(rec);
+            r.type = EffectAttribution::KindLabel(rec.kind);
+            r.icon = EffectAttribution::OwnerIcon(rec);
+            if (auto origin = EffectAttribution::OwnerOrigin(rec); !origin.empty())
+                r.type += " \xC2\xB7 " + origin;
 
-            if (src == Src::Enchantment || IsKye2ArmorSource(ae->spell)) {
-                if (ae->source && ae->source->GetName() && ae->source->GetName()[0]) {
-                    r.name = ae->source->GetName();
-                    r.icon = TextureManager::GetItemIcon(ae->source, "");
-                }
-                r.type = kEquip;
-            } else if (src == Src::Potion || src == Src::Food) {
-                r.type = kPotion;
-                RE::TESForm* item = ae->source ? static_cast<RE::TESForm*>(ae->source)
-                                               : static_cast<RE::TESForm*>(ae->spell);
-                r.icon = TextureManager::GetItemIcon(item, "potion");
-            } else if (src == Src::Blessing) {
-                r.type = kBlessing;
-                r.icon = ResolveBlessingIcon(sp);
-            } else if (sp && sp->GetSpellType() == RE::MagicSystem::SpellType::kDisease) {
-                r.type = kDisease;
-            } else if (sp && (PlayerHUDSurvival::IsNeedSpell(sp) || PlayerHUDSurvival::IsVitalitySpell(sp))) {
-                r.type = kNeed;
-            } else if (sp && raceSpells.count(sp)) {
-                r.type = kRace;
-            } else if (src == Src::Ability) {
-                r.type = kPassive;
-            } else {
-                r.type = kSpell;
-            }
-            if (!r.icon) r.icon = ResolveMagicIcon(ae->spell);
-
-            if (ae->duration > 0.0f) {
-                float left = ae->duration - ae->elapsedSeconds;
-                if (left > 0.0f) r.type += " \xC2\xB7 " + FormatTimeLeft(left);
-            }
+            if (rec.duration > 0.0f && rec.timeLeft > 0.0f)
+                r.type += " \xC2\xB7 " + FormatTimeLeft(rec.timeLeft);
 
             r.tone = hostile ? -1 : 1;
             std::string val;
             const bool ratePool = pool == AV::kHealRate || pool == AV::kStaminaRate || pool == AV::kMagickaRate;
             if (ratePool || (av != pool && EffectCategories::GetSkillTarget(pool) == pool))
-                val = Tip::DescribeEffect(base, mag, ae->duration, hostile);
+                val = Tip::DescribeEffect(base, mag, rec.duration, hostile);
             if (val.empty()) val = FormatMagnitude(mag, av, hostile);
             r.lines.push_back({ std::move(val), hostile ? kDebuff : kBuff });
 
@@ -1362,7 +1165,7 @@ namespace PartySheetV2 {
         static std::string s_noneTxt;
         if (s_noneTxt.empty()) s_noneTxt = LocalizationManager::Get("Common.None");
 
-        RE::SpellItem* stone = stoneOnly ? GetStandingStone(actor) : nullptr;
+        RE::SpellItem* stone = stoneOnly ? EffectAttribution::GetStandingStone(actor) : nullptr;
         TipRow stoneRow;
         if (stone) {
             using ST = RE::MagicSystem::SpellType;
@@ -1380,7 +1183,7 @@ namespace PartySheetV2 {
         std::vector<TipRow> plain;
         for (auto& e : GetPermanentEffects(actor, EffectBucket::Passive)) {
             ImU32 col = e.isHostile ? kDebuff : kBuff;
-            if (e.sourceSpell && IsStandingStoneSource(e.sourceSpell)) {
+            if (e.sourceSpell && EffectAttribution::IsStandingStoneSource(e.sourceSpell)) {
                 if (stone && !stoneHasDesc) {
                     std::string txt = StoneLineText(e, stoneRow.name);
                     if (!e.valStr.empty()) { txt += " "; txt += e.valStr; }
@@ -1391,7 +1194,7 @@ namespace PartySheetV2 {
                 continue;
             }
             if (stoneOnly) continue;
-            TipRow r{ ResolveMagicIcon(e.sourceSpell), e.name, {}, {} };
+            TipRow r{ EffectAttribution::ResolveMagicIcon(e.sourceSpell), e.name, {}, {} };
             r.tone = e.isHostile ? -1 : 1;
             if (!e.valStr.empty()) r.lines.push_back({ e.valStr, col });
             plain.push_back(std::move(r));
@@ -1411,12 +1214,10 @@ namespace PartySheetV2 {
 
         auto TimeLeft = [actor](RE::SpellItem* sp) -> float {
             float best = -1.0f;
-            auto* mt   = actor->AsMagicTarget();
-            auto* list = mt ? mt->GetActiveEffectList() : nullptr;
-            if (!sp || !list) return best;
-            for (auto* ae : *list)
-                if (ae && ae->spell == sp && ae->duration > 0.0f)
-                    best = (std::max)(best, ae->duration - ae->elapsedSeconds);
+            if (!sp) return best;
+            for (const auto& rec : EffectAttribution::Get(actor))
+                if (rec.spell == sp && rec.duration > 0.0f)
+                    best = (std::max)(best, rec.timeLeft);
             return best;
         };
 
@@ -1428,7 +1229,7 @@ namespace PartySheetV2 {
                 if (rows[k].name == name) break;
             if (k == rows.size()) {
                 TipRow r;
-                r.icon = ResolveBlessingIcon(e.sourceSpell);
+                r.icon = EffectAttribution::ResolveBlessingIcon(e.sourceSpell);
                 r.name = name;
                 r.tone = 1;
                 float left = TimeLeft(e.sourceSpell);
@@ -1535,7 +1336,7 @@ namespace PartySheetV2 {
                 ? "PartySheetV2.SpellTypePower"
                 : (t == ST::kSpell ? "PartySheetV2.SpellTypeSpell" : "PartySheetV2.SourcePassive"));
             r.icon = (t == ST::kPower || t == ST::kLesserPower) ? TextureManager::GetPartyIcon("power")
-                                                               : ResolveMagicIcon(sp);
+                                                               : EffectAttribution::ResolveMagicIcon(sp);
             bool bad = false;
             for (auto* eff : sp->effects) {
                 if (!eff || !eff->baseEffect) continue;

@@ -74,15 +74,9 @@ namespace SurvivalSymptoms {
     }
 
     namespace {
-    const Snapshot& Walk(RE::Actor* player)
+    void Fill(RE::Actor* player, Snapshot& s_snap, bool ccCap)
     {
-        static int      s_frame = -1;
-        static Snapshot s_snap{};
-        const int frame = ImGui::GetFrameCount();
-        if (frame == s_frame) return s_snap;
-        s_frame = frame;
-        s_snap  = {};
-        if (!player) return s_snap;
+        if (!player) return;
 
         float buffH = 0.0f, buffM = 0.0f, buffS = 0.0f;
         auto buffFor = [&](HudTarget t) -> float* {
@@ -158,6 +152,8 @@ namespace SurvivalSymptoms {
             }
         }
 
+        if (!ccCap) return;
+
         const auto cc  = PlayerHUDPenalties::GetSurvivalPenalties();
         auto*      avo = player->AsActorValueOwner();
         auto cap = [&](float frac, RE::ActorValue av, float buff, const Bar& b) {
@@ -172,8 +168,36 @@ namespace SurvivalSymptoms {
         s_snap.health.capPoints  = cap(cc.health,  RE::ActorValue::kHealth,  buffH, s_snap.health);
         s_snap.magicka.capPoints = cap(cc.magicka, RE::ActorValue::kMagicka, buffM, s_snap.magicka);
         s_snap.stamina.capPoints = cap(cc.stamina, RE::ActorValue::kStamina, buffS, s_snap.stamina);
+    }
+
+    const Snapshot& Walk(RE::Actor* player)
+    {
+        static int      s_frame = -1;
+        static Snapshot s_snap{};
+        const int frame = ImGui::GetFrameCount();
+        if (frame == s_frame) return s_snap;
+        s_frame = frame;
+        s_snap  = {};
+        Fill(player, s_snap, true);
         return s_snap;
     }
+    }
+
+    const Snapshot& GetBars(RE::Actor* actor)
+    {
+        static const Snapshot kEmpty{};
+        if (!actor) return kEmpty;
+        if (actor->IsPlayerRef()) return Walk(actor);
+        static int s_frame = -1;
+        static std::unordered_map<RE::FormID, Snapshot> s_cache;
+        const int frame = ImGui::GetFrameCount();
+        if (frame != s_frame) {
+            s_frame = frame;
+            s_cache.clear();
+        }
+        auto [it, fresh] = s_cache.try_emplace(actor->GetFormID());
+        if (fresh) Fill(actor, it->second, false);
+        return it->second;
     }
 
     const Snapshot& Get(RE::Actor* player, float hpRegen, float mpRegen, float spRegen)
