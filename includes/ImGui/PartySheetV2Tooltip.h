@@ -75,7 +75,7 @@ namespace PartySheetV2::Tip {
         for (const auto& r : rows) {
             float w = Measure(fBody, r.name).x;
             if (!r.type.empty()) w += textGap * 0.5f + Measure(fSmall, r.type).x;
-            for (const auto& l : r.lines) w = (std::max)(w, (std::min)(Measure(fSmall, l.text).x, wrapW));
+            for (const auto& l : r.lines) w = (std::max)(w, (std::min)(Measure(fSmall, l.text).x + 4.0f * sc, wrapW));
             rowW = (std::max)(rowW, iconSz + textGap + w);
         }
         if (rows.empty()) rowW = (std::max)(rowW, Measure(fSmall, emptyText).x);

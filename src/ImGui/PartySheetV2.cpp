@@ -99,7 +99,7 @@ namespace PartySheetV2 {
     static constexpr float kLeftColW   = 600.0f;
     static constexpr float kCenterW    = 530.0f;
     static constexpr float kRightW     = 480.0f;
-    static constexpr float kHeaderH    = 130.0f;
+    static constexpr float kHeaderH    = 146.0f;
     static constexpr float kFooterH    =  60.0f;
 
     static constexpr float kBaseCanvasW = kPad * 2.0f + kSidebarW + kLeftColW + kCenterW + kRightW + kGap * 3.0f;
@@ -594,8 +594,40 @@ namespace PartySheetV2 {
             if (!s_TexStoneIco) s_TexStoneIco = TextureManager::GetPartyIcon("standing_stone");
             if (!s_TexBlessIco) s_TexBlessIco = TextureManager::GetPartyIcon("blessing");
 
-            bool raceHover = false, midHover = false, blessHover = false;
-            DrawWord(levelWord, kTheme.textMuted, false);
+            bool raceHover = false, midHover = false, blessHover = false, levelHover = false;
+
+            enum class LvState { Player, Mirror, Max, Fixed } lvState = LvState::Fixed;
+            float xpCur = 0.0f, xpNeed = 0.0f;
+            if (auto* pc = RE::PlayerCharacter::GetSingleton())
+                if (auto* sk = pc->GetInfoRuntimeData().skills; sk && sk->data) {
+                    xpCur = sk->data->xp; xpNeed = sk->data->levelThreshold;
+                }
+            if (isPlayer) lvState = LvState::Player;
+            else if (auto* nb = actor->GetActorBase(); nb && nb->HasPCLevelMult()) {
+                const auto maxLv = nb->actorData.calcLevelMax;
+                lvState = (maxLv > 0 && actor->GetLevel() >= maxLv) ? LvState::Max : LvState::Mirror;
+            }
+            const float xpFrac = (xpNeed > 0.0f) ? std::clamp(xpCur / xpNeed, 0.0f, 1.0f) : 0.0f;
+
+            {
+                const float lvX0 = penX;
+                DrawWord(levelWord, kTheme.textMuted, false);
+                const float lvX1 = penX;
+                if (lvState != LvState::Fixed) {
+                    const float barY = lineB_Y + lineH + 1.0f * sc;
+                    const float barH = 3.0f * sc;
+                    const float fill = (lvState == LvState::Max) ? 1.0f : xpFrac;
+                    const ImU32 fillCol = (lvState == LvState::Player) ? IM_COL32(212, 175, 55, 255) : IM_COL32(170, 140, 50, 230);
+                    dl->AddRectFilled(ImVec2(lvX0, barY), ImVec2(lvX1, barY + barH), IM_COL32(40, 44, 52, 220), 1.0f * sc);
+                    if (fill > 0.0f)
+                        dl->AddRectFilled(ImVec2(lvX0, barY), ImVec2(lvX0 + (lvX1 - lvX0) * fill, barY + barH), fillCol, 1.0f * sc);
+                }
+                ImVec2 rMin(lvX0 - 3.0f * sc, lineB_Y - 1.0f * sc);
+                ImVec2 rMax(lvX1 + 3.0f * sc, lineB_Y + lineH + 5.0f * sc);
+                levelHover = !modalOpen && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(rMin, rMax);
+                if (levelHover)
+                    dl->AddRect(rMin, rMax, IM_COL32(212, 175, 55, 85), 2.0f * sc, 0, 1.0f);
+            }
             DrawSep();
             if (!raceWord.empty()) { raceHover = DrawWord(raceWord, kTheme.textMuted, true); if (!midWord.empty() || blessed) DrawSep(); }
             if (!midWord.empty()) {
@@ -608,6 +640,26 @@ namespace PartySheetV2 {
             ImGui::SetWindowFontScale(1.0f);
             if (headingFont) ImGui::PopFont();
 
+            if (levelHover) {
+                Tip::TipRow r;
+                static ID3D11ShaderResourceView* s_TexXpIco = nullptr;
+                if (!s_TexXpIco) s_TexXpIco = TextureManager::GetPartyIcon("experience");
+                r.icon = s_TexXpIco;
+                r.name = LocalizationManager::Get("PartySheetV2.Experience");
+                char xpBuf[96];
+                snprintf(xpBuf, sizeof(xpBuf), "%d / %d  (%d%%)",
+                    static_cast<int>(xpCur), static_cast<int>(xpNeed), static_cast<int>(xpFrac * 100.0f + 0.5f));
+                switch (lvState) {
+                    case LvState::Player: r.lines.push_back({ xpBuf, kTheme.textMain }); break;
+                    case LvState::Mirror:
+                        r.lines.push_back({ LocalizationManager::Get("PartySheetV2.LevelsWithYou"), kTheme.textMuted });
+                        r.lines.push_back({ xpBuf, kTheme.textMain });
+                        break;
+                    case LvState::Max:   r.lines.push_back({ LocalizationManager::Get("PartySheetV2.MaxLevel"), kTheme.textMain }); break;
+                    case LvState::Fixed: r.lines.push_back({ LocalizationManager::Get("PartySheetV2.FixedLevel"), kTheme.textMuted }); break;
+                }
+                Tip::DrawCompactTooltip(levelWord, { r }, {}, sc);
+            }
             if (raceHover) DrawRaceTooltip(actor, sc);
             if (midHover)   DrawPassiveTooltip(actor, midTitle, sc, isPlayer);
             if (blessHover) DrawBlessingsTooltip(actor, blessWord, sc);
@@ -803,12 +855,13 @@ namespace PartySheetV2 {
         const float labelGap = 6.0f  * sc;
         ActorStats stats     = GetActorStats(actor);
 
-        struct VitalDef { std::string label; float cur; float max; ImU32 color; RE::ActorValue av; float mod; };
+        struct VitalDef { std::string label; float cur; float max; ImU32 color; RE::ActorValue av; float mod; float regen; RE::ActorValue rateAV; };
         VitalDef vitals[3] = {
-            { LocalizationManager::Get("Stats.Health"),  stats.health.current,  stats.health.GetMax(),  kTheme.hp, RE::ActorValue::kHealth,  stats.health.perm  + stats.health.temp },
-            { LocalizationManager::Get("Stats.Stamina"), stats.stamina.current, stats.stamina.GetMax(), kTheme.sp, RE::ActorValue::kStamina, stats.stamina.perm + stats.stamina.temp },
-            { LocalizationManager::Get("Stats.Magicka"), stats.magicka.current, stats.magicka.GetMax(), kTheme.mp, RE::ActorValue::kMagicka, stats.magicka.perm + stats.magicka.temp },
+            { LocalizationManager::Get("Stats.Health"),  stats.health.current,  stats.health.GetMax(),  kTheme.hp, RE::ActorValue::kHealth,  stats.health.perm  + stats.health.temp,  stats.healthRegen,  RE::ActorValue::kHealRate },
+            { LocalizationManager::Get("Stats.Stamina"), stats.stamina.current, stats.stamina.GetMax(), kTheme.sp, RE::ActorValue::kStamina, stats.stamina.perm + stats.stamina.temp, stats.staminaRegen, RE::ActorValue::kStaminaRate },
+            { LocalizationManager::Get("Stats.Magicka"), stats.magicka.current, stats.magicka.GetMax(), kTheme.mp, RE::ActorValue::kMagicka, stats.magicka.perm + stats.magicka.temp, stats.magickaRegen, RE::ActorValue::kMagickaRate },
         };
+        int hoveredRegen = -1;
         static constexpr ImU32 kPenaltyRed = IM_COL32(220, 80, 80, 255);
         const bool vitalModalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
         int hoveredVital = -1;
@@ -881,9 +934,35 @@ namespace PartySheetV2 {
                     IM_COL32(255,255,255,40), IM_COL32(255,255,255,40),
                     IM_COL32(0,0,0,0), IM_COL32(0,0,0,0));
             }
+
+            {
+                const float perSec = vt.max * (vt.regen / 100.0f);
+                char rBuf[24];
+                snprintf(rBuf, sizeof(rBuf), "%+.1f/s", perSec);
+                ImGui::SetWindowFontScale(FontSmall());
+                const ImVec2 rSz = ImGui::CalcTextSize(rBuf);
+                const ImVec2 rPos(vx + vitalW - rSz.x, barY + barH + 3.0f * sc);
+                if (HasStatPassives(actor, vt.rateAV)) {
+                    ImVec2 hMin(rPos.x - 3.0f * sc, rPos.y - 1.0f * sc);
+                    ImVec2 hMax(rPos.x + rSz.x + 3.0f * sc, rPos.y + rSz.y + 2.0f * sc);
+                    if (!vitalModalOpen && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(hMin, hMax)) {
+                        dl->AddRectFilled(hMin, hMax, IM_COL32(29, 33, 41, 220), 2.0f * sc);
+                        dl->AddRect(hMin, hMax, IM_COL32(212, 175, 55, 85), 2.0f * sc, 0, 1.0f);
+                        hoveredRegen = v;
+                    }
+                    float uy = rPos.y + rSz.y;
+                    for (float x = rPos.x; x < rPos.x + rSz.x; x += 4.0f * sc)
+                        dl->AddLine(ImVec2(x, uy), ImVec2((std::min)(x + 1.5f * sc, rPos.x + rSz.x), uy),
+                            IM_COL32(136, 136, 136, 200), 1.0f);
+                }
+                dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), rPos, kTheme.textMuted, rBuf);
+                ImGui::SetWindowFontScale(1.0f);
+            }
         }
         if (hoveredVital >= 0)
             DrawStatTooltip(actor, vitals[hoveredVital].label, vitals[hoveredVital].av, sc);
+        if (hoveredRegen >= 0)
+            DrawStatTooltip(actor, EffectCategories::LocalizedAVName(vitals[hoveredRegen].rateAV), vitals[hoveredRegen].rateAV, sc);
 
         ImGui::Dummy(size);
     }
@@ -1535,6 +1614,34 @@ namespace PartySheetV2 {
 
         const float cardY = origin.y + size.y - traitBlockH - 64.0f * sc - cardH;
 
+#if 0
+        if (auto* portrait = TextureManager::GetPortrait(actor)) {
+            float texW = 1.0f, texH = 1.0f;
+            ID3D11Resource* res = nullptr;
+            portrait->GetResource(&res);
+            if (res) {
+                ID3D11Texture2D* tex2d = nullptr;
+                if (SUCCEEDED(res->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&tex2d))) && tex2d) {
+                    D3D11_TEXTURE2D_DESC desc{};
+                    tex2d->GetDesc(&desc);
+                    texW = static_cast<float>(desc.Width);
+                    texH = static_cast<float>(desc.Height);
+                    tex2d->Release();
+                }
+                res->Release();
+            }
+            const float areaTop = origin.y + 8.0f * sc;
+            const float areaH   = cardY - 8.0f * sc - areaTop;
+            const float areaW   = size.x - cardHorizPad * 2.0f;
+            if (areaH > 0.0f && areaW > 0.0f) {
+                const float fit = (std::min)(areaW / texW, areaH / texH);
+                const float w = texW * fit, h = texH * fit;
+                const ImVec2 pMin(origin.x + (size.x - w) * 0.5f, cardY - 8.0f * sc - h);
+                dl->AddImage(reinterpret_cast<ImTextureID>(portrait), pMin, ImVec2(pMin.x + w, pMin.y + h));
+            }
+        }
+#endif
+
         for (int i = 0; i < 2; ++i) {
             const auto& card = kCards[i];
             float cardX = origin.x + cardHorizPad + i * (cardW + cardGap);
@@ -1837,7 +1944,7 @@ namespace PartySheetV2 {
                 if (!base || !sn || !sn[0]) continue;
                 auto it = std::find_if(rows.begin() + 1, rows.end(), [&](const TipRow& r) { return r.name == sn; });
                 if (it == rows.end()) {
-                    TipRow r;
+                    Tip::TipRow r;
                     r.icon = s_TexArmorIco;
                     r.name = sn;
                     r.tone = 1;

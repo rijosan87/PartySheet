@@ -170,8 +170,12 @@ namespace EffectCategories {
     std::string LocalizedAVName(RE::ActorValue av) {
         using AV = RE::ActorValue;
         auto L = [](const char* key, const char* eng) {
-            std::string v = LocalizationManager::Get(key);
-            return (v.empty() || v == key) ? std::string(eng) : v;
+            for (const char* sec : { "Stats.", "Skills.", "Resistances." }) {
+                const std::string full = std::string(sec) + key;
+                std::string v = LocalizationManager::Get(full);
+                if (!v.empty() && v != full) return v;
+            }
+            return std::string(eng);
         };
         switch (av) {
             case AV::kHealth:  return L("Health",  "Health");

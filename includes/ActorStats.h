@@ -63,10 +63,12 @@ struct ActorStats {
     RichStat health;
     RichStat magicka;
     RichStat stamina;
+    
     float healthRegen = 100.0f;
     float magickaRegen = 100.0f;
     float staminaRegen = 100.0f;
     float shoutRecovery = 100.0f;
+    
     float armorRating = 0.0f;
     float weaponDamage = 0.0f;
     float baseWeaponDamage = 0.0f;

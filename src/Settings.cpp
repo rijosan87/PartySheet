@@ -361,8 +361,6 @@ void Settings::Load() {
     menuPosY    = GetPrivateProfileIntW(L"MenuSettings", L"PosY",        menuPosY,    presetPath);
     menuWidth   = GetPrivateProfileIntW(L"MenuSettings", L"Width",       menuWidth,   presetPath);
     menuHeight  = GetPrivateProfileIntW(L"MenuSettings", L"Height",      menuHeight,  presetPath);
-    advStylePosX= GetPrivateProfileIntW(L"MenuSettings", L"AdvStylePosX",advStylePosX,presetPath);
-    advStylePosY= GetPrivateProfileIntW(L"MenuSettings", L"AdvStylePosY",advStylePosY,presetPath);
 
     enablePlayerHud          = GetPrivateProfileIntW(L"PlayerHUD", L"Enable",       enablePlayerHud ? 1 : 0,          presetPath) != 0;
     enablePlayerStatusWidget = GetPrivateProfileIntW(L"PlayerHUD", L"EnableStatus", enablePlayerStatusWidget ? 1 : 0, presetPath) != 0;
@@ -1817,8 +1815,6 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"MenuSettings", L"PosY", toWStr(menuPosY).c_str(), presetPath);
     WritePrivateProfileStringW(L"MenuSettings", L"Width", toWStr(menuWidth).c_str(), presetPath);
     WritePrivateProfileStringW(L"MenuSettings", L"Height", toWStr(menuHeight).c_str(), presetPath);
-    WritePrivateProfileStringW(L"MenuSettings", L"AdvStylePosX", toWStr(advStylePosX).c_str(), presetPath);
-    WritePrivateProfileStringW(L"MenuSettings", L"AdvStylePosY", toWStr(advStylePosY).c_str(), presetPath);
     
     WritePrivateProfileStringW(L"PlayerHUD", L"Enable",       toWStr(enablePlayerHud ? 1 : 0).c_str(),          presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"EnableStatus", toWStr(enablePlayerStatusWidget ? 1 : 0).c_str(), presetPath);

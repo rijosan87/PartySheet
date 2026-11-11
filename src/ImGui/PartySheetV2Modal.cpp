@@ -1245,11 +1245,13 @@ namespace PartySheetV2 {
 
         auto Feeds = [pool](AV av) {
             if (av == AV::kNone) return false;
+            using HT = EffectCategories::HudTarget;
             switch (pool) {
-                case AV::kHealth:  return av == AV::kHealth  || av == AV::kHealRate    || av == AV::kHealRateMult;
-                case AV::kStamina: return av == AV::kStamina || av == AV::kStaminaRate || av == AV::kStaminaRateMult;
-                case AV::kMagicka: return av == AV::kMagicka || av == AV::kMagickaRate || av == AV::kMagickaRateMult;
-                default:           return av == pool || EffectCategories::GetSkillTarget(av) == pool;
+                case AV::kHealth: case AV::kStamina: case AV::kMagicka:
+                case AV::kHealRate: case AV::kStaminaRate: case AV::kMagickaRate:
+                    return EffectCategories::GetHudTarget(av) == EffectCategories::GetHudTarget(pool)
+                        && EffectCategories::GetHudTarget(pool) != HT::None;
+                default: return av == pool || EffectCategories::GetSkillTarget(av) == pool;
             }
         };
 
@@ -1331,7 +1333,8 @@ namespace PartySheetV2 {
 
             r.tone = hostile ? -1 : 1;
             std::string val;
-            if (av != pool && EffectCategories::GetSkillTarget(pool) == pool)
+            const bool ratePool = pool == AV::kHealRate || pool == AV::kStaminaRate || pool == AV::kMagickaRate;
+            if (ratePool || (av != pool && EffectCategories::GetSkillTarget(pool) == pool))
                 val = Tip::DescribeEffect(base, mag, ae->duration, hostile);
             if (val.empty()) val = FormatMagnitude(mag, av, hostile);
             r.lines.push_back({ std::move(val), hostile ? kDebuff : kBuff });

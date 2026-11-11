@@ -38,8 +38,6 @@ public:
     std::int32_t  menuWidth    = 550;
     std::int32_t  menuHeight   = 710;
     std::int32_t  menuScale    = 100;       // 50-200, HUD Settings UI only
-    std::int32_t  advStylePosX = 1280;
-    std::int32_t  advStylePosY = 210;
 
     bool debugEnableCSLogging        = false;
     bool debugEnablePerformanceStats = false;
