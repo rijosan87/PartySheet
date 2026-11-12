@@ -28,6 +28,7 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
 #include "../includes/InputHooks.h"
 #include "../includes/InputHandler.h"
 #include "../includes/ImGui/CharacterSheet.h"
+#include "../includes/ImGui/PartySheetV2Camera.h"
 #include "../includes/ImGui/PartySheetV2.h"
 #include "../includes/ImGui/PartySheetV2Modal.h"
 #include "../includes/ImGui/PartySheetV2InventoryModal.h"
@@ -602,7 +603,6 @@ public:
             return RE::BSEventNotifyControl::kContinue;
         }
         
-        
         std::string eventName = a_event->eventName.c_str();
         
         if (eventName == "PartySheet_Open" ||
@@ -706,6 +706,7 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
             switch (msg->type) {
                 case SKSE::MessagingInterface::kPostLoad:
                     InitTDMAPI();
+                    PartySheetV2Camera::RegisterSmoothCam();
                     ImGuiRenderer::Install();
                     InputHooks::InstallInputHooks();
                     PNGIIBridge::Init();            // Optional PNG Icon Injector glyph API.
@@ -713,6 +714,7 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
 
                 case SKSE::MessagingInterface::kPostPostLoad:
                     PartySheetAPI::DispatchInterface();
+                    PartySheetV2Camera::RequestSmoothCam();
                     break;
 
                 case SKSE::MessagingInterface::kInputLoaded:
@@ -723,6 +725,7 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
                     break;
 
                 case SKSE::MessagingInterface::kPreLoadGame:
+                    PartySheetV2Camera::Exit();
                     PNGIIBridge::Clear();
                     break;
 

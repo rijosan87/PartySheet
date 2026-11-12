@@ -27,6 +27,7 @@ public:
     // ===== UI feedback =====
     std::int32_t  enableSoundEffects = 1;
     bool          pauseGameInSettings = false;
+    bool          psV2PauseGame = false;
 
     // ===== Localization & fonts =====
     std::string   language = "PartySheet_en";
@@ -917,6 +918,19 @@ public:
     std::uint32_t psBarInnerBorderColor      = 0x642828;
 
     bool psUseFullscreenMode = true;
+    bool psV2LiveCharacter = true;
+    std::int32_t psV2LiveCamX       = -15;
+    std::int32_t psV2LiveCamZ       = 0;
+    std::int32_t psV2LiveCamDist    = 70;
+    std::int32_t psV2LiveOpenW      = 35;
+    std::int32_t psV2LiveOpenH      = 85;
+    std::int32_t psV2LiveSoftness   = 60;
+    std::int32_t psV2LiveBottomFade = 0;
+    std::int32_t psV2LiveDim        = 0;
+    bool psV2LiveClassTint = true;
+    std::uint32_t psV2LiveClassColors[11] = {
+        0xFF15140F, 0xFF1F0F0F, 0xFF101B13, 0xFF13101C, 0xFF0F1521, 0xFF1C0A0D,
+        0xFF1B130C, 0xFF131918, 0xFF1F1009, 0xFF16180F, 0xFF09090B };
     float psV2Scale = 1.0f;
     float psV2FontDisplay = 1.00f;
     float psV2FontHeading = 0.70f;
@@ -930,10 +944,9 @@ public:
     float psV2IconFooter  = 28.0f;
     float psV2IconEquip   = 144.0f;
     float psV2IconArmor   = 112.0f;
-    // ===== Icon Design ===== (HUDDraw::DrawIconStyled, mirrors FollowerHUD hudEffectIcon*)
-    bool          psV2IconDuotone     = true;
-    bool          psV2IconShadow      = true;
-    bool          psV2IconOutline     = true;
+    bool          psV2IconDuotone     = false;
+    bool          psV2IconShadow      = false;
+    bool          psV2IconOutline     = false;
     std::int32_t  psV2IconOutlineWidth = 1;
     std::uint32_t psV2IconOutlineColor = 0x70000000;
     std::int32_t partySheetPosX = -1;

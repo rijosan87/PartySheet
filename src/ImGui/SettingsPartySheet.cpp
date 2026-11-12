@@ -23,12 +23,81 @@ namespace ImGuiRenderer::SettingsUI {
 
         ImGui::Spacing();
         ImGui::Checkbox("Fullscreen Mode (V2)##PSV2Mode", &settings->psUseFullscreenMode);
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("When enabled, the hotkey opens the new fullscreen PartySheetV2 instead of the classic sheet.");
         ImGui::Spacing();
         ImGui::Separator();
 
         if (settings->psUseFullscreenMode) {
+            ImGui::Spacing();
+            ImGui::Checkbox("Pause game while open (V2)##PSV2Pause", &settings->psV2PauseGame);
+            ImGui::Checkbox("Show live character (V2)##PSV2Live", &settings->psV2LiveCharacter);
+            if (settings->psV2LiveCharacter) {
+                ImGui::Spacing();
+                ImGui::TextDisabled("Camera (applies on next open)");
+                if (ImGui::BeginTable("##PSV2LiveCamTable", 2, ImGuiTableFlags_SizingStretchSame)) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2LiveCamX", &settings->psV2LiveCamX, -60, 60, "Side %d");
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2LiveCamZ", &settings->psV2LiveCamZ, -60, 60, "Height %d");
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2LiveCamDist", &settings->psV2LiveCamDist, 0, 400, "Distance %d");
+                    ImGui::EndTable();
+                }
+                ImGui::Spacing();
+                ImGui::TextDisabled("Opening");
+                if (ImGui::BeginTable("##PSV2LiveOpenTable", 2, ImGuiTableFlags_SizingStretchSame)) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2LiveOpenW", &settings->psV2LiveOpenW, 20, 60, "Width %d%%");
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2LiveOpenH", &settings->psV2LiveOpenH, 40, 100, "Height %d%%");
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2LiveSoft", &settings->psV2LiveSoftness, 5, 60, "Edge softness %d%%");
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2LiveBottom", &settings->psV2LiveBottomFade, 0, 70, "Bottom fade %d%%");
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2LiveDim", &settings->psV2LiveDim, 0, 60, "Character dim %d%%");
+                    ImGui::EndTable();
+                }
+                ImGui::Spacing();
+                if (ImGui::CollapsingHeader("Class colors##PSV2LiveCls")) {
+                    ImGui::Checkbox("Tint background by class##PSV2LiveClsOn", &settings->psV2LiveClassTint);
+                    if (settings->psV2LiveClassTint) {
+                        static constexpr const char* kNames[11] = {
+                            "Player", "Warrior", "Ranged", "Stealth", "Mage", "Vampire",
+                            "Werewolf", "Undead", "Daedra", "Creatures", "Common" };
+                        static constexpr std::uint32_t kDefaults[11] = {
+                            0xFF15140F, 0xFF1F0F0F, 0xFF101B13, 0xFF13101C, 0xFF0F1521, 0xFF1C0A0D,
+                            0xFF1B130C, 0xFF131918, 0xFF1F1009, 0xFF16180F, 0xFF09090B };
+                        static constexpr ImGuiColorEditFlags kClsFlags = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoAlpha;
+                        if (ImGui::BeginTable("##PSV2LiveClsTable", 2, ImGuiTableFlags_SizingStretchSame)) {
+                            for (int i = 0; i < 11; ++i) {
+                                if (i % 2 == 0) ImGui::TableNextRow();
+                                ImGui::TableSetColumnIndex(i % 2);
+                                ImGui::PushID(i);
+                                ImVec4 c = ColorUtils::ArgbToVec4(settings->psV2LiveClassColors[i]);
+                                if (ImGui::ColorEdit4(kNames[i], reinterpret_cast<float*>(&c), kClsFlags))
+                                    settings->psV2LiveClassColors[i] = ColorUtils::Vec4ToArgb(c) | 0xFF000000;
+                                ImGui::PopID();
+                            }
+                            ImGui::EndTable();
+                        }
+                        if (ImGui::Button("Reset colors##PSV2LiveClsReset"))
+                            std::copy(std::begin(kDefaults), std::end(kDefaults), settings->psV2LiveClassColors);
+                    }
+                }
+            }
             ImGui::Spacing();
             ImGui::TextDisabled("V2 Font Scales");
             ImGui::Spacing();

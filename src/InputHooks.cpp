@@ -5,6 +5,8 @@
 #include "../includes/ImGui/PartySheetV2Modal.h"
 #include "../includes/ImGui/PartySheetV2InventoryModal.h"
 #include "../includes/ImGui/PartySheetV2StatusModal.h"
+#include "../includes/ImGui/PartySheetV2Camera.h"
+#include "../includes/Settings.h"
 #include "../includes/ImGui/CharacterSheet.h"
 #include "../includes/ImGui/Renderer.h"
 #include "../includes/ImGui/InspectCard.h"
@@ -50,7 +52,6 @@ namespace InputHooks {
     static void Hook_ProcessInputQueue(RE::BSTEventSource<RE::InputEvent*>* a_source, RE::InputEvent** a_events) {
         const bool hasCharEventThisQueue = HasCharEventInQueue(a_events);
 
-        
         bool partySheetVisible = PartySheet::IsVisible();
         bool partySheetV2Visible = PartySheetV2::IsVisible();
         bool characterSheetVisible = CharacterSheet::GetSingleton()->IsVisible();
@@ -63,6 +64,7 @@ namespace InputHooks {
             RE::InputEvent* curr = *a_events;
             while (curr) {
                 bool shouldConsume = false;
+                bool v2SwallowKey = false;
 
                 if (curr->eventType == RE::INPUT_EVENT_TYPE::kChar) {
                     if (IsTextInputActive()) {
@@ -76,6 +78,18 @@ namespace InputHooks {
                 }
                 else if (curr->eventType == RE::INPUT_EVENT_TYPE::kButton) {
                     auto* btn = curr->AsButtonEvent();
+                    if (partySheetV2Visible && btn && btn->GetDevice() == RE::INPUT_DEVICE::kKeyboard) {
+                        const uint32_t sc = btn->GetIDCode();
+                        PartySheetV2Camera::SetNudgeKey(sc, btn->IsPressed());
+                        const auto* st = Settings::GetSingleton();
+                        bool ownKey = false;
+                        for (std::int32_t hk : { st->partySheetHotkey, st->menuSettingsKey, st->characterSheetHotkey,
+                                                 st->inspectCardHotkey, st->hudToggleKey, st->qhHotkey,
+                                                 st->potionHealthKey, st->potionMagickaKey, st->potionStaminaKey })
+                            if (hk >= 1 && sc == static_cast<uint32_t>(hk)) { ownKey = true; break; }
+                        v2SwallowKey = sc != SCANCODE_ESC && sc != SCANCODE_TAB && !ownKey &&
+                                       !ImGuiRenderer::IsModifierScancode(sc);
+                    }
                     if (btn && (btn->userEvent == "Zoom In" || btn->userEvent == "Zoom Out" ||
                                 btn->userEvent == "Toggle POV")) {
                         shouldConsume = true;
@@ -172,7 +186,6 @@ namespace InputHooks {
                         uint32_t id = btn->GetIDCode();
                         shouldConsume = true; 
                         
-                        
                         if (id == 0x0020) {
                              bool closedSomething = false;
 
@@ -251,6 +264,8 @@ namespace InputHooks {
                         }
                     }
                 }
+
+                if (v2SwallowKey) shouldConsume = true;
                 
                 if (shouldConsume) {
                     if (prev) {

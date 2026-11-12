@@ -79,6 +79,7 @@ add_commonlibsse_plugin(${PROJECT_NAME} MINIMUM_SKSE_VERSION 2.0.17 SOURCES
     src/TextureManager.cpp
     src/ImGui/PartySheet.cpp
     src/ImGui/PartySheetV2.cpp
+    src/ImGui/PartySheetV2Camera.cpp
     src/ImGui/PartySheetV2Modal.cpp
     src/ImGui/PartySheetV2InventoryModal.cpp
     src/ImGui/PartySheetV2StatusModal.cpp

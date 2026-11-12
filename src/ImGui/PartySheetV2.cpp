@@ -3,6 +3,7 @@
 #include "../../includes/ImGui/PartySheetV2Tooltip.h"
 #include "../../includes/ImGui/PartySheetV2InventoryModal.h"
 #include "../../includes/ImGui/PartySheetV2StatusModal.h"
+#include "../../includes/ImGui/PartySheetV2Camera.h"
 #include "../../includes/ImGui/Renderer.h"
 #include "../../includes/ImGui/CharacterSheet.h"
 #include "../../includes/ImGui/FollowerHUD.h"
@@ -30,6 +31,7 @@
 #include <Windows.h>
 #include <string>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <unordered_map>
 
@@ -104,7 +106,7 @@ namespace PartySheetV2 {
     static constexpr float kFooterH    =  60.0f;
 
     static constexpr float kBaseCanvasW = kPad * 2.0f + kSidebarW + kLeftColW + kCenterW + kRightW + kGap * 3.0f;
-    static constexpr float kBaseMainH   = 730.0f;
+    static constexpr float kBaseMainH   = 714.0f;
     static constexpr float kBaseCanvasH = kPad * 2.0f + kHeaderH + kBaseMainH + kFooterH + kGap * 2.0f;
 
     static std::string GetActorBgStem(RE::Actor* actor) {
@@ -298,6 +300,19 @@ namespace PartySheetV2 {
         s_SubjectIndex = (s_SubjectIndex + 1) % static_cast<int>(subjects.size());
     }
 
+    static bool s_PausedByUs = false;
+    static void ApplyPause(bool want) {
+        auto* main = RE::Main::GetSingleton();
+        if (!main) return;
+        if (want && !s_PausedByUs && !main->freezeTime) {
+            main->freezeTime = true;
+            s_PausedByUs = true;
+        } else if (!want && s_PausedByUs) {
+            main->freezeTime = false;
+            s_PausedByUs = false;
+        }
+    }
+
     void Toggle() {
         if (MenuUtils::ShouldBlockCharacterSheet()) return;
 
@@ -314,7 +329,10 @@ namespace PartySheetV2 {
 
         if (s_Visible && !wasVisible) {
             DisablePlayerInput();
+            PartySheetV2Camera::Enter();
         } else if (!s_Visible && wasVisible) {
+            ApplyPause(false);
+            PartySheetV2Camera::Exit();
             CloseEffectsModal();
             CloseInventoryModal();
             CloseStatusModal();
@@ -2623,12 +2641,132 @@ namespace PartySheetV2 {
         if (s_controlsHint.empty()) s_controlsHint = LocalizationManager::Get("PartySheetV2.ControlsHint");
         const char* hint = s_controlsHint.c_str();
         ImVec2 hintSz = ImGui::CalcTextSize(hint);
-        dl->AddText(
-            ImVec2(origin.x + size.x - padX - hintSz.x, textY),
-            kTheme.textMuted, hint);
+        const float hintX = origin.x + size.x - padX - hintSz.x;
+        dl->AddText(ImVec2(hintX, textY), kTheme.textMuted, hint);
+
+        {
+            auto* set = Settings::GetSingleton();
+            static std::string s_pauseLabel;
+            if (s_pauseLabel.empty()) s_pauseLabel = LocalizationManager::Get("PartySheetV2.PauseGame");
+            const float trackH = textH * 0.85f, trackW = trackH * 1.9f;
+            const ImVec2 lblSz = ImGui::CalcTextSize(s_pauseLabel.c_str());
+            const float  gapX  = 8.0f * sc;
+            const float  x1    = hintX - divW * 2.0f;
+            const float  trackX = x1 - trackW;
+            const float  lblX   = trackX - gapX - lblSz.x;
+            const ImVec2 tMin(trackX, centerY - trackH * 0.5f), tMax(x1, centerY + trackH * 0.5f);
+
+            ImGui::SetCursorScreenPos(ImVec2(lblX, centerY - textH * 0.5f));
+            if (ImGui::InvisibleButton("##psv2_pause", ImVec2(x1 - lblX, textH)))
+                set->psV2PauseGame = !set->psV2PauseGame;
+            const bool hov = ImGui::IsItemHovered();
+            const bool on  = set->psV2PauseGame;
+
+            dl->AddText(ImVec2(lblX, textY), hov || on ? kTheme.accent : kTheme.textMuted, s_pauseLabel.c_str());
+            dl->AddRectFilled(tMin, tMax, on ? V2Theme::AccentA(150) : IM_COL32(255, 255, 255, 30), trackH * 0.5f);
+            dl->AddRect(tMin, tMax, V2Theme::AccentA(hov ? 200 : 90), trackH * 0.5f);
+            const float r  = trackH * 0.5f - 2.0f * sc;
+            const float kx = on ? tMax.x - trackH * 0.5f : tMin.x + trackH * 0.5f;
+            dl->AddCircleFilled(ImVec2(kx, centerY), r, on ? IM_COL32(255, 255, 255, 235) : IM_COL32(255, 255, 255, 120));
+        }
 
         ImGui::SetWindowFontScale(1.0f);
+        ImGui::SetCursorScreenPos(origin);
         ImGui::Dummy(ImVec2(size.x, size.y));
+    }
+
+    static ImU32 LiveBackingColor(RE::Actor* actor) {
+        auto* set = Settings::GetSingleton();
+        if (!set->psV2LiveClassTint) return kTheme.bgBase;
+        static constexpr const char* kLiveClassKeys[11] = {
+            "class-player", "class-warrior", "class-ranged", "class-stealth", "class-mage", "class-vampire",
+            "class-werewolf", "class-undead", "class-daedra", "class-creatures", "class-common" };
+        const std::string_view name = GetClassBgName(actor);
+        int idx = 10;
+        for (int i = 0; i < 11; ++i)
+            if (name == kLiveClassKeys[i]) { idx = i; break; }
+        const std::uint32_t argb = set->psV2LiveClassColors[idx];
+        return IM_COL32((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF, 255);
+    }
+
+    static void DrawLiveOpening(ImDrawList* dl, ImVec2 canvasMin, ImVec2 canvasMax,
+                                ImVec2 displaySize, float centerX, ImU32 base) {
+        const auto* set = Settings::GetSingleton();
+        const float canvasW = canvasMax.x - canvasMin.x, canvasH = canvasMax.y - canvasMin.y;
+        const float rx    = canvasW * set->psV2LiveOpenW * 0.005f;
+        const float ry    = canvasH * set->psV2LiveOpenH * 0.005f;
+        const float cy    = (canvasMin.y + canvasMax.y) * 0.5f;
+        const float soft  = set->psV2LiveSoftness * 0.01f;
+        const float fadeH = canvasH * set->psV2LiveBottomFade * 0.01f;
+
+        const ImU32 dim = IM_COL32(0, 0, 0, 140);
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(displaySize.x, canvasMin.y), dim);
+        dl->AddRectFilled(ImVec2(0, canvasMax.y), displaySize, dim);
+        dl->AddRectFilled(ImVec2(0, canvasMin.y), ImVec2(canvasMin.x, canvasMax.y), dim);
+        dl->AddRectFilled(ImVec2(canvasMax.x, canvasMin.y), ImVec2(displaySize.x, canvasMax.y), dim);
+
+        constexpr int   kSeg   = 72;
+        constexpr int   kInner = 6;
+        constexpr int   kFade  = 8;
+        constexpr int   kRings = kInner + kFade + 1;
+        constexpr float kFar   = 20.0f;
+        auto smooth = [](float t) { t = std::clamp(t, 0.0f, 1.0f); return t * t * (3.0f - 2.0f * t); };
+        auto bottomA = [&](float y) {
+            return fadeH > 0.0f ? smooth((y - (canvasMax.y - fadeH)) / fadeH) : 0.0f;
+        };
+        const ImU32 rgb   = base & ~IM_COL32_A_MASK;
+        const float baseA = static_cast<float>((base >> IM_COL32_A_SHIFT) & 0xFF);
+        auto col = [&](float a) {
+            return rgb | (static_cast<ImU32>(baseA * std::clamp(a, 0.0f, 1.0f) + 0.5f) << IM_COL32_A_SHIFT);
+        };
+        auto ringScale = [&](int r) {
+            if (r < kInner) return (1.0f - soft) * static_cast<float>(r + 1) / kInner;
+            if (r < kInner + kFade) return (1.0f - soft) + soft * static_cast<float>(r - kInner + 1) / kFade;
+            return kFar;
+        };
+        auto ringA = [&](int r) {
+            if (r < kInner) return 0.0f;
+            if (r < kInner + kFade) return smooth(static_cast<float>(r - kInner + 1) / kFade);
+            return 1.0f;
+        };
+
+        dl->PushClipRect(canvasMin, canvasMax, true);
+
+        if (set->psV2LiveDim > 0) {
+            const ImU32 tint = IM_COL32(0, 0, 0, static_cast<int>(set->psV2LiveDim * 2.55f));
+            std::array<ImVec2, kSeg> pts;
+            for (int i = 0; i < kSeg; ++i) {
+                const float ang = 6.2831853f * i / kSeg;
+                pts[i] = ImVec2(centerX + std::cos(ang) * rx, cy + std::sin(ang) * ry);
+            }
+            dl->AddConvexPolyFilled(pts.data(), kSeg, tint);
+        }
+
+        const ImVec2 uv = ImGui::GetFontTexUvWhitePixel();
+        const int vtxCount = 1 + kSeg * kRings;
+        const int idxCount = kSeg * 3 + kSeg * (kRings - 1) * 6;
+        dl->PrimReserve(idxCount, vtxCount);
+        const ImDrawIdx v0 = static_cast<ImDrawIdx>(dl->_VtxCurrentIdx);
+        dl->PrimWriteVtx(ImVec2(centerX, cy), uv, col(bottomA(cy)));
+        for (int r = 0; r < kRings; ++r) {
+            const float f = ringScale(r), a = ringA(r);
+            for (int i = 0; i < kSeg; ++i) {
+                const float ang = 6.2831853f * i / kSeg;
+                const ImVec2 p(centerX + std::cos(ang) * rx * f, cy + std::sin(ang) * ry * f);
+                dl->PrimWriteVtx(p, uv, col((std::max)(a, bottomA(p.y))));
+            }
+        }
+        auto vi = [&](int r, int i) { return static_cast<ImDrawIdx>(v0 + 1 + r * kSeg + (i % kSeg)); };
+        for (int i = 0; i < kSeg; ++i) {
+            dl->PrimWriteIdx(v0); dl->PrimWriteIdx(vi(0, i)); dl->PrimWriteIdx(vi(0, i + 1));
+        }
+        for (int r = 0; r + 1 < kRings; ++r)
+            for (int i = 0; i < kSeg; ++i) {
+                dl->PrimWriteIdx(vi(r, i));     dl->PrimWriteIdx(vi(r + 1, i));     dl->PrimWriteIdx(vi(r + 1, i + 1));
+                dl->PrimWriteIdx(vi(r, i));     dl->PrimWriteIdx(vi(r + 1, i + 1)); dl->PrimWriteIdx(vi(r, i + 1));
+            }
+
+        dl->PopClipRect();
     }
 
     void Render() {
@@ -2636,6 +2774,8 @@ namespace PartySheetV2 {
 
         if (MenuUtils::ShouldBlockCharacterSheet()) {
             s_Visible = false;
+            ApplyPause(false);
+            PartySheetV2Camera::Exit();
             CloseEffectsModal();
             CloseInventoryModal();
             CloseStatusModal();
@@ -2694,11 +2834,6 @@ namespace PartySheetV2 {
         const ImVec2 canvasMin(canvasX, canvasY);
         const ImVec2 canvasMax(canvasX + canvasW, canvasY + canvasH);
 
-        {
-            ImDrawList* fullDl = ImGui::GetBackgroundDrawList();
-            fullDl->AddRectFilled(ImVec2(0, 0), displaySize, IM_COL32(0, 0, 0, 140));
-        }
-
         ImGui::SetNextWindowPos(canvasMin);
         ImGui::SetNextWindowSize(ImVec2(canvasW, canvasH));
         ImGui::SetNextWindowBgAlpha(0.0f);
@@ -2728,8 +2863,17 @@ namespace PartySheetV2 {
                     bgTex = TryLoadBgTexture(actorStem);
                 if (!bgTex)
                     bgTex = GetClassBgTexture(GetClassBgName(subject));
-                {
+                ApplyPause(Settings::GetSingleton()->psV2PauseGame);
+                PartySheetV2Camera::RetryPending();
+                const bool live = PartySheetV2Camera::ShowSubject(subject);
+                if (live) PartySheetV2Camera::Nudge(ImGui::GetIO().DeltaTime);
+                if (live) {
+                    const float hx0 = canvasMin.x + (kPad + kSidebarW + kGap + kLeftColW + kGap) * sc0;
+                    DrawLiveOpening(ImGui::GetBackgroundDrawList(), canvasMin, canvasMax, displaySize,
+                                    hx0 + kCenterW * sc0 * 0.5f, LiveBackingColor(subject));
+                } else {
                     ImDrawList* bgDl = ImGui::GetBackgroundDrawList();
+                    bgDl->AddRectFilled(ImVec2(0, 0), displaySize, IM_COL32(0, 0, 0, 140));
                     bgDl->AddRectFilled(canvasMin, canvasMax, kTheme.bgBase);
                     if (bgTex) {
                         ImVec2 mp = ImGui::GetIO().MousePos;

@@ -102,6 +102,7 @@ void Settings::Load() {
     requiredAlterationLevel = GetPrivateProfileIntW(L"Behavior", L"RequiredAlterationLevel", requiredAlterationLevel, userPath);
     magickaDrainPerSecond   = GetPrivateProfileFloat(L"Behavior", L"MagickaDrainPerSecond",  magickaDrainPerSecond,   userPath);
     pauseGameInSettings     = GetPrivateProfileIntW(L"Behavior", L"PauseGameInSettings",     pauseGameInSettings ? 1 : 0, userPath) != 0;
+    psV2PauseGame           = GetPrivateProfileIntW(L"Behavior", L"PauseGameInPartySheetV2", psV2PauseGame ? 1 : 0, userPath) != 0;
 
     phSurvivalStackWarning  = GetPrivateProfileIntW(L"PlayerSurvival", L"StackWarning", phSurvivalStackWarning ? 1 : 0, userPath) != 0;
 
@@ -635,6 +636,27 @@ void Settings::Load() {
     hvTriggerStableMount     = GetPrivateProfileIntW(L"HUDVisibility", L"TriggerStableMount",     hvTriggerStableMount     ? 1 : 0, presetPath) != 0;
 
     psUseFullscreenMode = GetPrivateProfileIntW(L"PartySheet", L"UseFullscreenMode", psUseFullscreenMode, presetPath) != 0;
+    psV2LiveCharacter = GetPrivateProfileIntW(L"PartySheet", L"V2LiveCharacter", psV2LiveCharacter ? 1 : 0, presetPath) != 0;
+    psV2LiveCamX = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveCamX", psV2LiveCamX, presetPath), -60, 60);
+    psV2LiveCamZ = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveCamZ", psV2LiveCamZ, presetPath), -60, 60);
+    psV2LiveCamDist = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveCamDist", psV2LiveCamDist, presetPath), 0, 400);
+    psV2LiveOpenW = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveOpenW", psV2LiveOpenW, presetPath), 20, 60);
+    psV2LiveOpenH = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveOpenH", psV2LiveOpenH, presetPath), 40, 100);
+    psV2LiveSoftness = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveSoftness", psV2LiveSoftness, presetPath), 5, 60);
+    psV2LiveBottomFade = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveBottomFade", psV2LiveBottomFade, presetPath), 0, 70);
+    psV2LiveDim = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveDim", psV2LiveDim, presetPath), 0, 60);
+    psV2LiveClassTint = GetPrivateProfileIntW(L"PartySheet", L"V2LiveClassTint", psV2LiveClassTint ? 1 : 0, presetPath) != 0;
+    psV2LiveClassColors[0] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorPlayer", psV2LiveClassColors[0], presetPath);
+    psV2LiveClassColors[1] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorWarrior", psV2LiveClassColors[1], presetPath);
+    psV2LiveClassColors[2] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorRanged", psV2LiveClassColors[2], presetPath);
+    psV2LiveClassColors[3] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorStealth", psV2LiveClassColors[3], presetPath);
+    psV2LiveClassColors[4] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorMage", psV2LiveClassColors[4], presetPath);
+    psV2LiveClassColors[5] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorVampire", psV2LiveClassColors[5], presetPath);
+    psV2LiveClassColors[6] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorWerewolf", psV2LiveClassColors[6], presetPath);
+    psV2LiveClassColors[7] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorUndead", psV2LiveClassColors[7], presetPath);
+    psV2LiveClassColors[8] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorDaedra", psV2LiveClassColors[8], presetPath);
+    psV2LiveClassColors[9] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorCreatures", psV2LiveClassColors[9], presetPath);
+    psV2LiveClassColors[10] = GetPrivateProfileHex(L"PartySheet", L"V2LiveColorCommon", psV2LiveClassColors[10], presetPath);
     psV2Scale        = GetPrivateProfileIntW(L"PartySheet", L"V2Scale",        (int)(psV2Scale        * 100), presetPath) / 100.0f;
     psV2FontDisplay  = GetPrivateProfileIntW(L"PartySheet", L"V2FontDisplay",  (int)(psV2FontDisplay  * 100), presetPath) / 100.0f;
     psV2FontHeading  = GetPrivateProfileIntW(L"PartySheet", L"V2FontHeading",  (int)(psV2FontHeading  * 100), presetPath) / 100.0f;
@@ -1540,7 +1562,6 @@ void Settings::Save() {
     };
     wchar_t hexBuf[16];
     
-    
     // =====================================
     // PartyUserSettings.ini - User preferences
     // =====================================
@@ -1587,6 +1608,7 @@ void Settings::Save() {
     swprintf_s(hexBuf, L"%.1f", magickaDrainPerSecond);
     WritePrivateProfileStringW(L"Behavior", L"MagickaDrainPerSecond", hexBuf, userPath);
     WritePrivateProfileStringW(L"Behavior", L"PauseGameInSettings", pauseGameInSettings ? L"1" : L"0", userPath);
+    WritePrivateProfileStringW(L"Behavior", L"PauseGameInPartySheetV2", psV2PauseGame ? L"1" : L"0", userPath);
 
     WritePrivateProfileStringW(L"PlayerSurvival", L"StackWarning", phSurvivalStackWarning ? L"1" : L"0", userPath);
     
@@ -1600,7 +1622,6 @@ void Settings::Save() {
 
     // [MenuSettings]
     WritePrivateProfileStringW(L"MenuSettings", L"Scale", toWStr(menuScale).c_str(), userPath);
-    
     
     // =====================================
     // PartySheet.ini - Visual presets (shareable)
@@ -2063,6 +2084,27 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"HUDVisibility", L"TriggerStableMount",     toWStr(hvTriggerStableMount     ? 1 : 0).c_str(), presetPath);
 
     WritePrivateProfileStringW(L"PartySheet", L"UseFullscreenMode", toWStr(psUseFullscreenMode ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveCharacter", toWStr(psV2LiveCharacter ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveCamX", toWStr(psV2LiveCamX).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveCamZ", toWStr(psV2LiveCamZ).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveCamDist", toWStr(psV2LiveCamDist).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveOpenW", toWStr(psV2LiveOpenW).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveOpenH", toWStr(psV2LiveOpenH).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveSoftness", toWStr(psV2LiveSoftness).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveBottomFade", toWStr(psV2LiveBottomFade).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveDim", toWStr(psV2LiveDim).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveClassTint", toWStr(psV2LiveClassTint ? 1 : 0).c_str(), presetPath);
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[0]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorPlayer", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[1]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorWarrior", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[2]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorRanged", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[3]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorStealth", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[4]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorMage", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[5]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorVampire", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[6]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorWerewolf", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[7]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorUndead", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[8]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorDaedra", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[9]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorCreatures", cb, presetPath); }
+    { wchar_t cb[16]; swprintf_s(cb, L"%08X", psV2LiveClassColors[10]); WritePrivateProfileStringW(L"PartySheet", L"V2LiveColorCommon", cb, presetPath); }
     WritePrivateProfileStringW(L"PartySheet", L"V2Scale",       toWStr((int)(psV2Scale       * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2FontDisplay", toWStr((int)(psV2FontDisplay * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2FontHeading", toWStr((int)(psV2FontHeading * 100)).c_str(), presetPath);
