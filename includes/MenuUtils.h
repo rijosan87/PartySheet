@@ -268,15 +268,34 @@ namespace MenuUtils {
             initialized = true;
             lastFightingEnabled = fightingEnabled;
             auto* ui = RE::UI::GetSingleton();
+            auto* player = RE::PlayerCharacter::GetSingleton();
+            auto* state = player ? player->AsActorState() : nullptr;
+            const int sit = state ? static_cast<int>(state->GetSitSleepState()) : -1;
+            auto furnRef = player ? player->GetOccupiedFurniture().get() : nullptr;
+            auto* furnBase = furnRef ? furnRef->GetBaseObject() : nullptr;
             logger::debug(
-                "[HUDGate] fighting={} movement={} looking={} menusShowing={}",
+                "[HUDGate] fighting={} movement={} looking={} menusShowing={} sitSleep={} "
+                "furniture={:08X} '{}' inScene={}",
                 fightingEnabled,
                 controls->IsMovementControlsEnabled(),
                 controls->IsLookingControlsEnabled(),
-                ui && ui->IsShowingMenus());
+                ui && ui->IsShowingMenus(),
+                sit,
+                furnRef ? furnRef->GetFormID() : 0u,
+                furnBase ? furnBase->GetName() : "",
+                player && player->GetCurrentScene() != nullptr);
         }
 
-        return !fightingEnabled;
+        if (fightingEnabled) return false;
+
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        auto* state = player ? player->AsActorState() : nullptr;
+        if (state && !player->GetCurrentScene()) {
+            const auto sit = state->GetSitSleepState();
+            if (sit >= RE::SIT_SLEEP_STATE::kWantToSit && sit <= RE::SIT_SLEEP_STATE::kWantToWake)
+                return false;
+        }
+        return true;
     }
     
     
@@ -287,7 +306,11 @@ namespace MenuUtils {
         if (ui->IsMenuOpen("InventoryMenu") || ui->IsMenuOpen("MagicMenu")) {
             return true;
         }
-        
+
+        if (!ui->IsShowingMenus()) {
+            return true;
+        }
+
         return IsBlockingMenuOpen() || IsInPhotoMode() || AreFightingControlsDisabled();
     }
     
