@@ -349,6 +349,8 @@ namespace WidgetCollectibles {
                 if (rowFlow && maxCardHeight > 0.0f)
                     ImGui::SetCursorPosY(maxCardHeight);
 
+                ImGui::Dummy(ImVec2(0.0f, 0.0f));
+
                 ImGui::SetWindowFontScale(1.0f);
 
                 // Capture dragged position

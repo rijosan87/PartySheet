@@ -695,7 +695,7 @@ namespace PlayerHUD {
                 if (name && name[0]) {
                     ImFont* font = ImGuiRenderer::GetHeadingFont();
                     if (!font) font = ImGui::GetFont();
-                    float sz = font->FontSize * settings->phNameFontScale;
+                    float sz = font->LegacySize * settings->phNameFontScale;
                     rightColH += font->CalcTextSizeA(sz, FLT_MAX, 0.0f, name).y + barSpacing;
                 }
             }
@@ -713,7 +713,7 @@ namespace PlayerHUD {
             if (name && name[0]) {
                 ImFont* font = ImGuiRenderer::GetHeadingFont();
                 if (!font) font = ImGui::GetFont();
-                float nameFontSize = font->FontSize * settings->phNameFontScale;
+                float nameFontSize = font->LegacySize * settings->phNameFontScale;
                 ImVec2 nameSize = font->CalcTextSizeA(nameFontSize, FLT_MAX, 0.0f, name);
                 ImU32 nameCol = IM_COL32((settings->phNameColor >> 16) & 0xFF,
                                          (settings->phNameColor >> 8) & 0xFF,
@@ -763,7 +763,7 @@ namespace PlayerHUD {
             char buf[32];
             snprintf(buf, sizeof(buf), "%.0f/%.0f", current, max);
             ImFont* font = ImGui::GetFont();
-            float fontSize = font->FontSize * settings->phBarTextFontScale;
+            float fontSize = font->LegacySize * settings->phBarTextFontScale;
             ImVec2 ts = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, buf);
             ImU32 col = (barTextCol & ~IM_COL32_A_MASK) |
                         (static_cast<ImU32>(((barTextCol >> IM_COL32_A_SHIFT) & 0xFF) * a) << IM_COL32_A_SHIFT);
@@ -860,7 +860,7 @@ namespace PlayerHUD {
         auto DrawStatBonus = [&](float x, float y, float w, float h, float bonusVal, float a) {
             if (bonusVal == 0.0f) return;
             ImFont* font     = ImGui::GetFont();
-            float   fontSize = font->FontSize * settings->phFortifyFontScale;
+            float   fontSize = font->LegacySize * settings->phFortifyFontScale;
             char    buf[16];
             if (bonusVal > 0.0f)
                 snprintf(buf, sizeof(buf), "+%.0f", bonusVal);
@@ -880,7 +880,7 @@ namespace PlayerHUD {
         auto DrawRegenPip = [&](float x, float y, float h, float regenVal, float a) {
             if (regenVal <= 0.0f) return;
             ImFont* font     = ImGui::GetFont();
-            float   fontSize = font->FontSize * settings->phRegenFontScale;
+            float   fontSize = font->LegacySize * settings->phRegenFontScale;
             float   pip      = std::max(ScalePx(4.0f), fontSize * 0.55f);
             float   cx       = x + ScalePx(5.0f) + pip;
             float   cy       = y + h * 0.5f + barTextOffsetY;
@@ -1199,10 +1199,12 @@ namespace PlayerHUD {
                 ImFont*     hFont   = FontManager::GetSingleton()->GetHeadingFont();
                 ImFont*     bFont   = ImGui::GetFont();
                 if (!hFont) hFont = bFont;
-                const float lvlSz   = hFont->FontSize * 0.8f;
-                const float xpSz   = bFont->FontSize * 0.8f;
-                const float lvlAsc  = hFont->Ascent * (lvlSz / hFont->FontSize);
-                const float xpAsc  = bFont->Ascent * (xpSz / bFont->FontSize);
+                const float lvlSz   = hFont->LegacySize * 0.8f;
+                const float xpSz   = bFont->LegacySize * 0.8f;
+                ImFontBaked* hBaked = hFont->GetFontBaked(lvlSz);
+                ImFontBaked* bBaked = bFont->GetFontBaked(xpSz);
+                const float lvlAsc  = hBaked ? hBaked->Ascent * (lvlSz / hBaked->Size) : lvlSz;
+                const float xpAsc  = bBaked ? bBaked->Ascent * (xpSz / bBaked->Size) : xpSz;
                 const float baseY   = lineY + std::max(lvlAsc, xpAsc);
                 const float lvlY    = baseY - lvlAsc;
                 const float xpY    = baseY - xpAsc;
@@ -1217,9 +1219,8 @@ namespace PlayerHUD {
                 const float lvlW = hFont->CalcTextSizeA(lvlSz, FLT_MAX, 0.0f, lvlBuf).x;
                 float xpX = lineX + lvlW + ScalePx(6.0f);
                 if (levelUpReady) {
-                    // Match visible digit bounds rather than the font's padded line height.
-                    const ImFontGlyph* digit = hFont->FindGlyph('0');
-                    const float fontScale = lvlSz / hFont->FontSize;
+                    const ImFontGlyph* digit = hBaked ? hBaked->FindGlyph('0') : nullptr;
+                    const float fontScale = hBaked ? lvlSz / hBaked->Size : 1.0f;
                     const float arrowH = digit ? (digit->Y1 - digit->Y0) * fontScale : lvlSz;
                     const float arrowY = digit ? lvlY + digit->Y0 * fontScale : lvlY;
                     DrawLevelUpRune(dl, xpX, arrowY, arrowH, txtA / 255.0f);

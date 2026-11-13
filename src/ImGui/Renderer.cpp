@@ -66,12 +66,12 @@ namespace ImGuiRenderer {
             ID3D11InputLayout*        pInputLayout;
             ID3D11Buffer*             pVertexConstantBuffer;
             ID3D11PixelShader*        pPixelShader;
-            ID3D11SamplerState*       pFontSampler;
+            ID3D11SamplerState*       pTexSamplerLinear;
         };
 
         auto& io = ImGui::GetIO();
         auto* bd = static_cast<ImGui_ImplDX11_Data_Mirror*>(io.BackendRendererUserData);
-        if (!bd || !bd->pd3dDevice || !bd->pFontSampler) return;
+        if (!bd || !bd->pd3dDevice || !bd->pTexSamplerLinear) return;
 
         D3D11_SAMPLER_DESC sd = {};
         sd.Filter         = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
@@ -84,8 +84,8 @@ namespace ImGuiRenderer {
         sd.MaxLOD         = D3D11_FLOAT32_MAX;
         ID3D11SamplerState* trilinearSampler = nullptr;
         if (SUCCEEDED(bd->pd3dDevice->CreateSamplerState(&sd, &trilinearSampler))) {
-            bd->pFontSampler->Release();
-            bd->pFontSampler = trilinearSampler;
+            bd->pTexSamplerLinear->Release();
+            bd->pTexSamplerLinear = trilinearSampler;
             logger::info("ImGui sampler patched: MaxLOD raised to FLT_MAX (trilinear mip sampling enabled)");
         } else {
             logger::warn("Sampler patch failed: CreateSamplerState returned an error");
@@ -175,6 +175,8 @@ namespace ImGuiRenderer {
                         ImGui_ImplWin32_WndProcHandler(pMsg->hwnd, msg, pMsg->wParam, pMsg->lParam);
                         g_CharHandledByMsgHook = true;
                     }
+                } else if (msg == WM_KEYUP || msg == WM_SYSKEYUP) {
+                    ImGui_ImplWin32_WndProcHandler(pMsg->hwnd, msg, pMsg->wParam, pMsg->lParam);
                 }
             }
         }
@@ -310,6 +312,9 @@ namespace ImGuiRenderer {
                     }
                 }
             }
+
+            if (g_Initialized && !g_MenuVisible && (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP))
+                ImGui_ImplWin32_WndProcHandler(hWnd, uMsg, wParam, lParam);
             
             if (g_Initialized && uMsg == WM_KILLFOCUS) {
                 ImGui::GetIO().ClearInputKeys();

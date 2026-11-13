@@ -18,7 +18,6 @@ public:
     void LoadFonts(ImGuiIO& io);
     ImFont* GetBaseFont() const { return baseFont; }
     ImFont* GetHeadingFont() const { return headingFont; }
-    const ImWchar* GetGlyphRanges(const std::string& language, ImGuiIO& io);
 private:
     FontManager() = default;
     FontManager(const FontManager&) = delete;

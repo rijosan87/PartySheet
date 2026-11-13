@@ -927,13 +927,13 @@ static void RenderWindow(bool allowDrag)
     ImGui::Begin("##playerHUDsurvival", nullptr, flags);
 
     ImFont* font        = ImGui::GetFont();
-    float   labelSize   = font->FontSize * settings->phSurvivalLabelScale;
-    float   stageSize   = font->FontSize * settings->phSurvivalStageScale;
+    float   labelSize   = font->LegacySize * settings->phSurvivalLabelScale;
+    float   stageSize   = font->LegacySize * settings->phSurvivalStageScale;
     float   iconSize    = ScalePx(static_cast<float>(settings->phSurvivalIconSize));
     const bool hasArc = settings->phSurvivalIndicatorStyle == 3;
     const float arcRadius = ScalePx(settings->phSurvivalArcRadius);
     const float arcThickness = ScalePx(settings->phSurvivalArcThickness);
-    const float percentageSize = font->FontSize * settings->phSurvivalPercentageScale;
+    const float percentageSize = font->LegacySize * settings->phSurvivalPercentageScale;
     const float percentageW = settings->phSurvivalShowPercentage
                             ? font->CalcTextSizeA(percentageSize, FLT_MAX, 0.0f, "100%").x : 0.0f;
     const float iconRegion = (std::max)(percentageW, hasArc ? (std::max)(iconSize, arcRadius * 2.0f + arcThickness) : iconSize);

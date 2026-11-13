@@ -6,13 +6,6 @@
 #include <imgui_freetype.h>
 #include <Windows.h>
 
-static const ImWchar kEuropeanRanges[] = {
-    0x0020, 0x00FF,
-    0x0100, 0x017F,
-    0x0400, 0x052F,
-    0,
-};
-
 void FontManager::LoadFonts(ImGuiIO& io) {
     auto settings = Settings::GetSingleton();
     std::string fontPath = GetFontPath(settings->language);
@@ -23,18 +16,20 @@ void FontManager::LoadFonts(ImGuiIO& io) {
                     settings->language.find("_ko") != std::string::npos;
     fontConfig.OversampleH = isCJK ? 2 : 3;
     fontConfig.OversampleV = 2;
-    fontConfig.FontBuilderFlags = ImGuiFreeTypeBuilderFlags_NoHinting;
+
+    fontConfig.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_NoHinting;
     float baseFontSize = static_cast<float>(settings->fontSize);
     float headingSize = static_cast<float>(settings->headingFontSize);
-    const ImWchar* glyphRanges = GetGlyphRanges(settings->language, io);
     baseFont = nullptr;
     headingFont = nullptr;
     io.Fonts->Clear();
-    io.Fonts->FontBuilderIO = ImGuiFreeType::GetBuilderForFreeType();
+
+    io.Fonts->TexMinWidth = 2048;
+    io.Fonts->TexMinHeight = 2048;
     if (!fontPath.empty()) {
-        baseFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), baseFontSize, &fontConfig, glyphRanges);
+        baseFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), baseFontSize, &fontConfig);
         if (!isCJK && headingSize > baseFontSize) {
-            headingFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), headingSize, &fontConfig, glyphRanges);
+            headingFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), headingSize, &fontConfig);
         }
     }
     if (baseFont) {
@@ -42,29 +37,6 @@ void FontManager::LoadFonts(ImGuiIO& io) {
         io.Fonts->AddFontDefault();
         baseFont = io.Fonts->Fonts[0];
     }
-    io.Fonts->Build();
-}
-
-const ImWchar* FontManager::GetGlyphRanges(const std::string& language, ImGuiIO& io) {
-    if (language.find("_zh") != std::string::npos) {
-        return io.Fonts->GetGlyphRangesChineseFull();
-    }
-    if (language.find("_ja") != std::string::npos) {
-        return io.Fonts->GetGlyphRangesJapanese();
-    }
-    if (language.find("_ko") != std::string::npos) {
-        return io.Fonts->GetGlyphRangesKorean();
-    }
-    if (language.find("_vi") != std::string::npos) {
-        return io.Fonts->GetGlyphRangesVietnamese();
-    }
-    if (language.find("_th") != std::string::npos) {
-        return io.Fonts->GetGlyphRangesThai();
-    }
-    if (language.find("_el") != std::string::npos) {
-        return io.Fonts->GetGlyphRangesGreek();
-    }
-    return kEuropeanRanges;
 }
 
 std::string FontManager::GetFontPath(const std::string& language) {

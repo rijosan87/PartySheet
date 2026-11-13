@@ -330,7 +330,7 @@ namespace HUDDraw {
 
         const float aScale = aT / 255.0f;
 
-        const float sScale = std::clamp(fontSize / font->FontSize, 0.35f, 1.0f);
+        const float sScale = std::clamp(fontSize / font->LegacySize, 0.35f, 1.0f);
 
         if (fx.shadow) {
             const ImVec2 sc(pos.x + 1.0f * sScale, pos.y + 1.5f * sScale);
@@ -375,14 +375,13 @@ namespace HUDDraw {
     {
         ImFont*     font     = fx.font ? fx.font : ImGui::GetFont();
         const float fontSize = fx.fontSize > 0.0f ? fx.fontSize : ImGui::GetFontSize();
-        const float scale    = fontSize / font->FontSize;
         const float lineH    = fontSize;
         const char* textEnd  = txt + strlen(txt);
 
         float y = pos.y;
         const char* s = txt;
         while (s < textEnd) {
-            const char* lineEnd = font->CalcWordWrapPositionA(scale, s, textEnd, maxWidth);
+            const char* lineEnd = font->CalcWordWrapPosition(fontSize, s, textEnd, maxWidth);
             if (lineEnd == s)
                 lineEnd++;
             float x = pos.x;
@@ -406,7 +405,7 @@ namespace HUDDraw {
                              float& iconSz, float& gap, float& w, float& h)
     {
         font = s.font ? s.font : ImGui::GetFont();
-        fs   = font->FontSize * s.fontScale;
+        fs   = font->LegacySize * s.fontScale;
         const bool hasText = txt && txt[0];
         ts = hasText ? font->CalcTextSizeA(fs, 3.402823466e+38f /*FLT_MAX*/, 0.0f, txt)
                      : ImVec2(0.0f, 0.0f);

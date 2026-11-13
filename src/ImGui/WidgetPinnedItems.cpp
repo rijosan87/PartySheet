@@ -483,7 +483,7 @@ namespace WidgetPinnedItems {
                 ImFont* countFont        = headingFont ? headingFont : ImGui::GetFont();
                 // Height of a count-font number (used for card sizing in badge mode; falls back to base font for CJK)
                 float badgeNumH = countFont
-                    ? (countFont->FontSize * settings->ptCountScale + ScalePx(4.0f))
+                    ? (countFont->LegacySize * settings->ptCountScale + ScalePx(4.0f))
                     : ImGui::GetTextLineHeightWithSpacing();
 
                 // padY must be large enough that a badge overlapping the top of the icon isn't clipped
@@ -787,6 +787,8 @@ namespace WidgetPinnedItems {
 
                 if (rowFlow && maxCardHeight > 0.0f)
                     ImGui::SetCursorPosY(maxCardHeight);
+
+                ImGui::Dummy(ImVec2(0.0f, 0.0f));
 
                 ImGui::SetWindowFontScale(1.0f);
 

@@ -261,7 +261,7 @@ namespace EffectIconRenderer {
             snprintf(magText, sizeof(magText), isNegative ? (isPct ? "-%d%%" : "-%d") : (isPct ? "+%d%%" : "+%d"), magInt);
 
             ImFont* font     = ImGui::GetFont();
-            float   fontSize = font->FontSize * opt.magnitudeScale;
+            float   fontSize = font->LegacySize * opt.magnitudeScale;
             ImVec2  textSize = ImGui::CalcTextSize(magText);
             textSize.x *= opt.magnitudeScale;
             textSize.y *= opt.magnitudeScale;
@@ -293,7 +293,7 @@ namespace EffectIconRenderer {
                 snprintf(timeStr, sizeof(timeStr), "%02d:%02d", mm, ss);
 
             ImFont* font     = ImGui::GetFont();
-            float   fontSize = font->FontSize * opt.timeTextScale;
+            float   fontSize = font->LegacySize * opt.timeTextScale;
             ImVec2  textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, timeStr);
             ImVec2  textPos  = ImVec2(
                 iconPos.x + (opt.iconSize - textSize.x) * 0.5f,

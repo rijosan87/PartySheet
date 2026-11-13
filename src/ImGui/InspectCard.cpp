@@ -492,8 +492,7 @@ namespace InspectCard {
             auto DrawResistWithBorder = [&](float x, float y, ID3D11ShaderResourceView* icon, float value, ImU32 color, const char* label) {
                 float circleRadius = resistIconSize * 0.7f;
                 ImFont* font = ImGui::GetFont();
-                // GetFontSize() already includes the current window scale. Start from the
-                float fontSize = font->FontSize * scale * settings->icBodyFontScale;
+                float fontSize = font->LegacySize * scale * settings->icBodyFontScale;
 
                 int r = (color >> 0) & 0xFF;
                 int g = (color >> 8) & 0xFF;
@@ -568,7 +567,7 @@ namespace InspectCard {
             auto DrawHiddenResist = [&](float x, float y, ID3D11ShaderResourceView* icon, const char* label) {
                 float circleRadius = resistIconSize * 0.7f;
                 ImFont* font = ImGui::GetFont();
-                float fontSize = font->FontSize * scale * settings->icBodyFontScale;
+                float fontSize = font->LegacySize * scale * settings->icBodyFontScale;
 
                 char valText[] = "???";
                 float gap = 15.0f * scale;

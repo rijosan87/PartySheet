@@ -256,7 +256,7 @@ Data/SKSE/Plugins/
 **How It Works:**
 1. Set `Language=PartySheet_zh` in INI
 2. The mod checks for `fonts/PartySheet_zh.ttf`
-3. If found, it loads that font with the matching glyph range
+3. If found, it loads that font
 4. If not found, it falls back to Segoe UI or the ImGui default font
 
 **Font Requirements:**

@@ -104,7 +104,7 @@ namespace PlayerHUDEffects {
         bool anchorTop  = settings->phEffectAnchor <= 1;
 
         float extraH = settings->phShowEffectTimeText
-                       ? ImGui::GetFont()->FontSize * settings->phEffectTimeTextScale + 8.0f : 0.0f;
+                       ? ImGui::GetFont()->LegacySize * settings->phEffectTimeTextScale + 8.0f : 0.0f;
 
         {
             static float s_LastW = -1.0f, s_LastH = -1.0f;

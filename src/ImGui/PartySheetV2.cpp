@@ -510,6 +510,7 @@ namespace PartySheetV2 {
         dl->PopClipRect();
 
         ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + size.y));
+        ImGui::Dummy(ImVec2(0.0f, 0.0f));
     }
 
     static void RenderHeader(ImVec2 size) {

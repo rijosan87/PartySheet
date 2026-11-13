@@ -505,8 +505,8 @@ static void RenderWindow(bool allowDrag)
     ImGui::Begin("##playerHUDdisease", nullptr, flags);
 
     ImFont* font      = ImGui::GetFont();
-    float   labelSize = font->FontSize * settings->phDiseaseLabelScale;
-    float   stageSize = font->FontSize * settings->phDiseaseStageScale;
+    float   labelSize = font->LegacySize * settings->phDiseaseLabelScale;
+    float   stageSize = font->LegacySize * settings->phDiseaseStageScale;
     float   iconSize  = ScalePx(static_cast<float>(settings->phDiseaseIconSize));
     float   cardW     = ScalePx(static_cast<float>(settings->phDiseaseCardWidth));
     float   cardSpacing = ScalePx(static_cast<float>(settings->phDiseaseCardSpacing));
@@ -1224,9 +1224,13 @@ void RenderHUD()
     static std::vector<FadeFrame> s_lastGroupFrame;
     static std::chrono::steady_clock::time_point s_lastGroupPaint;
     static float s_removalElapsed = -1.0f;
+    static ImTextureData* s_cacheAtlasTex = nullptr;
+    static int s_cacheAtlasId = -1;
     auto ClearRemovalFrame = [&]() {
         s_lastGroupFrame.clear();
         s_removalElapsed = -1.0f;
+        s_cacheAtlasTex = nullptr;
+        s_cacheAtlasId = -1;
     };
     auto* settings = Settings::GetSingleton();
     if (!settings->enablePlayerHud || !settings->enablePlayerDiseaseWidget) {
@@ -1279,13 +1283,19 @@ void RenderHUD()
             for (int v = 0; v < cached.VtxBuffer.Size; ++v)
                 frame.colors[v] = cached.VtxBuffer[v].col;
         }
+        if (ImTextureData* atlasTex = ImGui::GetIO().Fonts->TexData) {
+            s_cacheAtlasTex = atlasTex;
+            s_cacheAtlasId = atlasTex->UniqueID;
+        }
         s_removalElapsed = -1.0f;
         s_lastGroupPaint = now;
     } else if (!s_lastGroupFrame.empty()) {
         const float dt = std::chrono::duration<float>(now - s_lastGroupPaint).count();
         s_lastGroupPaint = now;
-        // Don't replay an old card after an unobserved pause or settings preview.
-        if (dt > 0.25f) {
+        ImTextureData* atlasTex = ImGui::GetIO().Fonts->TexData;
+        if (atlasTex != s_cacheAtlasTex || !atlasTex || atlasTex->UniqueID != s_cacheAtlasId) {
+            ClearRemovalFrame();
+        } else if (dt > 0.25f) {
             ClearRemovalFrame();
         } else {
             if (s_removalElapsed < 0.0f) {

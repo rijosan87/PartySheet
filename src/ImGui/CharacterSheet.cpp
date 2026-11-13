@@ -96,8 +96,8 @@ static void DrawArrowBorderRect(ImDrawList* drawList, ImVec2 min, ImVec2 max,
         ImVec2(min.x, max.y - cornerNotch),
         ImVec2(min.x, min.y + cornerNotch),
     };
-    
-    drawList->AddPolyline(points, 8, color, true, thickness);
+
+    drawList->AddPolyline(points, 8, color, thickness, ImDrawFlags_Closed);
 }
 
 static void DrawNeonArrowRect(ImDrawList* drawList, ImVec2 min, ImVec2 max, 
@@ -226,8 +226,8 @@ static void DrawDiamondWithItem(ImDrawList* drawList, ImVec2 center, float size,
             
             ImVec2 points[] = {p1, p2, p3, p4};
             drawList->AddConvexPolyFilled(points, 4, fillColor);
-            
-            drawList->AddPolyline(points, 4, borderColor, true, 1.5f * scale);
+
+            drawList->AddPolyline(points, 4, borderColor, 1.5f * scale, ImDrawFlags_Closed);
             
             float leftPadding = -3.0f * scale;
             
@@ -1527,7 +1527,7 @@ void CharacterSheet::DrawUI()
 
             ImFont* headingFont = ImGuiRenderer::GetHeadingFont();
             if (headingFont) {
-                drawList->AddText(headingFont, headingFont->FontSize * s * settings->csNameFontScale,
+                drawList->AddText(headingFont, headingFont->LegacySize * s * settings->csNameFontScale,
                                   ImVec2(col1X, row1Y - 6.0f * s),
                                   IM_COL32(ncR, ncG, ncB, 255),
                                   playerName ? playerName : LocalizationManager::Get("dragonborn").c_str());
