@@ -127,6 +127,7 @@ namespace HUDDraw {
 
     struct PipStyle {
         int   shape  = 0;
+        float rounding = 2.0f;
         float radius = 4.0f;
         float gap    = 2.0f;
         std::uint32_t litColor   = 0xFFFFC850;
@@ -137,6 +138,9 @@ namespace HUDDraw {
         bool  specular = true;
         bool  contour  = true;  // dark slot edges; disable with socket for flat pips
         float alpha    = 1.0f;
+        bool  single   = false;
+        std::uint32_t litEdge   = 0;
+        std::uint32_t emptyEdge = 0;
     };
     float MeasurePipRow(int count, const PipStyle& style);
     void DrawPipRow(ImDrawList* dl, const ImVec2& pos, int lit, int count, const PipStyle& style);
@@ -257,6 +261,37 @@ namespace HUDDraw {
     void DrawPortraitBackHalo(ImDrawList* dl, const ImVec2& pMin, const ImVec2& pMax,
                               std::uint32_t rgb);
 
+    inline float SnapPx(float v) { return static_cast<float>(static_cast<int>(v + (v < 0 ? -0.5f : 0.5f))); }
+    inline float SnapWidth(float w) { const float s = SnapPx(w); return s < 1.0f ? 1.0f : s; }
+    void DrawCrispRect(ImDrawList* dl, const ImVec2& min, const ImVec2& max, ImU32 col, float thickness = 1.0f);
+
+    void DrawGlowRect(ImDrawList* dl, const ImVec2& min, const ImVec2& max, ImU32 col,
+                      float thickness = 1.5f, int layers = 3,
+                      float rounding = 0.0f, bool border = true, float strength = 1.0f);
+
+    struct GlowDiscStyle {
+        int   layers        = 3;
+        float glowStep      = 2.0f;
+        float ringThickness = 2.0f;
+        ImU32 fillCol       = IM_COL32(20, 25, 45, 230);
+    };
+    void DrawRuleH(ImDrawList* dl, float x0, float x1, float y, ImU32 col, float thickness = 1.0f);
+    void DrawRuleV(ImDrawList* dl, float x, float y0, float y1, ImU32 col, float thickness = 1.0f);
+    enum class RuleFade { Center, Right };
+    void DrawFadeRule(ImDrawList* dl, float x0, float x1, float y, ImU32 col,
+                      RuleFade fade = RuleFade::Center, float thickness = 1.0f);
+
+    void DrawGlowDisc(ImDrawList* dl, const ImVec2& center, float radius, ImU32 ringCol,
+                      const GlowDiscStyle& style);
+
     float TickBarValue(std::uint64_t id, float target);
+
+    struct ScopedTextNoSnap {
+        ImDrawList* dl; bool on;
+        ScopedTextNoSnap(ImDrawList* d, bool enable) : dl(d), on(enable) { if (on) dl->PushDrawFlag(ImDrawFlags_TextNoPixelSnap, true); }
+        ~ScopedTextNoSnap() { if (on) dl->PopDrawFlag(); }
+        ScopedTextNoSnap(const ScopedTextNoSnap&) = delete;
+        ScopedTextNoSnap& operator=(const ScopedTextNoSnap&) = delete;
+    };
 
 }

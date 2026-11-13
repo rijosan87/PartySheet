@@ -301,11 +301,11 @@ namespace ImGuiRenderer::SettingsUI {
                     static constexpr ImGuiColorEditFlags kBadgeArgb =
                         ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
                     ImVec4 bgCol = ColorUtils::ArgbToVec4(settings->hudArrowBgColor);
-                    if (ImGui::ColorEdit4("Background##ArrowBg", reinterpret_cast<float*>(&bgCol), kBadgeArgb))
+                    if (SettingsWidgets::ColorEdit4("Background##ArrowBg", reinterpret_cast<float*>(&bgCol), kBadgeArgb))
                         settings->hudArrowBgColor = ColorUtils::Vec4ToArgb(bgCol);
                     ImGui::SameLine();
                     ImVec4 arrowCol = ColorUtils::RgbToVec4(settings->hudArrowTint);
-                    if (ImGui::ColorEdit3("Arrow/Text##ArrowTint", reinterpret_cast<float*>(&arrowCol), ImGuiColorEditFlags_NoInputs))
+                    if (SettingsWidgets::ColorEdit3("Arrow/Text##ArrowTint", reinterpret_cast<float*>(&arrowCol), ImGuiColorEditFlags_NoInputs))
                         settings->hudArrowTint = ColorUtils::Vec4ToRgb(arrowCol);
                     ImGui::SameLine();
                     ImGui::Checkbox("Show Border##ArrowBorder", &settings->hudArrowShowBorder);
@@ -334,11 +334,11 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     static constexpr ImGuiColorEditFlags kBadgeArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
                     ImVec4 badgeBgCol = ColorUtils::ArgbToVec4(settings->hudBadgeBgColor);
-                    if (ImGui::ColorEdit4("Background##LevelBadgeBg", reinterpret_cast<float*>(&badgeBgCol), kBadgeArgb))
+                    if (SettingsWidgets::ColorEdit4("Background##LevelBadgeBg", reinterpret_cast<float*>(&badgeBgCol), kBadgeArgb))
                         settings->hudBadgeBgColor = ColorUtils::Vec4ToArgb(badgeBgCol);
                     ImGui::SameLine();
                     ImVec4 levelCol = ColorUtils::RgbToVec4(settings->levelColor);
-                    if (ImGui::ColorEdit3("Level Text##LevelBadgeColor", reinterpret_cast<float*>(&levelCol), ImGuiColorEditFlags_NoInputs))
+                    if (SettingsWidgets::ColorEdit3("Level Text##LevelBadgeColor", reinterpret_cast<float*>(&levelCol), ImGuiColorEditFlags_NoInputs))
                         settings->levelColor = ColorUtils::Vec4ToRgb(levelCol);
                     ImGui::SameLine();
                     ImGui::Checkbox("Show Border##LevelBadgeBorder", &settings->hudLevelBadgeShowBorder);
@@ -360,11 +360,11 @@ namespace ImGuiRenderer::SettingsUI {
                     static constexpr ImGuiColorEditFlags kStateBadgeArgb =
                         ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
                     ImVec4 stateBgCol = ColorUtils::ArgbToVec4(settings->hudStateBadgeBgColor);
-                    if (ImGui::ColorEdit4("Background##StateBadgeBg", reinterpret_cast<float*>(&stateBgCol), kStateBadgeArgb))
+                    if (SettingsWidgets::ColorEdit4("Background##StateBadgeBg", reinterpret_cast<float*>(&stateBgCol), kStateBadgeArgb))
                         settings->hudStateBadgeBgColor = ColorUtils::Vec4ToArgb(stateBgCol);
                     ImGui::SameLine();
                     ImVec4 stateIconCol = ColorUtils::RgbToVec4(settings->hudStateBadgeIconTint);
-                    if (ImGui::ColorEdit3("Icon Hue##StateBadgeIcon", reinterpret_cast<float*>(&stateIconCol), ImGuiColorEditFlags_NoInputs))
+                    if (SettingsWidgets::ColorEdit3("Icon Hue##StateBadgeIcon", reinterpret_cast<float*>(&stateIconCol), ImGuiColorEditFlags_NoInputs))
                         settings->hudStateBadgeIconTint = ColorUtils::Vec4ToRgb(stateIconCol);
                     ImGui::SameLine();
                     ImGui::Checkbox("Show Border##StateBadgeBorder", &settings->hudStateBadgeShowBorder);

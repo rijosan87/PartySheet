@@ -861,14 +861,7 @@ namespace PartySheetV2 {
         ImGui::SetWindowFontScale(1.0f);
         if (headingFont) ImGui::PopFont();
         const float sepY = lineB_Y + lineBH + 10.0f * sc;
-        dl->AddRectFilledMultiColor(
-            ImVec2(origin.x,              sepY),
-            ImVec2(origin.x + size.x * 0.5f, sepY + 1.0f),
-            IM_COL32(0,0,0,0), IM_COL32(212,175,55,100), IM_COL32(212,175,55,100), IM_COL32(0,0,0,0));
-        dl->AddRectFilledMultiColor(
-            ImVec2(origin.x + size.x * 0.5f, sepY),
-            ImVec2(origin.x + size.x,        sepY + 1.0f),
-            IM_COL32(212,175,55,100), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0), IM_COL32(212,175,55,100));
+        HUDDraw::DrawFadeRule(dl, origin.x, origin.x + size.x, sepY, IM_COL32(212,175,55,100));
 
         const float barsY    = sepY + 14.0f * sc;
         const float barH     = 5.0f  * sc;
@@ -942,8 +935,7 @@ namespace PartySheetV2 {
             const float usableW = (full > 0.0f) ? vitalW * (vt.v.max / full) : vitalW;
             if (lost > 0.0f && usableW < vitalW) {
                 dl->AddRectFilled(ImVec2(vx + usableW, barY), bMax, IM_COL32(220, 80, 80, 110), 2.0f * sc);
-                dl->AddLine(ImVec2(vx + usableW, barY - 1.0f * sc), ImVec2(vx + usableW, barY + barH + 1.0f * sc),
-                    kPenaltyRed, 1.5f * sc);
+                HUDDraw::DrawRuleV(dl, vx + usableW, barY - 1.0f * sc, barY + barH + 1.0f * sc, kPenaltyRed, 1.5f * sc);
             }
             float pct = (vt.v.max > 0.0f) ? std::clamp(vt.v.current / vt.v.max, 0.0f, 1.0f) : 0.0f;
             if (pct > 0.0f) {
@@ -1060,14 +1052,7 @@ namespace PartySheetV2 {
 
         const float sepY  = origin.y + titleSz.y + 4.0f * sc;
         const float lineW = size.x;
-        dl->AddRectFilledMultiColor(
-            ImVec2(origin.x,                  sepY),
-            ImVec2(origin.x + lineW * 0.5f,   sepY + 1.0f),
-            IM_COL32(0,0,0,0), IM_COL32(212,175,55,100), IM_COL32(212,175,55,100), IM_COL32(0,0,0,0));
-        dl->AddRectFilledMultiColor(
-            ImVec2(origin.x + lineW * 0.5f,   sepY),
-            ImVec2(origin.x + lineW,           sepY + 1.0f),
-            IM_COL32(212,175,55,100), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0), IM_COL32(212,175,55,100));
+        HUDDraw::DrawFadeRule(dl, origin.x, origin.x + lineW, sepY, IM_COL32(212,175,55,100));
 
         struct SkillEntry { std::string name; float value; ID3D11ShaderResourceView* tex; RE::ActorValue av; };
         const SkillEntry skills[18] = {
@@ -1304,8 +1289,8 @@ namespace PartySheetV2 {
             for (int p = 0; p < kPips; ++p) {
                 float cx    = pipsLeft + pipR + p * (pipR * 2.0f + pipGap);
                 bool filled = (p < filledPips);
-                dl->AddCircleFilled(ImVec2(cx, pipCY), pipR, filled ? pipFill : pipEmpty, 12);
-                dl->AddCircle(ImVec2(cx, pipCY), pipR, pipBorder, 12, 1.0f);
+                dl->AddCircleFilled(ImVec2(cx, pipCY), pipR, filled ? pipFill : pipEmpty, 0);
+                dl->AddCircle(ImVec2(cx, pipCY), pipR, pipBorder, 0, 1.0f);
             }
 
             char valBuf[12];
@@ -1332,14 +1317,7 @@ namespace PartySheetV2 {
             if (headingFont) ImGui::PopFont();
 
             float sepY = y + titleSz.y + 4.0f * sc;
-            dl->AddRectFilledMultiColor(
-                ImVec2(ox,                    sepY),
-                ImVec2(ox + dcColW * 0.5f,    sepY + 1.0f),
-                IM_COL32(0,0,0,0), IM_COL32(212,175,55,100), IM_COL32(212,175,55,100), IM_COL32(0,0,0,0));
-            dl->AddRectFilledMultiColor(
-                ImVec2(ox + dcColW * 0.5f,    sepY),
-                ImVec2(ox + dcColW,            sepY + 1.0f),
-                IM_COL32(212,175,55,100), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0), IM_COL32(212,175,55,100));
+            HUDDraw::DrawFadeRule(dl, ox, ox + dcColW, sepY, IM_COL32(212,175,55,100));
             return sepY + 8.0f * sc;
         };
 
@@ -1453,8 +1431,7 @@ namespace PartySheetV2 {
             float underlineAlpha = active ? 1.0f : hoverFrac;
             if (underlineAlpha > 0.01f) {
                 std::uint32_t line = ScaleAlpha(V2Theme::AccentA(static_cast<int>(220 * underlineAlpha)), disableMul);
-                dl->AddLine(ImVec2(bMin.x + 2.0f * sc, bMax.y - 1.0f),
-                            ImVec2(bMax.x - 2.0f * sc, bMax.y - 1.0f), line, 1.0f);
+                HUDDraw::DrawRuleH(dl, bMin.x + 2.0f * sc, bMax.x - 2.0f * sc, bMax.y - 1.0f, line);
             }
 
             float padX    = 8.0f * sc;
@@ -1674,11 +1651,10 @@ namespace PartySheetV2 {
 
             dl->AddQuadFilled(topL, topR, botR, botL, IM_COL32(0, 0, 0, 128));
 
-            // Thin gold border on top + sides (1px), thicker on bottom (2px)
-            dl->AddLine(topL, topR, V2Theme::AccentA(38), 1.0f);
+            HUDDraw::DrawRuleH(dl, topL.x, topR.x, topL.y, V2Theme::AccentA(38));
             dl->AddLine(topL, botL, V2Theme::AccentA(38), 1.0f);
             dl->AddLine(topR, botR, V2Theme::AccentA(38), 1.0f);
-            dl->AddLine(botL, botR, V2Theme::AccentA(51), 2.0f);
+            HUDDraw::DrawRuleH(dl, botL.x, botR.x, botL.y - 1.0f, V2Theme::AccentA(51), 2.0f);
 
             float cx   = cardX + cardW * 0.5f;
             float curY = cardY + cardPad;
@@ -1792,22 +1768,17 @@ namespace PartySheetV2 {
             float pipsY     = nameY + labelH + 4.0f * sc;
             float pipsStartX = cx - pipsRowW * 0.5f;
 
-            for (int p = 0; p < kPipCount; ++p) {
-                float px = pipsStartX + p * (pipSz + pipGapSq);
-                ImVec2 ptl = ImVec2(px, pipsY);
-                ImVec2 pbr = ImVec2(px + pipSz, pipsY + pipSz);
-                if (p < filled) {
-                    ImU32 fillCol = isMaster ? kTheme.accent : kTheme.textMain;
-                    dl->AddRectFilled(ptl, pbr, fillCol, pipRad);
-                    if (isMaster)
-                        dl->AddRect(
-                            ImVec2(ptl.x - 1, ptl.y - 1),
-                            ImVec2(pbr.x + 1, pbr.y + 1),
-                            V2Theme::AccentA(80), pipRad + 1.0f);
-                } else {
-                    dl->AddRect(ptl, pbr, kTheme.borderSubtle, pipRad);
-                }
-            }
+            HUDDraw::PipStyle ps;
+            ps.shape     = 2;
+            ps.radius    = pipSz * 0.5f;
+            ps.gap       = pipGapSq;
+            ps.rounding  = pipRad;
+            ps.litColor  = HUDDraw::PackedToArgb(isMaster ? kTheme.accent : kTheme.textMain);
+            ps.emptyColor = 0;
+            ps.emptyEdge = HUDDraw::PackedToArgb(kTheme.borderSubtle);
+            ps.litEdge   = isMaster ? HUDDraw::PackedToArgb(V2Theme::AccentA(80)) : 0;
+            ps.duotone = ps.glow = ps.socket = ps.specular = ps.contour = false;
+            HUDDraw::DrawPipRow(dl, ImVec2(pipsStartX, pipsY + pipSz * 0.5f), filled, kPipCount, ps);
         }
 
         ImGui::SetWindowFontScale(1.0f);
@@ -1817,10 +1788,7 @@ namespace PartySheetV2 {
         const float resGap      = 16.0f * sc;
         const float resY        = blockY + blockH + 14.0f * sc;
 
-        dl->AddLine(
-            ImVec2(origin.x + resPadX, resY),
-            ImVec2(origin.x + size.x - resPadX, resY),
-            IM_COL32(255, 255, 255, 15));
+        HUDDraw::DrawRuleH(dl, origin.x + resPadX, origin.x + size.x - resPadX, resY, IM_COL32(255, 255, 255, 15));
 
         ImGui::SetWindowFontScale(FontBody());
         const float resTextY = resY + (resH - ImGui::GetTextLineHeight()) * 0.5f;
@@ -1830,10 +1798,7 @@ namespace PartySheetV2 {
         dl->AddText(ImVec2(origin.x + resPadX, resTextY), kTheme.textMain, actorName.c_str());
 
         float divX = origin.x + resPadX + nameSzR.x + resGap * 0.5f;
-        dl->AddLine(
-            ImVec2(divX, resY + 3.0f * sc),
-            ImVec2(divX, resY + resH - 3.0f * sc),
-            IM_COL32(255, 255, 255, 25));
+        HUDDraw::DrawRuleV(dl, divX, resY + 3.0f * sc, resY + resH - 3.0f * sc, IM_COL32(255, 255, 255, 25));
 
         float curX = divX + resGap * 0.5f;
 
@@ -2176,14 +2141,7 @@ namespace PartySheetV2 {
             ImGui::SetWindowFontScale(1.0f);
             if (hf) ImGui::PopFont();
             float sepY = y + tSz.y + 3.0f * sc;
-            dl->AddRectFilledMultiColor(
-                ImVec2(origin.x,                   sepY),
-                ImVec2(origin.x + size.x * 0.5f,   sepY + 1.0f),
-                IM_COL32(0,0,0,0), IM_COL32(212,175,55,100), IM_COL32(212,175,55,100), IM_COL32(0,0,0,0));
-            dl->AddRectFilledMultiColor(
-                ImVec2(origin.x + size.x * 0.5f,   sepY),
-                ImVec2(origin.x + size.x,           sepY + 1.0f),
-                IM_COL32(212,175,55,100), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0), IM_COL32(212,175,55,100));
+            HUDDraw::DrawFadeRule(dl, origin.x, origin.x + size.x, sepY, IM_COL32(212,175,55,100));
             return sepY + 1.0f + 6.0f * sc;
         };
 
@@ -2536,11 +2494,7 @@ namespace PartySheetV2 {
         ImVec2      origin = ImGui::GetCursorScreenPos();
 
         const float padX = 40.0f * sc;
-        dl->AddRectFilledMultiColor(
-            ImVec2(origin.x + padX,            origin.y),
-            ImVec2(origin.x + size.x - padX,   origin.y + 1.0f),
-            V2Theme::AccentA(0),  V2Theme::AccentA(76),
-            V2Theme::AccentA(76), V2Theme::AccentA(0));
+        HUDDraw::DrawFadeRule(dl, origin.x + padX, origin.x + size.x - padX, origin.y, V2Theme::AccentA(76));
 
         auto subjects = BuildSubjectList();
 
@@ -2617,10 +2571,7 @@ namespace PartySheetV2 {
 
             if (i > 0) {
                 float dvX = curX + divW * 0.5f;
-                dl->AddLine(
-                    ImVec2(dvX, centerY - 6.0f * sc),
-                    ImVec2(dvX, centerY + 6.0f * sc),
-                    IM_COL32(255, 255, 255, 25));
+                HUDDraw::DrawRuleV(dl, dvX, centerY - 6.0f * sc, centerY + 6.0f * sc, IM_COL32(255, 255, 255, 25));
                 curX += divW;
             }
 

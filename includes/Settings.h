@@ -230,7 +230,7 @@ public:
     bool          hudEffectIconDuotone      = true;
     bool          hudEffectIconShadow       = true;
     bool          hudEffectIconOutline      = true;
-    std::int32_t  hudEffectIconOutlineWidth = 1;
+    std::int32_t  hudEffectIconOutlineWidth = 0;
     std::uint32_t hudEffectIconOutlineColor = 0x70000000;
     bool          hudEffectIconGlow         = false;
     bool          hudEffectIconGloss        = false;

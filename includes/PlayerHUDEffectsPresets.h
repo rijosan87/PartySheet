@@ -3,7 +3,6 @@
 // STATUS: Working
 // Presets for Player HUD Active Effects widget.
 
-
 #include "Settings.h"
 
 #include <array>
@@ -80,7 +79,7 @@ namespace PlayerHUDEffectsPresets
         s.phEffectIconBgColor       = 0x99000000;
         s.phEffectIconGlowEnabled   = false;
         s.phEffectIconBorderColor   = 0x80FFFFFF;
-        s.phEffectIconBorderWidth   = 1;
+        s.phEffectIconBorderWidth   = 0;
         s.phEffectIconBorderRadius  = 50;
         s.phEffectIconBgPadding     = 2;
         s.phEffectIconZoom          = 1.0f;
@@ -148,7 +147,7 @@ namespace PlayerHUDEffectsPresets
         s.phEffectIconBgColor       = 0xA0101018;
         s.phEffectIconGlowEnabled   = false;
         s.phEffectIconBorderColor   = 0x60FFFFFF;
-        s.phEffectIconBorderWidth   = 1;
+        s.phEffectIconBorderWidth   = 0;
         s.phEffectIconBorderRadius  = 8;
         s.phEffectIconBgPadding     = 4;
         s.phEffectIconZoom          = 1.0f;
@@ -182,7 +181,7 @@ namespace PlayerHUDEffectsPresets
         s.phEffectIconBgColor       = 0x99000000;
         s.phEffectIconGlowEnabled   = false;
         s.phEffectIconBorderColor   = 0x80FFFFFF;
-        s.phEffectIconBorderWidth   = 1;
+        s.phEffectIconBorderWidth   = 0;
         s.phEffectIconBorderRadius  = 50;
         s.phEffectIconBgPadding     = 2;
         s.phEffectIconZoom          = 1.0f;

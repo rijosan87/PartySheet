@@ -59,4 +59,29 @@ namespace SettingsWidgets {
         return changed;
     }
 
+    inline void DimSwatchIfDisabled()
+    {
+        const float a = ImGui::GetStyle().Alpha;
+        if (a >= 0.999f) return;
+        const ImVec2 mn = ImGui::GetItemRectMin();
+        const float  sz = ImGui::GetFrameHeight();
+        ImVec4 bg = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+        bg.w = 1.0f - a;
+        ImGui::GetWindowDrawList()->AddRectFilled(mn, ImVec2(mn.x + sz, mn.y + sz),
+            ImGui::ColorConvertFloat4ToU32(bg), ImGui::GetStyle().FrameRounding);
+
 } // namespace SettingsWidgets
+    inline bool ColorEdit4(const char* label, float col[4], ImGuiColorEditFlags flags = 0)
+    {
+        const bool r = ImGui::ColorEdit4(label, col, flags);
+        DimSwatchIfDisabled();
+        return r;
+    }
+    inline bool ColorEdit3(const char* label, float col[3], ImGuiColorEditFlags flags = 0)
+    {
+        const bool r = ImGui::ColorEdit3(label, col, flags);
+        DimSwatchIfDisabled();
+        return r;
+    }
+
+}

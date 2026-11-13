@@ -317,10 +317,7 @@ namespace PartySheetV2 {
         }
 
         float sepY = wp.y + 38.0f * sc;
-        dl->AddRectFilledMultiColor(
-            ImVec2(wp.x + 16.0f * sc, sepY),
-            ImVec2(wp.x + ws.x * 0.7f, sepY + 1.0f),
-            kAccent, IM_COL32(212,175,55,0), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0));
+        HUDDraw::DrawFadeRule(dl, wp.x + 16.0f * sc, wp.x + ws.x * 0.7f, sepY, kAccent, HUDDraw::RuleFade::Right);
 
         ImGui::Dummy(ImVec2(ws.x - 32.0f * sc, 42.0f * sc));
 
@@ -401,7 +398,7 @@ namespace PartySheetV2 {
 
         {
             ImVec2 divPos = ImGui::GetCursorScreenPos();
-            dl->AddLine(divPos, ImVec2(divPos.x + bodyW, divPos.y), kBorderDim, 1.0f);
+            HUDDraw::DrawRuleH(dl, divPos.x, divPos.x + bodyW, divPos.y, kBorderDim);
             ImGui::Dummy(ImVec2(bodyW, 3.0f * sc));
         }
         ImGui::SetWindowFontScale(1.0f);

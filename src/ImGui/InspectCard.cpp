@@ -8,6 +8,7 @@
 #include "../includes/LocalizationManager.h"
 #include "../includes/ActorStats.h"
 #include "../includes/PerfStats.h"
+#include "../includes/Utils/HUDDraw.h"
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
@@ -57,7 +58,6 @@ namespace InspectCard {
     
     void Hide() {
         g_Visible = false;
-        
         
         logger::debug("InspectCard closed");
     }
@@ -337,7 +337,6 @@ namespace InspectCard {
             float barWidth = (static_cast<float>(settings->inspectCardBarWidth) + iconSize + ImGui::GetStyle().ItemSpacing.x * scale) * scale;
             float barHeight = static_cast<float>(settings->inspectCardBarHeight) * scale;
             
-            
             auto hpIcon = TextureManager::GetPartyIcon("health");
             float hp = targetStats.health.current;
             float hpMax = targetStats.health.GetMax();
@@ -438,7 +437,6 @@ namespace InspectCard {
                 }
             }
             
-
         } else if (avo) {
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s: ???", LocalizationManager::Get("Stats.Health").c_str());
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s: ???", LocalizationManager::Get("Stats.Stamina").c_str());
@@ -511,12 +509,11 @@ namespace InspectCard {
                 float iconY = y + fontSize + labelIconPadding;
                 ImVec2 center(x + resistIconSize / 2.0f, iconY + resistIconSize / 2.0f);
 
-                drawList->AddCircleFilled(center, circleRadius + 4.0f * scale, IM_COL32(r, g, b, 20), 24);
-                drawList->AddCircleFilled(center, circleRadius + 2.0f * scale, IM_COL32(r, g, b, 35), 24);
-
-                drawList->AddCircleFilled(center, circleRadius, IM_COL32(20, 25, 45, 230), 24);
-
-                drawList->AddCircle(center, circleRadius, IM_COL32(r, g, b, 200), 24, 2.0f * scale);
+                HUDDraw::GlowDiscStyle disc;
+                disc.layers        = 2;
+                disc.glowStep      = 2.0f * scale;
+                disc.ringThickness = 2.0f * scale;
+                HUDDraw::DrawGlowDisc(drawList, center, circleRadius, IM_COL32(r, g, b, 200), disc);
 
                 if (icon) drawList->AddImage((ImTextureID)icon, ImVec2(x, iconY), ImVec2(x + resistIconSize, iconY + resistIconSize));
 
@@ -579,8 +576,10 @@ namespace InspectCard {
                 float iconY = y + fontSize + 8.0f * scale;
                 ImVec2 center(x + resistIconSize / 2.0f, iconY + resistIconSize / 2.0f);
 
-                drawList->AddCircleFilled(center, circleRadius, IM_COL32(20, 25, 45, 230), 24);
-                drawList->AddCircle(center, circleRadius, hiddenColor, 24, 2.0f * scale);
+                HUDDraw::GlowDiscStyle disc;
+                disc.layers        = 0;
+                disc.ringThickness = 2.0f * scale;
+                HUDDraw::DrawGlowDisc(drawList, center, circleRadius, hiddenColor, disc);
 
                 if (icon) drawList->AddImage((ImTextureID)icon, ImVec2(x, iconY), ImVec2(x + resistIconSize, iconY + resistIconSize));
 
@@ -637,7 +636,7 @@ namespace InspectCard {
                 dl->AddText(font, fontSize, ImVec2(p.x + iconSz + iconGap, p.y), headCol, LocalizationManager::Get("KnowYourEnemy.Header").c_str());
                 ImGui::Dummy(ImVec2(cardContentWidth, rowH));
                 ImVec2 lp = ImGui::GetCursorScreenPos();
-                dl->AddLine(ImVec2(lp.x, lp.y), ImVec2(lp.x + cardContentWidth, lp.y), sepCol, 1.0f);
+                HUDDraw::DrawFadeRule(dl, lp.x, lp.x + cardContentWidth, lp.y, sepCol);
                 ImGui::Spacing();
             }
 
@@ -696,7 +695,7 @@ namespace InspectCard {
                 float rowBottom = (rowStart.y + rowH > usedBottom) ? rowStart.y + rowH : usedBottom;
                 ImGui::SetCursorScreenPos(ImVec2(rowStart.x, rowBottom));
 
-                dl->AddLine(ImVec2(rowStart.x, rowBottom), ImVec2(rowStart.x + cardContentWidth, rowBottom), sepCol, 1.0f);
+                HUDDraw::DrawFadeRule(dl, rowStart.x, rowStart.x + cardContentWidth, rowBottom, sepCol);
                 ImGui::Spacing();
             }
 

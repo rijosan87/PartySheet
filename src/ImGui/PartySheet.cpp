@@ -3,6 +3,7 @@
 #include "../includes/ImGui/Renderer.h"
 #include "../includes/ImGui/CharacterSheet.h"
 #include "../includes/Settings.h"
+#include "../includes/Utils/HUDDraw.h"
 #include "../includes/TextureManager.h"
 #include "../includes/BackgroundManager.h"
 #include "../includes/LocalizationManager.h"
@@ -217,7 +218,6 @@ namespace PartySheet {
         bool hasItem;
     };
     
-
     static std::string GetSpellSchoolIcon(RE::SpellItem* spell) {
         if (!spell) return "magic";
         
@@ -533,8 +533,10 @@ namespace PartySheet {
             dl->AddRect(btnMin, btnMax, borderCol, 4.0f, 0, 1.0f);
             constexpr float p = 5.0f;
             ImU32 lineCol = IM_COL32(220, 220, 220, closeHovered ? 255 : 200);
-            dl->AddLine({ btnMin.x + p, btnMin.y + p }, { btnMax.x - p, btnMax.y - p }, lineCol, 1.5f);
-            dl->AddLine({ btnMax.x - p, btnMin.y + p }, { btnMin.x + p, btnMax.y - p }, lineCol, 1.5f);
+            const float x0 = HUDDraw::SnapPx(btnMin.x + p), y0 = HUDDraw::SnapPx(btnMin.y + p);
+            const float x1 = HUDDraw::SnapPx(btnMax.x - p), y1 = HUDDraw::SnapPx(btnMax.y - p);
+            dl->AddLine({ x0, y0 }, { x1, y1 }, lineCol, 1.5f);
+            dl->AddLine({ x1, y0 }, { x0, y1 }, lineCol, 1.5f);
 
             dl->PopClipRect();
         }
@@ -640,12 +642,12 @@ namespace PartySheet {
                     ImDrawList* drawList = ImGui::GetWindowDrawList();
                     ImVec2 pMin = portraitPos;
                     ImVec2 pMax = ImVec2(portraitPos.x + portraitSize.x, portraitPos.y + portraitSize.y);
-                    
-                    drawList->AddRect(pMin, pMax, hexToU32(settings->psPortraitOuterBorderColor, 255), 0.0f, 0, 2.0f);
-                    drawList->AddRect(
+
+                    HUDDraw::DrawCrispRect(drawList, pMin, pMax, hexToU32(settings->psPortraitOuterBorderColor, 255), 2.0f);
+                    HUDDraw::DrawCrispRect(drawList,
                         ImVec2(pMin.x + 2, pMin.y + 2), 
                         ImVec2(pMax.x - 2, pMax.y - 2), 
-                        hexToU32(settings->psPortraitInnerBorderColor, 200), 0.0f, 0, 1.0f);
+                        hexToU32(settings->psPortraitInnerBorderColor, 200), 1.0f);
                     
                     ImGui::SameLine();
                 }
@@ -719,8 +721,8 @@ namespace PartySheet {
                     ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hexToImVec4(settings->partySheetHealthColor));
                     ImGui::ProgressBar(hpPct, ImVec2(contentWidth, barHeight), hpText);
                     ImGui::PopStyleColor();
-                    drawList->AddRect(hpPos, ImVec2(hpPos.x + contentWidth, hpPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 0.0f, 0, 2.0f);
-                    drawList->AddRect(ImVec2(hpPos.x + 1, hpPos.y + 1), ImVec2(hpPos.x + contentWidth - 1, hpPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 0.0f, 0, 1.0f);
+                    HUDDraw::DrawCrispRect(drawList, hpPos, ImVec2(hpPos.x + contentWidth, hpPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 2.0f);
+                    HUDDraw::DrawCrispRect(drawList, ImVec2(hpPos.x + 1, hpPos.y + 1), ImVec2(hpPos.x + contentWidth - 1, hpPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 1.0f);
                     
                     float sp = actorStats.stamina.current;
                     float spMax = actorStats.stamina.GetMax();
@@ -739,8 +741,8 @@ namespace PartySheet {
                         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hexToImVec4(settings->partySheetStaminaColor));
                         ImGui::ProgressBar(spPct, ImVec2(halfWidth, barHeight), spText);
                         ImGui::PopStyleColor();
-                        drawList->AddRect(spPos, ImVec2(spPos.x + halfWidth, spPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 0.0f, 0, 2.0f);
-                        drawList->AddRect(ImVec2(spPos.x + 1, spPos.y + 1), ImVec2(spPos.x + halfWidth - 1, spPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 0.0f, 0, 1.0f);
+                        HUDDraw::DrawCrispRect(drawList, spPos, ImVec2(spPos.x + halfWidth, spPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 2.0f);
+                        HUDDraw::DrawCrispRect(drawList, ImVec2(spPos.x + 1, spPos.y + 1), ImVec2(spPos.x + halfWidth - 1, spPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 1.0f);
                         
                         ImGui::SameLine(0, 4.0f);
                         
@@ -752,8 +754,8 @@ namespace PartySheet {
                         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hexToImVec4(settings->partySheetMagickaColor));
                         ImGui::ProgressBar(mpPct, ImVec2(halfWidth, barHeight), mpText);
                         ImGui::PopStyleColor();
-                        drawList->AddRect(mpPos, ImVec2(mpPos.x + halfWidth, mpPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 0.0f, 0, 2.0f);
-                        drawList->AddRect(ImVec2(mpPos.x + 1, mpPos.y + 1), ImVec2(mpPos.x + halfWidth - 1, mpPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 0.0f, 0, 1.0f);
+                        HUDDraw::DrawCrispRect(drawList, mpPos, ImVec2(mpPos.x + halfWidth, mpPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 2.0f);
+                        HUDDraw::DrawCrispRect(drawList, ImVec2(mpPos.x + 1, mpPos.y + 1), ImVec2(mpPos.x + halfWidth - 1, mpPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 1.0f);
                     } else if (hasStamina) {
                         float spPct = sp / spMax;
                         char spText[32];
@@ -763,8 +765,8 @@ namespace PartySheet {
                         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hexToImVec4(settings->partySheetStaminaColor));
                         ImGui::ProgressBar(spPct, ImVec2(contentWidth, barHeight), spText);
                         ImGui::PopStyleColor();
-                        drawList->AddRect(spPos, ImVec2(spPos.x + contentWidth, spPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 0.0f, 0, 2.0f);
-                        drawList->AddRect(ImVec2(spPos.x + 1, spPos.y + 1), ImVec2(spPos.x + contentWidth - 1, spPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 0.0f, 0, 1.0f);
+                        HUDDraw::DrawCrispRect(drawList, spPos, ImVec2(spPos.x + contentWidth, spPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 2.0f);
+                        HUDDraw::DrawCrispRect(drawList, ImVec2(spPos.x + 1, spPos.y + 1), ImVec2(spPos.x + contentWidth - 1, spPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 1.0f);
                     } else if (hasMagicka) {
                         float mpPct = mp / mpMax;
                         char mpText[32];
@@ -774,8 +776,8 @@ namespace PartySheet {
                         ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hexToImVec4(settings->partySheetMagickaColor));
                         ImGui::ProgressBar(mpPct, ImVec2(contentWidth, barHeight), mpText);
                         ImGui::PopStyleColor();
-                        drawList->AddRect(mpPos, ImVec2(mpPos.x + contentWidth, mpPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 0.0f, 0, 2.0f);
-                        drawList->AddRect(ImVec2(mpPos.x + 1, mpPos.y + 1), ImVec2(mpPos.x + contentWidth - 1, mpPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 0.0f, 0, 1.0f);
+                        HUDDraw::DrawCrispRect(drawList, mpPos, ImVec2(mpPos.x + contentWidth, mpPos.y + barHeight), hexToU32(settings->psBarOuterBorderColor, 255), 2.0f);
+                        HUDDraw::DrawCrispRect(drawList, ImVec2(mpPos.x + 1, mpPos.y + 1), ImVec2(mpPos.x + contentWidth - 1, mpPos.y + barHeight - 1), hexToU32(settings->psBarInnerBorderColor, 150), 1.0f);
                     } else {
                         ImGui::Dummy(ImVec2(contentWidth, barHeight));
                     }
@@ -832,8 +834,8 @@ namespace PartySheet {
                     }
                     
                     ImGui::SameLine(0, 4.0f);
-                    
-                    ImGui::SetWindowFontScale(settings->psEquipTextScale);
+
+                    ImGui::PushFont(nullptr, ImGui::GetFontSize() * settings->psEquipTextScale);
                     float lineHeight = ImGui::GetTextLineHeight();
                     float maxTextHeight = lineHeight * 2.0f;
                     
@@ -873,7 +875,7 @@ namespace PartySheet {
                         ImGui::EndChild();
                     }
                     ImGui::PopStyleColor();
-                    ImGui::SetWindowFontScale(1.0f);
+                    ImGui::PopFont();
                     ImGui::EndGroup();
 
                     ImGui::EndGroup();
@@ -1341,4 +1343,3 @@ namespace PartySheet {
         ImGuiRenderer::RenderToBoundTarget(ImGui::GetDrawData());
     }
 }
-

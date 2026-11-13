@@ -109,10 +109,7 @@ namespace PartySheetV2 {
         if (headFont) ImGui::PopFont();
 
         float sepY = oy + tsz.y + 3.0f * sc;
-        dl->AddRectFilledMultiColor(
-            ImVec2(ox,                   sepY),
-            ImVec2(ox + colW * 0.65f,    sepY + 1.0f),
-            kAccent, IM_COL32(212,175,55,0), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0));
+        HUDDraw::DrawFadeRule(dl, ox, ox + colW * 0.65f, sepY, kAccent, HUDDraw::RuleFade::Right);
         return sepY + 7.0f * sc;
     }
 
@@ -488,10 +485,7 @@ namespace PartySheetV2 {
             CloseEffectsModal();
 
         float sepY = wPos.y + 16.0f * sc + nameSz.y + 6.0f * sc;
-        dl->AddRectFilledMultiColor(
-            ImVec2(curX,                      sepY),
-            ImVec2(curX + (modalW - 40.0f * sc) * 0.85f, sepY + 1.0f),
-            kAccent, IM_COL32(212,175,55,0), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0));
+        HUDDraw::DrawFadeRule(dl, curX, curX + (modalW - 40.0f * sc) * 0.85f, sepY, kAccent, HUDDraw::RuleFade::Right);
 
         float bodyY = sepY + 12.0f * sc;
 
@@ -554,8 +548,7 @@ namespace PartySheetV2 {
             }
 
             float divX = rp.x + colSrcW - 6.0f * sc;
-            cdl->AddLine(ImVec2(divX, rp.y + 1.0f), ImVec2(divX, rp.y + rowH - 3.0f * sc),
-                IM_COL32(80, 80, 90, 120), 1.0f);
+            HUDDraw::DrawRuleV(cdl, divX, rp.y + 1.0f, rp.y + rowH - 3.0f * sc, IM_COL32(80, 80, 90, 120));
 
             float nameX = rp.x + colSrcW;
             cdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),

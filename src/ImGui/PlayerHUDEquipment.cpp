@@ -516,8 +516,10 @@ namespace PlayerHUDEquipment {
         float deniedT = -1.0f;
         if (def.type == SlotType::Shout && g_ShoutDeniedAt.time_since_epoch().count() != 0)
             deniedT = std::chrono::duration<float>(std::chrono::steady_clock::now() - g_ShoutDeniedAt).count();
-        if (deniedT >= 0.0f && deniedT < k_ShoutDeniedDur)
+        const bool shaking = deniedT >= 0.0f && deniedT < k_ShoutDeniedDur;
+        if (shaking)
             screenPos.x += UIAnimation::GetShakeOffsetX("peq_shout_denied") * MasterScale();
+        HUDDraw::ScopedTextNoSnap textGlide(dl, shaking);
 
         float       contentBottom = screenPos.y + h;
 

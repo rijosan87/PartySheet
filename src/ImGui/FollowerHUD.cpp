@@ -682,7 +682,7 @@ namespace FollowerHUD {
                         // Gradient fill at user-configured alpha (KeepAlpha shade)
                         if (a > 0) {
                             int v0 = dl->VtxBuffer.Size;
-                            dl->AddCircleFilled(center, rad, IM_COL32(255, 255, 255, a), 24);
+                            dl->AddCircleFilled(center, rad, IM_COL32(255, 255, 255, a), 0);
                             int v1 = dl->VtxBuffer.Size;
                             ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, v0, v1,
                                 ImVec2(center.x, center.y - rad), ImVec2(center.x, center.y + rad),
@@ -692,8 +692,8 @@ namespace FollowerHUD {
 
                         // Metallic inner + dark outer ring, badge border colors: respects ArrowShowBorder
                         if (settings->hudArrowShowBorder) {
-                            dl->AddCircle(center, rad - ScalePx(1.0f), IM_COL32(150, 138, 116, 0x50), 24, ScalePx(1.0f));
-                            dl->AddCircle(center, rad, IM_COL32(6, 6, 8, 0xC8), 24, ScalePx(1.0f));
+                            dl->AddCircle(center, rad - ScalePx(1.0f), IM_COL32(150, 138, 116, 0x50), 0, ScalePx(1.0f));
+                            dl->AddCircle(center, rad, IM_COL32(6, 6, 8, 0xC8), 0, ScalePx(1.0f));
                         }
                     }
 
@@ -1351,7 +1351,6 @@ namespace FollowerHUD {
         }
     }
     
-    
     static void RefreshSummonsCache() {
         std::lock_guard lk(g_CacheMutex);
         auto player = RE::PlayerCharacter::GetSingleton();
@@ -1439,7 +1438,6 @@ namespace FollowerHUD {
                 ++it;
                 continue;
             }
-            
             
             if (IsActorValid(actor)) {
                 if ((actor->IsPlayerTeammate() && !actor->IsDead()) ||
@@ -2174,7 +2172,6 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
             ImFont* headingFont = ImGuiRenderer::GetHeadingFont();
             if (headingFont) ImGui::PushFont(headingFont);
             
-
             float drawPortraitSize = portraitSize;
             if (healthPercent < 0.25f && healthPercent > 0.0f && !isDowned) {
                 constexpr float kPulseFreq = 1.8f;
@@ -2428,7 +2425,6 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
                 float spWidth = availableWidth * compactRatio;
                 float mpWidth = availableWidth * (1.0f - compactRatio);
                 float smallBarHeight = barHeight;
-                
                 
                 char staminaText[32] = "";
                 if (showText) snprintf(staminaText, sizeof(staminaText), "%.0f", stamina);

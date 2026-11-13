@@ -62,64 +62,6 @@ static void DrawTextWithShadow(ImDrawList* drawList, ImVec2 pos, ImU32 textColor
     drawList->AddText(pos, textColor, text);
 }
 
-static void DrawNeonRect(ImDrawList* drawList, ImVec2 min, ImVec2 max, 
-                         ImU32 glowColor, float borderThickness = 1.5f, 
-                         int glowLayers = 3) {
-    int r = (glowColor >> 0) & 0xFF;
-    int g = (glowColor >> 8) & 0xFF;
-    int b = (glowColor >> 16) & 0xFF;
-    
-    for (int i = glowLayers; i >= 1; i--) {
-        float padding = i * 2.5f;
-        int alpha = 25 + (glowLayers - i) * 30;
-        ImU32 layerColor = IM_COL32(r, g, b, alpha);
-        drawList->AddRect(
-            ImVec2(min.x - padding, min.y - padding),
-            ImVec2(max.x + padding, max.y + padding),
-            layerColor, 0.0f, 0, borderThickness
-        );
-    }
-    
-    drawList->AddRect(min, max, IM_COL32(r, g, b, 200), 0.0f, 0, borderThickness);
-}
-
-static void DrawArrowBorderRect(ImDrawList* drawList, ImVec2 min, ImVec2 max, 
-                                 float cornerNotch, ImU32 color, float thickness = 1.5f) {
-    
-    ImVec2 points[] = {
-        ImVec2(min.x + cornerNotch, min.y),
-        ImVec2(max.x - cornerNotch, min.y),
-        ImVec2(max.x, min.y + cornerNotch),
-        ImVec2(max.x, max.y - cornerNotch),
-        ImVec2(max.x - cornerNotch, max.y),
-        ImVec2(min.x + cornerNotch, max.y),
-        ImVec2(min.x, max.y - cornerNotch),
-        ImVec2(min.x, min.y + cornerNotch),
-    };
-
-    drawList->AddPolyline(points, 8, color, thickness, ImDrawFlags_Closed);
-}
-
-static void DrawNeonArrowRect(ImDrawList* drawList, ImVec2 min, ImVec2 max, 
-                               float cornerNotch, ImU32 glowColor, 
-                               float borderThickness = 1.5f, int glowLayers = 3) {
-    int r = (glowColor >> 0) & 0xFF;
-    int g = (glowColor >> 8) & 0xFF;
-    int b = (glowColor >> 16) & 0xFF;
-    
-    for (int i = glowLayers; i >= 1; i--) {
-        float padding = i * 2.5f;
-        int alpha = 25 + (glowLayers - i) * 30;
-        ImU32 layerColor = IM_COL32(r, g, b, alpha);
-        DrawArrowBorderRect(drawList, 
-                           ImVec2(min.x - padding, min.y - padding),
-                           ImVec2(max.x + padding, max.y + padding),
-                           cornerNotch + padding * 0.5f, layerColor, borderThickness);
-    }
-    
-    DrawArrowBorderRect(drawList, min, max, cornerNotch, IM_COL32(r, g, b, 200), borderThickness);
-}
-
 static void DrawDiamondFrame(ImDrawList* drawList, ImVec2 center, float size, ImU32 borderColor, ImU32 fillColor, float borderThickness = 2.0f)
 {
     ImVec2 top(center.x, center.y - size);
@@ -241,7 +183,6 @@ static void DrawDiamondWithItem(ImDrawList* drawList, ImVec2 center, float size,
             drawList->AddText(badgeFont, badgeFontSize, textPos, IM_COL32(255, 255, 255, 255), valueText);
         };
         
-        
         float blueX = center.x + 14.0f * scale;
         float blueY = center.y - 40.0f * scale;
         
@@ -311,7 +252,6 @@ static void DrawDiamondWithItem(ImDrawList* drawList, ImVec2 center, float size,
                     snprintf(valText, sizeof(valText), "%.0f", enchantDamage);
                     break;
             }
-            
             
             if (enchantCategory == BadgeStyle::EnchantCategory::SkillPoints) {
                 if (skillBonus < 0.9f) {
@@ -685,7 +625,6 @@ std::vector<EquipSlot> CharacterSheet::GetPlayerEquipment()
                         totalDamage = baseDamage * skillMult * fortifyMult;
                     }
                     
-                    
                     slot.skillBonus = baseDamage * (skillLevel / 200.0f);
                 }
                 
@@ -807,7 +746,6 @@ std::vector<EquipSlot> CharacterSheet::GetPlayerEquipment()
         equipment.push_back(slot);
     }
 
-    
     {
         EquipSlot slot = {LocalizationManager::Get("slot_left_hand").c_str(), LocalizationManager::Get("empty").c_str(), "empty", 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, "", "none", 0.0f, 0.0f, false, false, nullptr, nullptr};
 
@@ -1317,7 +1255,6 @@ std::vector<EquipSlot> CharacterSheet::GetPlayerEquipment()
         equipment.push_back(slot);
     }
 
-    
     logger::debug("CharacterSheet: Retrieved {} equipment slots", equipment.size());
     return equipment;
 }
@@ -1461,7 +1398,6 @@ void CharacterSheet::DrawUI()
         const float s = (std::min)(requestedScale, (std::min)(verticalFit, horizontalFit));
         ImGui::SetWindowFontScale(s);
         
-        
         bool debugGrid = false;
         if (debugGrid) {
             float gridSpacing = 20.0f;
@@ -1563,7 +1499,7 @@ void CharacterSheet::DrawUI()
                     currentXP = skills->data->xp;
                     xpNeeded = skills->data->levelThreshold;
                     if (xpNeeded > 0) {
-                        xpProgress = currentXP / xpNeeded;
+                        xpProgress = std::clamp(currentXP / xpNeeded, 0.0f, 1.0f);
                     }
                 }
             }
@@ -1575,7 +1511,7 @@ void CharacterSheet::DrawUI()
             ImU32 barTextCol = IM_COL32((settings->csBarTextColor >> 16) & 0xFF, (settings->csBarTextColor >> 8) & 0xFF, settings->csBarTextColor & 0xFF, 255);
             drawList->AddRectFilled(ImVec2(xpBarX, row1Y), ImVec2(xpBarX + xpBarWidth, row1Y + xpBarHeight), IM_COL32(20, 25, 40, 220));
             drawList->AddRectFilled(ImVec2(xpBarX, row1Y), ImVec2(xpBarX + xpBarWidth * xpProgress, row1Y + xpBarHeight), xpFillColor);
-            DrawNeonRect(drawList, ImVec2(xpBarX, row1Y), ImVec2(xpBarX + xpBarWidth, row1Y + xpBarHeight), xpFillColor, 1.5f * s, 3);
+            HUDDraw::DrawGlowRect(drawList, ImVec2(xpBarX, row1Y), ImVec2(xpBarX + xpBarWidth, row1Y + xpBarHeight), xpFillColor, 1.5f * s, 3);
 
             char lvlText[32];
             snprintf(lvlText, sizeof(lvlText), LocalizationManager::Get("LevelShort").c_str(), player->GetLevel());
@@ -1607,7 +1543,7 @@ void CharacterSheet::DrawUI()
 
             drawList->AddRectFilled(ImVec2(shoutX, row1Y), ImVec2(shoutX + shoutWidth, row1Y + shoutHeight), IM_COL32(20, 25, 40, 220));
             drawList->AddRectFilled(ImVec2(shoutX, row1Y), ImVec2(shoutX + shoutWidth * shoutPct, row1Y + shoutHeight), shoutFillColor);
-            DrawNeonRect(drawList, ImVec2(shoutX, row1Y), ImVec2(shoutX + shoutWidth, row1Y + shoutHeight), shoutFillColor, 1.5f * s, 3);
+            HUDDraw::DrawGlowRect(drawList, ImVec2(shoutX, row1Y), ImVec2(shoutX + shoutWidth, row1Y + shoutHeight), shoutFillColor, 1.5f * s, 3);
             
             char shoutText[32];
             snprintf(shoutText, sizeof(shoutText), LocalizationManager::Get("shout_format").c_str(), shoutTotal);
@@ -1649,8 +1585,8 @@ void CharacterSheet::DrawUI()
             auto DrawBar = [&](float x, float y, float pct, float value, float maxVal,
                               float regen, ImU32 fillCol, const char* animKey) {
                 drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + barWidth, y + barHeight), IM_COL32(20, 25, 40, 220));
-                drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + barWidth * pct, y + barHeight), fillCol);
-                DrawNeonRect(drawList, ImVec2(x, y), ImVec2(x + barWidth, y + barHeight), fillCol, 1.5f * s, 3);
+                drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + barWidth * std::clamp(pct, 0.0f, 1.0f), y + barHeight), fillCol);
+                HUDDraw::DrawGlowRect(drawList, ImVec2(x, y), ImVec2(x + barWidth, y + barHeight), fillCol, 1.5f * s, 3);
 
                 UIAnimation::CheckNumericChange(animKey, value);
                 ImU32 flashedTextCol = UIAnimation::GetFlashedColor(animKey, row2TextCol,
@@ -1689,7 +1625,6 @@ void CharacterSheet::DrawUI()
             DrawBar(mpX, row2Y, aStats.magicka.GetPercent(), aStats.magicka.current, aStats.magicka.GetMax(),
                    aStats.magickaRegen, mpFill, "stat_magicka");
         }
-        
         
         if (!hideEquipment) 
         {
@@ -1834,9 +1769,9 @@ void CharacterSheet::DrawUI()
                 (settings->csStatBgColor >> 24) & 0xFF));
 
             if (settings->csStatGlowEnabled) {
-                drawList->AddRect(ImVec2(statsBoxMin.x - 4.0f * s, statsBoxMin.y - 4.0f * s), ImVec2(statsBoxMax.x + 4.0f * s, statsBoxMax.y + 4.0f * s), IM_COL32(sgR, sgG, sgB, static_cast<int>(30 * statGlowScale)));
-                drawList->AddRect(ImVec2(statsBoxMin.x - 2.0f * s, statsBoxMin.y - 2.0f * s), ImVec2(statsBoxMax.x + 2.0f * s, statsBoxMax.y + 2.0f * s), IM_COL32(sgR, sgG, sgB, static_cast<int>(60 * statGlowScale)));
-                drawList->AddRect(statsBoxMin, statsBoxMax, IM_COL32(sgR, sgG, sgB, static_cast<int>(120 * statGlowScale)));
+                HUDDraw::DrawCrispRect(drawList, ImVec2(statsBoxMin.x - 4.0f * s, statsBoxMin.y - 4.0f * s), ImVec2(statsBoxMax.x + 4.0f * s, statsBoxMax.y + 4.0f * s), IM_COL32(sgR, sgG, sgB, static_cast<int>(30 * statGlowScale)));
+                HUDDraw::DrawCrispRect(drawList, ImVec2(statsBoxMin.x - 2.0f * s, statsBoxMin.y - 2.0f * s), ImVec2(statsBoxMax.x + 2.0f * s, statsBoxMax.y + 2.0f * s), IM_COL32(sgR, sgG, sgB, static_cast<int>(60 * statGlowScale)));
+                HUDDraw::DrawCrispRect(drawList, statsBoxMin, statsBoxMax, IM_COL32(sgR, sgG, sgB, static_cast<int>(120 * statGlowScale)));
             }
             
             auto iconDamage = TextureManager::GetPartyIcon("weapon");
@@ -1917,7 +1852,6 @@ void CharacterSheet::DrawUI()
                 auto iconPoison = TextureManager::GetPartyIcon("poison");
                 auto iconDisease = TextureManager::GetPartyIcon("disease");
                 
-
                 auto DrawResistWithBorder = [&](float x, float y, void* icon, float value, const char* fmt, ImU32 color, const char* label, const char* animKey = nullptr) {
                     float circleRadius = resIconSize * 0.7f;
 
@@ -1925,7 +1859,6 @@ void CharacterSheet::DrawUI()
                     int g = (color >> 8) & 0xFF;
                     int b = (color >> 16) & 0xFF;
 
-                    
                     char valText[32];
                     snprintf(valText, sizeof(valText), fmt, value);
                     ImVec2 valSize = ImGui::GetFont()->CalcTextSizeA(statFontSz, FLT_MAX, 0.0f, valText);
@@ -1945,14 +1878,11 @@ void CharacterSheet::DrawUI()
                     // 2. Icon in MIDDLE (below label)
                     float iconY = y + 20.0f * s;
                     ImVec2 center(x + resIconSize / 2.0f, iconY + resIconSize / 2.0f);
-                    
-                    drawList->AddCircleFilled(center, circleRadius + 6.0f * s, IM_COL32(r, g, b, 20), 24);
-                    drawList->AddCircleFilled(center, circleRadius + 4.0f * s, IM_COL32(r, g, b, 35), 24);
-                    drawList->AddCircleFilled(center, circleRadius + 2.0f * s, IM_COL32(r, g, b, 50), 24);
-                    
-                    drawList->AddCircleFilled(center, circleRadius, IM_COL32(20, 25, 45, 230), 24);
-                    
-                    drawList->AddCircle(center, circleRadius, IM_COL32(r, g, b, 200), 24, 2.0f * s);
+
+                    HUDDraw::GlowDiscStyle disc;
+                    disc.glowStep      = 2.0f * s;
+                    disc.ringThickness = 2.0f * s;
+                    HUDDraw::DrawGlowDisc(drawList, center, circleRadius, IM_COL32(r, g, b, 200), disc);
                     
                     if (icon) HUDDraw::DrawIconStyled(drawList, ImVec2(x, iconY), resIconSize,
                         (ImTextureID)icon, 0xFFFFFFFF, IconFxDefault());
@@ -1999,7 +1929,7 @@ void CharacterSheet::DrawUI()
                 DrawResistWithBorder(iconX + resGap * 2 + col3Offset, rrow3Y, iconDisease, resists.disease, "%.0f%%", IM_COL32(160, 140, 120, 255), LocalizationManager::Get("Disease").c_str(), "resist_disease");
                 
                 if (settings->csResistGlowEnabled)
-                    DrawNeonRect(drawList, resBoxMin, resBoxMax, resBoxColor, 1.5f * s, 3);
+                    HUDDraw::DrawGlowRect(drawList, resBoxMin, resBoxMax, resBoxColor, 1.5f * s, 3);
             }
             
             bool mainHandIsStaff = false;
@@ -2097,11 +2027,10 @@ void CharacterSheet::DrawUI()
             
             if (settings->csStatGlowEnabled) {
                 ImU32 statsBoxBorderColor = IM_COL32(sgR, sgG, sgB, static_cast<int>(200 * statGlowScale));
-                DrawNeonRect(drawList, statsBoxMin, statsBoxMax, statsBoxBorderColor, 1.5f * s, 3);
+                HUDDraw::DrawGlowRect(drawList, statsBoxMin, statsBoxMax, statsBoxBorderColor, 1.5f * s, 3);
             }
         }
 
-        
         if (!hideSkills)
         {
             float skillIconSize = 22.0f * s;
@@ -2135,8 +2064,8 @@ void CharacterSheet::DrawUI()
                 (settings->csSkillBgColor >> 24) & 0xFF));
 
             if (settings->csSkillGlowEnabled) {
-                drawList->AddRect(ImVec2(skillsBoxMin.x - 4.0f*s, skillsBoxMin.y - 4.0f*s), ImVec2(skillsBoxMax.x + 4.0f*s, skillsBoxMax.y + 4.0f*s), IM_COL32(skR, skG, skB, static_cast<int>(30 * skillGlowScale)));
-                drawList->AddRect(ImVec2(skillsBoxMin.x - 2.0f*s, skillsBoxMin.y - 2.0f*s), ImVec2(skillsBoxMax.x + 2.0f*s, skillsBoxMax.y + 2.0f*s), IM_COL32(skR, skG, skB, static_cast<int>(60 * skillGlowScale)));
+                HUDDraw::DrawCrispRect(drawList, ImVec2(skillsBoxMin.x - 4.0f*s, skillsBoxMin.y - 4.0f*s), ImVec2(skillsBoxMax.x + 4.0f*s, skillsBoxMax.y + 4.0f*s), IM_COL32(skR, skG, skB, static_cast<int>(30 * skillGlowScale)));
+                HUDDraw::DrawCrispRect(drawList, ImVec2(skillsBoxMin.x - 2.0f*s, skillsBoxMin.y - 2.0f*s), ImVec2(skillsBoxMax.x + 2.0f*s, skillsBoxMax.y + 2.0f*s), IM_COL32(skR, skG, skB, static_cast<int>(60 * skillGlowScale)));
             }
 
             ImU32 headerWarrior = IM_COL32(200, 100, 100, 255);
@@ -2221,9 +2150,8 @@ void CharacterSheet::DrawUI()
             DrawSkillRow(mageX, row5Y + skillRowHeight * 5, 5, LocalizationManager::Get("Enchanting").c_str(), stats.skills.enchanting.value, "enchanting", RE::ActorValue::kEnchanting);
             
             if (settings->csSkillGlowEnabled)
-                DrawNeonRect(drawList, skillsBoxMin, skillsBoxMax, skillsBoxColor, 1.5f * s, 3);
+                HUDDraw::DrawGlowRect(drawList, skillsBoxMin, skillsBoxMax, skillsBoxColor, 1.5f * s, 3);
         }
-        
         
         if (!hideStatus)
         {
@@ -2358,14 +2286,15 @@ void CharacterSheet::DrawUI()
                 float dotsWidth = totalPages * dotGap;
                 float dotStartX = statusX + statusBoxWidth - dotsWidth - 20.0f * s;
                 float dotY = row6Y - 18.0f * s;
-                
-                for (int i = 0; i < totalPages; i++) {
-                    float dotX = dotStartX + i * dotGap;
-                    ImU32 dotColor = (i == s_statusCarouselPage) 
-                        ? IM_COL32(255, 215, 100, 255)
-                        : IM_COL32(100, 100, 100, 150);
-                    drawList->AddCircleFilled(ImVec2(dotX, dotY), dotRadius, dotColor, 12);
-                }
+
+                HUDDraw::PipStyle ps;
+                ps.radius     = dotRadius;
+                ps.gap        = dotGap - dotRadius * 2.0f;
+                ps.single     = true;
+                ps.litColor   = 0xFFFFD764;
+                ps.emptyColor = 0x96646464;
+                ps.duotone = ps.glow = ps.socket = ps.specular = ps.contour = false;
+                HUDDraw::DrawPipRow(drawList, ImVec2(dotStartX - dotRadius, dotY), s_statusCarouselPage, totalPages, ps);
             }
             
             ImVec2 slideOffset = UIAnimation::GetOffset("status_carousel");
@@ -2427,7 +2356,7 @@ void CharacterSheet::DrawUI()
             }
             
             if (settings->csStatusGlowEnabled)
-                DrawNeonRect(drawList, statusBoxMin, statusBoxMax, statusBoxColor, 1.5f * s, 3);
+                HUDDraw::DrawGlowRect(drawList, statusBoxMin, statusBoxMax, statusBoxColor, 1.5f * s, 3);
         }
 
     }

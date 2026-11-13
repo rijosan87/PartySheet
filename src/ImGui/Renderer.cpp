@@ -117,7 +117,6 @@ namespace ImGuiRenderer {
     static std::chrono::steady_clock::time_point g_LastCSVisibleTime;
     static std::chrono::steady_clock::time_point g_LastPSVisibleTime;
 
-    
     static std::string g_ToastMessage = "";
     static float g_ToastTimer = 0.0f;
     static const float g_ToastDuration = 2.0f;
@@ -250,7 +249,6 @@ namespace ImGuiRenderer {
     struct WndProc {
         static LRESULT thunk(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
             
-            
             if (uMsg == WM_INPUT && g_Initialized && (g_MenuVisible || PartySheetV2::IsEffectsModalOpen() || PartySheetV2::IsInventoryModalOpen() || PartySheetV2::IsStatusModalOpen())) {
                 UINT dataSize = 0;
                 GetRawInputData((HRAWINPUT)lParam, RID_INPUT, NULL, &dataSize, sizeof(RAWINPUTHEADER));
@@ -274,7 +272,6 @@ namespace ImGuiRenderer {
                     }
                 }
             }
-            
             
             if (g_Initialized && (g_MenuVisible || PartySheetV2::IsEffectsModalOpen() || PartySheetV2::IsInventoryModalOpen() || PartySheetV2::IsStatusModalOpen())) {
                 if (uMsg == WM_MOUSEWHEEL || uMsg == WM_MOUSEHWHEEL) {
@@ -320,7 +317,6 @@ namespace ImGuiRenderer {
                 ImGui::GetIO().ClearInputKeys();
             }
             
-
             return func(hWnd, uMsg, wParam, lParam);
         }
         static inline WNDPROC func;
@@ -656,6 +652,7 @@ namespace ImGuiRenderer {
                                 style.PopupRounding = 4.0f;
                                 style.ScrollbarRounding = 6.0f;
                                 style.TabRounding = 4.0f;
+                                style.SelectableRounding = 4.0f;
                                 style.WindowBorderSize = 0.0f;
                                 
                                 style.FramePadding = ImVec2(8, 4);
@@ -680,6 +677,7 @@ namespace ImGuiRenderer {
                                 colors[ImGuiCol_SliderGrab] = ImVec4(0.50f, 0.60f, 0.75f, 1.00f);
                                 colors[ImGuiCol_SliderGrabActive] = ImVec4(0.60f, 0.70f, 0.85f, 1.00f);
                                 colors[ImGuiCol_CheckMark] = ImVec4(0.55f, 0.70f, 0.90f, 1.00f);
+                                colors[ImGuiCol_CheckboxSelectedBg] = ImVec4(0.20f, 0.30f, 0.44f, 1.00f);
                                 colors[ImGuiCol_Separator] = ImVec4(0.30f, 0.35f, 0.42f, 0.50f);
                                 colors[ImGuiCol_Text] = ImVec4(0.90f, 0.92f, 0.95f, 1.00f);
                                 colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.55f, 0.60f, 1.00f);
@@ -815,7 +813,7 @@ namespace ImGuiRenderer {
                 ImGui::SetNextWindowSize(ImVec2(windowW, windowH), cond);
                 ImGui::Begin("HUD Settings", &g_MenuVisible,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-                ImGui::SetWindowFontScale(menuFontScale);
+                ImGui::PushFont(nullptr, ImGui::GetFontSize() * menuFontScale);
                 
                 // Reserve space for fixed footer (Save button + hint text)
                 float footerHeight = ImGui::GetFrameHeightWithSpacing() * 2 + 8.0f * menuScale;
@@ -843,8 +841,6 @@ namespace ImGuiRenderer {
                 
                 WidgetStableMount::RenderSettingsPanel(settings, io.DisplaySize);
 
-                
-                
                 ImGui::EndChild();
                 ImGui::PopStyleVar();
                 
@@ -877,6 +873,8 @@ namespace ImGuiRenderer {
                     settings->menuWidth = static_cast<int>(currentSize.x / menuScale + 0.5f);
                     settings->menuHeight = static_cast<int>(currentSize.y / menuScale + 0.5f);
                 }
+
+                ImGui::PopFont();
 
                 ImGui::End();
                 ImGui::GetStyle() = unscaledStyle;
@@ -978,7 +976,6 @@ namespace ImGuiRenderer {
             }
 
             if (!g_MenuVisible && g_Initialized) {
-                
                 
                 if (PartySheet::IsVisible()) {
                     g_LastPSVisibleTime = std::chrono::steady_clock::now();

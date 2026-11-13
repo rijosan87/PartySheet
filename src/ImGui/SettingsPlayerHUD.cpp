@@ -13,6 +13,7 @@
 #include "../../includes/ImGui/WidgetCollectibles.h"
 #include "../../includes/ImGui/WidgetStableMount.h"
 #include "../../includes/Utils/ColorUtils.h"
+#include "../../includes/Utils/SettingsWidgets.h"
 #include "../../includes/HUDVisibility.h"
 #include "../../includes/PNGIIBridge.h"
 #include "../../includes/PlayerHUDResistancesPresets.h"
@@ -1008,19 +1009,19 @@ namespace ImGuiRenderer::SettingsUI {
                         ImGui::SetTooltip("Master toggle for the weapon poison/enchant edge ring and inner glow wash.");
                     ImGui::BeginDisabled(!settings->peShowAura);
                     c = ColorUtils::ArgbToVec4(settings->peAuraPoisonColor);
-                    if (ImGui::ColorEdit4("Poison##peAuraPoison", reinterpret_cast<float*>(&c), kArgb))
+                    if (SettingsWidgets::ColorEdit4("Poison##peAuraPoison", reinterpret_cast<float*>(&c), kArgb))
                         settings->peAuraPoisonColor = ColorUtils::Vec4ToArgb(c);
                     c = ColorUtils::ArgbToVec4(settings->peAuraFireColor);
-                    if (ImGui::ColorEdit4("Fire##peAuraFire", reinterpret_cast<float*>(&c), kArgb))
+                    if (SettingsWidgets::ColorEdit4("Fire##peAuraFire", reinterpret_cast<float*>(&c), kArgb))
                         settings->peAuraFireColor = ColorUtils::Vec4ToArgb(c);
                     c = ColorUtils::ArgbToVec4(settings->peAuraFrostColor);
-                    if (ImGui::ColorEdit4("Frost##peAuraFrost", reinterpret_cast<float*>(&c), kArgb))
+                    if (SettingsWidgets::ColorEdit4("Frost##peAuraFrost", reinterpret_cast<float*>(&c), kArgb))
                         settings->peAuraFrostColor = ColorUtils::Vec4ToArgb(c);
                     c = ColorUtils::ArgbToVec4(settings->peAuraShockColor);
-                    if (ImGui::ColorEdit4("Shock##peAuraShock", reinterpret_cast<float*>(&c), kArgb))
+                    if (SettingsWidgets::ColorEdit4("Shock##peAuraShock", reinterpret_cast<float*>(&c), kArgb))
                         settings->peAuraShockColor = ColorUtils::Vec4ToArgb(c);
                     c = ColorUtils::ArgbToVec4(settings->peAuraOtherColor);
-                    if (ImGui::ColorEdit4("Enchanted (Other)##peAuraOther", reinterpret_cast<float*>(&c), kArgb))
+                    if (SettingsWidgets::ColorEdit4("Enchanted (Other)##peAuraOther", reinterpret_cast<float*>(&c), kArgb))
                         settings->peAuraOtherColor = ColorUtils::Vec4ToArgb(c);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Alpha controls glow/ring intensity, not just opacity.");
@@ -1697,7 +1698,7 @@ namespace ImGuiRenderer::SettingsUI {
                             settings->phSurvivalLabelColor = ColorUtils::Vec4ToArgb(c);
                         ImGui::BeginDisabled(!settings->phSurvivalShowBorder);
                         c = ColorUtils::ArgbToVec4(settings->phSurvivalBorderColor);
-                        if (ImGui::ColorEdit4("Border Color##phSurvBorderColor", reinterpret_cast<float*>(&c), kArgb))
+                        if (SettingsWidgets::ColorEdit4("Border Color##phSurvBorderColor", reinterpret_cast<float*>(&c), kArgb))
                             settings->phSurvivalBorderColor = ColorUtils::Vec4ToArgb(c);
                         ImGui::EndDisabled();
 

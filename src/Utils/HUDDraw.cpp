@@ -17,9 +17,11 @@ namespace HUDDraw {
         return ImGui::ColorConvertFloat4ToU32(ColorUtils::ArgbToVec4(argb));
     }
 
-    void DrawChip(ImDrawList* dl, const ImVec2& bMin, const ImVec2& bMax, const ChipStyle& style)
+    void DrawChip(ImDrawList* dl, const ImVec2& rawMin, const ImVec2& rawMax, const ChipStyle& style)
     {
-        const float r = style.rounding;
+        const ImVec2 bMin(SnapPx(rawMin.x), SnapPx(rawMin.y));
+        const ImVec2 bMax(SnapPx(rawMax.x), SnapPx(rawMax.y));
+        const float r = SnapPx(style.rounding);
 
         if (style.shadow) {
             for (int i = 2; i >= 1; --i) {
@@ -50,13 +52,13 @@ namespace HUDDraw {
             }
         }
 
-        dl->AddRect(ImVec2(bMin.x + 1.5f, bMin.y + 1.5f), ImVec2(bMax.x - 1.5f, bMax.y - 1.5f),
-                    IM_COL32(0, 0, 0, 45), (std::max)(r - 1.0f, 0.0f), 0, 3.0f);
+        dl->AddRect(bMin, bMax, IM_COL32(0, 0, 0, 45), r, 3.0f, ImDrawFlags_StrokeInside);
 
-        if (style.highlight)
-            dl->AddRectFilled(ImVec2(bMin.x + r, bMin.y + 1.0f),
-                              ImVec2(bMax.x - r, bMin.y + 2.0f),
-                              IM_COL32(255, 255, 255, 26));
+        if (style.highlight) {
+            dl->PushClipRect(ImVec2(bMin.x, bMin.y + 1.0f), ImVec2(bMax.x, bMin.y + 2.0f), true);
+            dl->AddRectFilled(bMin, bMax, IM_COL32(255, 255, 255, 26), r);
+            dl->PopClipRect();
+        }
 
         if (style.accentColor & 0xFF000000u) {
             dl->PushClipRect(ImVec2(bMin.x, bMax.y - 3.0f), bMax, true);
@@ -66,12 +68,12 @@ namespace HUDDraw {
 
         if (style.innerBorder & 0xFF000000u)
             dl->AddRect(ImVec2(bMin.x + 1.0f, bMin.y + 1.0f), ImVec2(bMax.x - 1.0f, bMax.y - 1.0f),
-                        Argb(style.innerBorder), (std::max)(r - 1.0f, 0.0f), 0, 1.0f);
+                        Argb(style.innerBorder), (std::max)(r - 1.0f, 0.0f), 1.0f, ImDrawFlags_StrokeInside);
         if (style.outerBorder & 0xFF000000u)
-            dl->AddRect(bMin, bMax, Argb(style.outerBorder), r, 0, 1.2f);
+            dl->AddRect(bMin, bMax, Argb(style.outerBorder), r, 1.0f, ImDrawFlags_StrokeInside);
         if (style.glowColor & 0xFF000000u)
-            dl->AddRect(ImVec2(bMin.x - 1.0f, bMin.y - 1.0f), ImVec2(bMax.x + 1.0f, bMax.y + 1.0f),
-                        Argb(style.glowColor), r + 1.0f, 0, 1.5f);
+            DrawGlowRect(dl, bMin, bMax, Argb(style.glowColor), 1.5f, 3, r, false,
+                         ((style.glowColor >> 24) & 0xFF) / 120.0f);
     }
 
     void DrawFadeBg(ImDrawList* dl, const ImVec2& bbMin, const ImVec2& bbMax, const FadeBgStyle& style)
@@ -475,11 +477,16 @@ namespace HUDDraw {
             dl->PopClipRect();
         }
 
+        {
+            const ImVec2 sMin(SnapPx(bMin.x), SnapPx(bMin.y)), sMax(SnapPx(bMax.x), SnapPx(bMax.y));
+            const float  sr = SnapPx(r);
+
         if (s.innerBorder & 0xFF000000u)
-            dl->AddRect(ImVec2(bMin.x + 1.0f, bMin.y + 1.0f), ImVec2(bMax.x - 1.0f, bMax.y - 1.0f),
-                        Col(s.innerBorder), (std::max)(r - 1.0f, 0.0f), 0, 1.0f);
+                dl->AddRect(ImVec2(sMin.x + 1.0f, sMin.y + 1.0f), ImVec2(sMax.x - 1.0f, sMax.y - 1.0f),
+                            Col(s.innerBorder), (std::max)(sr - 1.0f, 0.0f), 1.0f, ImDrawFlags_StrokeInside);
         if (s.outerBorder & 0xFF000000u)
-            dl->AddRect(bMin, bMax, Col(s.outerBorder), r, 0, 1.0f);
+                dl->AddRect(sMin, sMax, Col(s.outerBorder), sr, 1.0f, ImDrawFlags_StrokeInside);
+        }
 
         if (hasIcon) {
             const float iy = bMin.y + (h - iconSz) * 0.5f;
@@ -531,20 +538,31 @@ namespace HUDDraw {
         const uint8_t lR = (s.litColor >> 16) & 0xFF, lG = (s.litColor >> 8) & 0xFF, lB = s.litColor & 0xFF;
         const uint8_t eR = (s.emptyColor >> 16) & 0xFF, eG = (s.emptyColor >> 8) & 0xFF, eB = s.emptyColor & 0xFF;
 
+        auto SquareMin = [&](float x, float y, float r) { return ImVec2(SnapPx(x - r), SnapPx(y - r)); };
+        auto SquareMax = [&](float x, float y, float r) {
+            const ImVec2 mn = SquareMin(x, y, r);
+            return ImVec2(mn.x + SnapPx(r * 2.0f), mn.y + SnapPx(r * 2.0f));
+        };
+
         auto FillShape = [&](float x, float y, float r, ImU32 col) {
-            if (s.shape == 1) {
+            if (s.shape == 2) {
+                dl->AddRectFilled(SquareMin(x, y, r), SquareMax(x, y, r), col, s.rounding);
+            } else if (s.shape == 1) {
                 ImVec2 p[4] = { { x, y - r }, { x + r, y }, { x, y + r }, { x - r, y } };
                 dl->AddConvexPolyFilled(p, 4, col);
             } else {
                 dl->AddCircleFilled(ImVec2(x, y), r, col, 0);
             }
         };
-        auto StrokeShape = [&](float x, float y, float r, ImU32 col, float th) {
-            if (s.shape == 1) {
+        auto StrokeShape = [&](float x, float y, float r, ImU32 col, float th, ImDrawFlags fl = 0) {
+            if (s.shape == 2) {
+                dl->AddRect(SquareMin(x, y, r), SquareMax(x, y, r), col,
+                            s.rounding + ((fl & ImDrawFlags_StrokeOutside) ? th : 0.0f), th, fl);
+            } else if (s.shape == 1) {
                 ImVec2 p[4] = { { x, y - r }, { x + r, y }, { x, y + r }, { x - r, y } };
                 dl->AddPolyline(p, 4, col, ImDrawFlags_Closed, th);
             } else {
-                dl->AddCircle(ImVec2(x, y), r, col, 0, th);
+                dl->AddCircle(ImVec2(x, y), r + ((fl & ImDrawFlags_StrokeOutside) ? th * 0.5f : 0.0f), col, 0, th);
             }
         };
         auto FillDuotone = [&](float x, float y, float r, uint8_t cR, uint8_t cG, uint8_t cB, uint8_t fillA, bool inset) {
@@ -562,7 +580,7 @@ namespace HUDDraw {
         };
 
         for (int i = 0; i < count; ++i, cx += pitch) {
-            const bool on = i < lit;
+            const bool on = s.single ? (i == lit) : (i < lit);
 
             if (s.socket)
                 FillShape(cx + 0.5f, cy + 1.0f, drawR + 0.5f, IM_COL32(0, 0, 0, A(70)));
@@ -579,11 +597,20 @@ namespace HUDDraw {
                     dl->AddCircleFilled(ImVec2(cx - drawR * 0.30f, cy - drawR * 0.35f),
                                         (std::max)(1.0f, drawR * 0.28f), IM_COL32(255, 255, 255, A(110)));
                 if (s.contour) StrokeShape(cx, cy, drawR, IM_COL32(0, 0, 0, A(140)), 1.0f);
+                if (s.litEdge & 0xFF000000u) {
+                    const std::uint32_t c = s.litEdge;
+                    StrokeShape(cx, cy, drawR, IM_COL32((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, A((c >> 24) & 0xFF)),
+                                1.0f, ImDrawFlags_StrokeOutside);
+                }
             } else {
                 const uint8_t eA = A((s.emptyColor >> 24) & 0xFF);
                 if (s.duotone) FillDuotone(cx, cy, drawR, eR, eG, eB, eA, true);
                 else           FillShape(cx, cy, drawR, IM_COL32(eR, eG, eB, eA));
                 if (s.contour) StrokeShape(cx, cy, drawR, IM_COL32(0, 0, 0, A(90)), 1.0f);
+                if (s.emptyEdge & 0xFF000000u) {
+                    const std::uint32_t c = s.emptyEdge;
+                    StrokeShape(cx, cy, drawR, IM_COL32((c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF, A((c >> 24) & 0xFF)), 1.0f);
+                }
             }
         }
     }
@@ -826,9 +853,19 @@ namespace HUDDraw {
         }
 
         if (s.drawFill && frac > 0.001f) {
-            dl->PushClipRect(pos, ImVec2(fillEdge, bMax.y), true);
+            const float edgeFloor = std::floor(fillEdge);
+            const float edgeCover = fillEdge - edgeFloor;
 
             uint8_t fillA = A((s.fillColor >> 24) & 0xFF);
+            if (edgeCover > 0.01f) {
+                dl->PushClipRect(ImVec2(edgeFloor, pos.y), ImVec2(edgeFloor + 1.0f, bMax.y), true);
+                int e0 = dl->VtxBuffer.Size;
+                FillSilhouette(IM_COL32(255, 255, 255, static_cast<uint8_t>(fillA * edgeCover)));
+                int e1 = dl->VtxBuffer.Size;
+                ShadeBarFill(dl, e0, e1, pos, bMax, s.fillColor, s.fillColor2, s.duotone);
+                dl->PopClipRect();
+            }
+            dl->PushClipRect(pos, ImVec2(edgeFloor, bMax.y), true);
             int v0 = dl->VtxBuffer.Size;
             FillSilhouette(IM_COL32(255, 255, 255, fillA));
             int v1 = dl->VtxBuffer.Size;
@@ -1092,10 +1129,10 @@ namespace HUDDraw {
                              float width, bool closeFull) {
             if (radius <= 0.0f || end <= start) return;
             if (closeFull && end - start >= 2.0f * IM_PI - 0.0001f) {
-                dl->AddCircle(c, radius, color, 48, width);
+                dl->AddCircle(c, radius, color, 0, width);
                 return;
             }
-            dl->PathArcTo(c, radius, start, end, 48);
+            dl->PathArcTo(c, radius, start, end, 0);
             dl->PathStroke(color, 0, width);
             if (s.roundCaps) {
                 dl->AddCircleFilled(ImVec2(c.x + radius * std::cos(start), c.y + radius * std::sin(start)), width * 0.5f, color);
@@ -1181,7 +1218,7 @@ namespace HUDDraw {
         const float startRad = s.startAngleDeg * kPi / 180.0f;
 
         if (s.shadowColor & 0xFF000000u)
-            dl->AddCircle(center, s.radius, Argb(s.shadowColor), 48, thick + 2.0f);
+            dl->AddCircle(center, s.radius, Argb(s.shadowColor), 0, thick + 2.0f);
 
         // 2) Segment layout: first segment centered on startAngleDeg, remaining
         float cursor = startRad - (s.segments[0].share * kPi);
@@ -1195,7 +1232,7 @@ namespace HUDDraw {
 
             const uint8_t cR = (seg.color >> 16) & 0xFF, cG = (seg.color >> 8) & 0xFF, cB = seg.color & 0xFF;
             const uint8_t cA = (seg.color >> 24) & 0xFF;
-            const int nSeg = (std::max)(6, static_cast<int>(48.0f * (a1 - a0) / (2.0f * kPi)));
+            const int nSeg = 0;
 
             dl->PathArcTo(center, s.radius, a0, a1, nSeg);
             dl->PathStroke(Argb(s.trackColor), 0, thick);
@@ -1449,6 +1486,70 @@ namespace HUDDraw {
         st.value += (target - st.value) * (1.0f - std::exp(-k * dt));
         if (std::fabs(target - st.value) < 0.002f) st.value = target;
         return st.value;
+    }
+
+    void DrawCrispRect(ImDrawList* dl, const ImVec2& min, const ImVec2& max, ImU32 col, float thickness)
+    {
+        dl->AddRect(ImVec2(SnapPx(min.x), SnapPx(min.y)), ImVec2(SnapPx(max.x), SnapPx(max.y)),
+                    col, 0.0f, SnapWidth(thickness), ImDrawFlags_StrokeCenterBiased);
+
+}
+
+    void DrawGlowRect(ImDrawList* dl, const ImVec2& min, const ImVec2& max, ImU32 col,
+                      float thickness, int layers, float rounding, bool border, float strength)
+    {
+        const ImU32 rgb = col & ~IM_COL32_A_MASK;
+        auto Alpha = [&](int base) {
+            return static_cast<ImU32>(std::clamp(base * strength, 0.0f, 255.0f)) << IM_COL32_A_SHIFT;
+        };
+        auto Ring = [&](float pad, ImU32 c) {
+            const ImVec2 a(SnapPx(min.x - pad), SnapPx(min.y - pad)), b(SnapPx(max.x + pad), SnapPx(max.y + pad));
+            if (rounding > 0.0f)
+                dl->AddRect(a, b, c, SnapPx(rounding + pad), SnapWidth(thickness), ImDrawFlags_StrokeCenterBiased);
+            else
+                DrawCrispRect(dl, a, b, c, thickness);
+        };
+        for (int i = layers; i >= 1; --i)
+            Ring(SnapPx(i * 2.5f), rgb | Alpha(25 + (layers - i) * 30));
+        if (border)
+            Ring(0.0f, rgb | Alpha(200));
+    }
+
+    void DrawRuleH(ImDrawList* dl, float x0, float x1, float y, ImU32 col, float thickness)
+    {
+        dl->AddLineH(SnapPx(x0), SnapPx(x1), SnapPx(y), col, SnapWidth(thickness));
+    }
+
+    void DrawRuleV(ImDrawList* dl, float x, float y0, float y1, ImU32 col, float thickness)
+    {
+        dl->AddLineV(SnapPx(x), SnapPx(y0), SnapPx(y1), col, SnapWidth(thickness));
+    }
+
+    void DrawFadeRule(ImDrawList* dl, float x0, float x1, float y, ImU32 col, RuleFade fade, float thickness)
+    {
+        const float l = SnapPx(x0), r = SnapPx(x1), t = SnapPx(y), b = t + SnapWidth(thickness);
+        if (r <= l) return;
+        const ImU32 clear = col & ~IM_COL32_A_MASK;
+        if (fade == RuleFade::Right) {
+            dl->AddRectFilledMultiColor(ImVec2(l, t), ImVec2(r, b), col, clear, clear, col);
+            return;
+        }
+        const float m = SnapPx((l + r) * 0.5f);
+        dl->AddRectFilledMultiColor(ImVec2(l, t), ImVec2(m, b), clear, col, col, clear);
+        dl->AddRectFilledMultiColor(ImVec2(m, t), ImVec2(r, b), col, clear, clear, col);
+    }
+
+    void DrawGlowDisc(ImDrawList* dl, const ImVec2& center, float radius, ImU32 ringCol,
+                      const GlowDiscStyle& style)
+    {
+        const ImU32 rgb = ringCol & ~IM_COL32_A_MASK;
+        for (int k = 0; k < style.layers; ++k) {
+            const float grow = style.glowStep * static_cast<float>(style.layers - k);
+            const ImU32 a    = static_cast<ImU32>(20 + 15 * k) << IM_COL32_A_SHIFT;
+            dl->AddCircleFilled(center, radius + grow, rgb | a, 0);
+        }
+        dl->AddCircleFilled(center, radius, style.fillCol, 0);
+        dl->AddCircle(center, radius, ringCol, 0, style.ringThickness, ImDrawFlags_StrokeCenterBiased);
     }
 
 }

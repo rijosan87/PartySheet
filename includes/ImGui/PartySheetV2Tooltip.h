@@ -85,7 +85,7 @@ namespace PartySheetV2::Tip {
         const float subH = Measure(fSmall, "A").y;
         tdl->AddText(font, baseSz * fSmall, p, kAccent, title.c_str());
         float ruleY = p.y + subH + 4.0f * sc;
-        tdl->AddLine(ImVec2(p.x, ruleY), ImVec2(p.x + rowW, ruleY), IM_COL32(212, 175, 55, 70), 1.0f);
+        HUDDraw::DrawRuleH(tdl, p.x, p.x + rowW, ruleY, IM_COL32(212, 175, 55, 70));
         ImGui::Dummy(ImVec2(rowW, subH + 10.0f * sc));
 
         if (rows.empty()) {

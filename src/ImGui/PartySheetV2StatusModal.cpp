@@ -106,10 +106,7 @@ namespace PartySheetV2 {
         dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), hp, kAccent, headerText);
         float lineH = ImGui::GetTextLineHeight();
         float ulY = hp.y + lineH + 2.0f * sc;
-        dl->AddRectFilledMultiColor(
-            ImVec2(hp.x, ulY),
-            ImVec2(hp.x + bodyW * 0.5f, ulY + 1.0f),
-            kAccent, IM_COL32(212,175,55,0), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0));
+        HUDDraw::DrawFadeRule(dl, hp.x, hp.x + bodyW * 0.5f, ulY, kAccent, HUDDraw::RuleFade::Right);
         ImGui::Dummy(ImVec2(bodyW, lineH + 8.0f * sc));
         ImGui::SetWindowFontScale(1.0f);
 
@@ -266,10 +263,7 @@ namespace PartySheetV2 {
         }
 
         float sepY = wp.y + 38.0f * sc;
-        dl->AddRectFilledMultiColor(
-            ImVec2(wp.x + 16.0f * sc, sepY),
-            ImVec2(wp.x + ws.x * 0.7f, sepY + 1.0f),
-            kAccent, IM_COL32(212,175,55,0), IM_COL32(0,0,0,0), IM_COL32(0,0,0,0));
+        HUDDraw::DrawFadeRule(dl, wp.x + 16.0f * sc, wp.x + ws.x * 0.7f, sepY, kAccent, HUDDraw::RuleFade::Right);
 
         ImGui::Dummy(ImVec2(ws.x - 32.0f * sc, 42.0f * sc));
 

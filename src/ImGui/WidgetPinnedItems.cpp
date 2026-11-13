@@ -340,7 +340,7 @@ namespace WidgetPinnedItems {
                 const int   a     = static_cast<int>(aF * 200.0f);
                 const float rad   = iconSz * (0.035f + 0.025f * ((i % 3) * 0.5f));
                 const ImVec2 p    = ImVec2(laneX + wob, y);
-                dl->AddCircleFilled(p, rad, IM_COL32(r8, g8, b8, a), 12);
+                dl->AddCircleFilled(p, rad, IM_COL32(r8, g8, b8, a), 0);
                 dl->AddCircleFilled(ImVec2(p.x - rad * 0.3f, p.y - rad * 0.3f),
                                     rad * 0.35f, IM_COL32(255, 255, 255, a * 3 / 4), 8);
             }
