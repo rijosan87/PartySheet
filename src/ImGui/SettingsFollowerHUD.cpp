@@ -7,6 +7,7 @@
 #include "../../includes/QuickHeal.h"
 #include "../../includes/InputHandler.h"
 #include "../../includes/Utils/ColorUtils.h"
+#include "../../includes/Utils/SettingsWidgets.h"
 #include <imgui.h>
 #include <vector>
 #include <string>
@@ -55,18 +56,11 @@ namespace ImGuiRenderer::SettingsUI {
                 selectedPreset = 0;
             }
             ImGui::TextDisabled("Preset Styles");
-            const char* presetNames[] = {
-                FollowerHUDPresets::kPresets[0].name,
-                FollowerHUDPresets::kPresets[1].name,
-                FollowerHUDPresets::kPresets[2].name,
-                "4- Minimal (Halo)",
-                FollowerHUDPresets::kPresets[4].name
-            };
-            if (ImGui::Combo("##FollowerHudPresets", &selectedPreset, presetNames, static_cast<int>(FollowerHUDPresets::kPresets.size()))) {
+            const char* presetNames[] = { "Default", "Inline", "Stacked", "Halo", "Ribbon Fill" };
+            static_assert(std::size(presetNames) == FollowerHUDPresets::kPresets.size());
+            if (SettingsWidgets::SegmentedPicker("##FollowerHudPresets", &selectedPreset, presetNames,
+                                                 static_cast<int>(std::size(presetNames)))) {
                 FollowerHUDPresets::ApplyPreset(*settings, static_cast<std::size_t>(selectedPreset));
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
             }
             ImGui::Spacing();
             ImGui::Separator();
@@ -75,11 +69,9 @@ namespace ImGuiRenderer::SettingsUI {
             if (ImGui::CollapsingHeader("Behavior")) {
                 ImGui::Indent(20);
 
-                ImGui::TextDisabled("Mode");
-
                 const char* hudModes[] = { "Always", "Combat Only" };
                 int modeIndex = (settings->followerHudMode > 0 && settings->followerHudMode <= 2) ? settings->followerHudMode - 1 : 0;
-                if (ImGui::Combo("HUD Mode", &modeIndex, hudModes, 2))
+                if (SettingsWidgets::SegmentedPicker("HUD Mode", &modeIndex, hudModes, 2))
                     settings->followerHudMode = modeIndex + 1;
 
                 if (settings->followerHudMode == 2) {
@@ -159,9 +151,8 @@ namespace ImGuiRenderer::SettingsUI {
 
             if (ImGui::CollapsingHeader("Layout")) {
                 ImGui::Indent(20);
-                ImGui::TextDisabled("Orientation");
                 const char* layouts[] = { "Vertical", "Horizontal" };
-                if (ImGui::Combo("Orientation##hudLayout", &settings->hudLayout, layouts, 2))
+                if (SettingsWidgets::SegmentedPicker("Orientation##hudLayout", &settings->hudLayout, layouts, 2))
                     FollowerHUD::ForceReposition();
 
                 ImGui::SliderInt("Wrap After##hudWrap", &settings->maxPerColumnOrRow, 1, 30);
@@ -242,9 +233,7 @@ namespace ImGuiRenderer::SettingsUI {
                     settings->nameColor = ColorUtils::Vec4ToRgb(nameCol);
                 }
 
-                ImGui::Combo("Alignment##NameAlign", &settings->textAlignment, alignments, 3);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Name Alignment");
+                SettingsWidgets::SegmentedPicker("Alignment##NameAlign", &settings->textAlignment, alignments, 3);
 
                 ImGui::Spacing();
                 ImGui::Separator();
@@ -403,20 +392,7 @@ namespace ImGuiRenderer::SettingsUI {
 
             if (ImGui::CollapsingHeader("Bars")) {
                 ImGui::Indent(20);
-                const char* rightEndStyles[] = {
-                    "Right End - Normal",
-                    "Right End - Slant Forward",
-                    "Right End - Slant Backward",
-                    "Right End - Arrow",
-                    "Right End - Diamond"
-                };
-                const char* leftEndStyles[] = {
-                    "Left End - Normal",
-                    "Left End - Slant Forward",
-                    "Left End - Slant Backward",
-                    "Left End - Arrow",
-                    "Left End - Diamond"
-                };
+                const char* endStyles[] = { "Normal", "Slant Forward", "Slant Backward", "Arrow", "Diamond" };
                 const char* visualStyles[] = { "Flat", "Gradient", "Glass", "Segmented", "None" };
 
                 float barScale = settings->barTextFontScale;
@@ -548,10 +524,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::Text("Build Your Own Bar");
                     ImGui::Spacing();
 
-                    ImGui::TextDisabled("Fill");
-                    ImGui::Combo("Style##fhVisualStyle", &settings->barVisualStyle, visualStyles, 5);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Flat: Solid color\nGradient: Left-to-right fade\nGlass: adds a top sheen\nSegmented: divider lines by stat points\nNone: Text and borders only\nAll styles support end shapes and the depth passes");
+                    SettingsWidgets::SegmentedPicker("Fill Style##fhVisualStyle", &settings->barVisualStyle, visualStyles, 5);
                     if (settings->barVisualStyle == 3) {
                         ImGui::SliderInt("Points per Segment##hudBarSegPts", &settings->hudBarSegmentPoints, 25, 500);
                         if (ImGui::IsItemHovered())
@@ -580,14 +553,8 @@ namespace ImGuiRenderer::SettingsUI {
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Hot bright strip right at the fill edge");
 
-                    ImGui::Spacing();
-                    ImGui::TextDisabled("Shape");
-                    ImGui::Combo("Right End##Bars", &settings->barEndStyle, rightEndStyles, 5);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Shape of right bar ending:\nNormal: Standard rectangle\nSlant Forward/Back: Diagonal cut\nArrow: Pointed chevron\nDiamond: Diamond point");
-                    ImGui::Combo("Left End##Bars", &settings->barEndStyleLeft, leftEndStyles, 5);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Shape of left bar ending:\nNormal: Standard rectangle\nSlant Forward/Back: Diagonal cut\nArrow: Pointed chevron\nDiamond: Diamond point");
+                    SettingsWidgets::SegmentedPicker("Right End##Bars", &settings->barEndStyle, endStyles, 5);
+                    SettingsWidgets::SegmentedPicker("Left End##Bars", &settings->barEndStyleLeft, endStyles, 5);
 
                     ImGui::Spacing();
                     ImGui::TextDisabled("Motion");
@@ -626,19 +593,18 @@ namespace ImGuiRenderer::SettingsUI {
                         settings->barInnerBorderOpacity = static_cast<float>(innerOpacity) / 100.0f;
                 }
 
+                if (settings->hudHaloEnable) {
+
                 ImGui::Spacing();
                 ImGui::Separator();
                 ImGui::Spacing();
                 ImGui::Text("Halo");
-                if (settings->hudHaloEnable) {
-                    ImGui::Indent(20);
                     ImGui::TextDisabled("Follows the Show Health/Magicka/Stamina toggles and bar colors above");
                     ImGui::SliderInt("Health Share##hudHaloHealthShare", &settings->hudHaloHealthShare, 50, 90, "%d%%");
                     ImGui::SliderInt("Thickness##hudHaloThickness", &settings->hudHaloThickness, 0, 12,
                                      settings->hudHaloThickness == 0 ? "Auto" : "%d px");
                     ImGui::SliderInt("Segment Gap##hudHaloGap", &settings->hudHaloGap, 0, 10, "%d deg");
                     ImGui::SliderInt("Ring Offset##hudHaloOffset", &settings->hudHaloOffset, 0, 12, "%d px");
-                    ImGui::Unindent(20);
                 }
                 ImGui::Unindent(20);
             }
@@ -699,27 +665,24 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::SliderInt("Portrait Size", &settings->portraitSize, 48, 256);
 
                     const char* alignments[] = { "Left", "Top (Card Style)" };
-                    ImGui::Combo("Alignment", &settings->portraitAlignment, alignments, 2);
+                    SettingsWidgets::SegmentedPicker("Alignment##PortraitAlign", &settings->portraitAlignment, alignments, 2);
 
                     if (settings->portraitAlignment == 0) {
                         ImGui::SliderInt("Right Margin", &settings->portraitSpacing, 0, 24);
 
                         const char* vAligns[] = { "Top", "Center", "Bottom" };
-                        ImGui::Combo("Content V-Align", &settings->contentVAlign, vAligns, 3);
+                        SettingsWidgets::SegmentedPicker("Content V-Align", &settings->contentVAlign, vAligns, 3);
                     }
 
                     if (settings->portraitAlignment == 1) {
                         const char* hAligns[] = { "Left", "Center", "Right" };
-                        ImGui::Combo("Horizontal Align", &settings->portraitHAlign, hAligns, 3);
+                        SettingsWidgets::SegmentedPicker("Horizontal Align", &settings->portraitHAlign, hAligns, 3);
                         ImGui::SliderInt("Bottom Margin", &settings->portraitBottomMargin, 0, 24);
                     }
 
                     const char* shapeOptions[] = { "Square", "Rounded", "Circle", "Diamond" };
                     ImGui::BeginDisabled(settings->hudPortraitFillsRibbon);
-                    ImGui::Combo("Shape##Portrait", &settings->portraitShape, shapeOptions, 4);
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Square: Uses Corner Radius\nRounded: Auto-rounded corners\nCircle: Fully circular\nDiamond: Rotated square");
-                    }
+                    SettingsWidgets::SegmentedPicker("Shape##Portrait", &settings->portraitShape, shapeOptions, 4);
 
                     if (settings->portraitShape == 0) {
                         ImGui::SliderFloat("Corner Radius", &settings->portraitCornerRadius, 0.0f, 48.0f, "%.0f");
@@ -824,7 +787,7 @@ namespace ImGuiRenderer::SettingsUI {
                             case 2: displayIndex = 3; break;
                             default: displayIndex = 0; break;
                         }
-                        if (ImGui::Combo("Icon Placement", &displayIndex, placementModes, 4)) {
+                        if (SettingsWidgets::SegmentedPicker("Icon Placement", &displayIndex, placementModes, 4)) {
                             switch (displayIndex) {
                                 case 0: settings->effectIconPlacement = 0; break;
                                 case 1: settings->effectIconPlacement = 1; break;
@@ -832,35 +795,27 @@ namespace ImGuiRenderer::SettingsUI {
                                 case 3: settings->effectIconPlacement = 2; break;
                             }
                         }
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("Right: Icons to the right of ribbon\nBottom: Icons below ribbon (horizontal only)\nTop: Icons above ribbon (horizontal only)\nOverlay: Icons on portrait");
-                        }
                     } else {
                         if (settings->effectIconPlacement == 1 || settings->effectIconPlacement == 3) {
                             settings->effectIconPlacement = 0;
                         }
                         const char* placementModes[] = { "Right", "Overlay" };
                         int adjustedPlacement = (settings->effectIconPlacement == 2) ? 1 : 0;
-                        if (ImGui::Combo("Icon Placement", &adjustedPlacement, placementModes, 2)) {
+                        if (SettingsWidgets::SegmentedPicker("Icon Placement", &adjustedPlacement, placementModes, 2)) {
                             settings->effectIconPlacement = (adjustedPlacement == 1) ? 2 : 0;
-                        }
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("Right: Icons to the right of ribbon\nOverlay: Icons on portrait\n(Bottom/Top only in horizontal layout)");
                         }
                     }
 
                     if (settings->effectIconPlacement == 2) {
                         const char* anchors[] = { "Left", "Right" };
-                        ImGui::Combo("Overlay Anchor", &settings->overlayAnchor, anchors, 2);
+                        SettingsWidgets::SegmentedPicker("Overlay Anchor", &settings->overlayAnchor, anchors, 2);
                         ImGui::SliderInt("Offset X", &settings->overlayOffsetX, -100, 100);
                         ImGui::SliderInt("Offset Y", &settings->overlayOffsetY, -100, 100);
                     }
 
                     if (settings->showEffectTimer) {
                         const char* timerStyles[] = { "Round", "Vertical", "Background Fill" };
-                        ImGui::SetNextItemWidth(140.0f);
-                        ImGui::Combo("Timer Style", &settings->effectTimerStyle, timerStyles, 3);
-                        ImGui::SameLine();
+                        SettingsWidgets::SegmentedPicker("Timer Style", &settings->effectTimerStyle, timerStyles, 3);
                         ImGui::SetNextItemWidth(80.0f);
                         ImGui::SliderInt("Timer Border", &settings->effectTimerBorderWidth, 1, 6);
 
