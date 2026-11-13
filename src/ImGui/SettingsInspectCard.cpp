@@ -134,21 +134,21 @@ namespace ImGuiRenderer::SettingsUI {
             {
                 int v = static_cast<int>(settings->inspectCardFontScale * 100);
                 ImGui::SetNextItemWidth(-FLT_MIN);
-                if (ImGui::SliderInt("##ICNameScale", &v, 50, 150, "Name Scale %d%%"))
+                if (ImGui::SliderInt("##ICNameScale", &v, 50, 200, "Name Scale %d%%"))
                     settings->inspectCardFontScale = static_cast<float>(v) / 100.0f;
             }
             {
                 int v = static_cast<int>(settings->icBodyFontScale * 100);
                 ImGui::SetNextItemWidth(-FLT_MIN);
-                if (ImGui::SliderInt("##ICBodyScale", &v, 50, 150, "Body Scale %d%%"))
+                if (ImGui::SliderInt("##ICBodyScale", &v, 50, 200, "Body Scale %d%%"))
                     settings->icBodyFontScale = static_cast<float>(v) / 100.0f;
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Body text: level/race, relationship, bar text, armor rating, resistances");
             }
             ImGui::SetNextItemWidth(-FLT_MIN);
-            ImGui::SliderInt("##ICStatIconSize", &settings->inspectCardIconSize, 12, 32, "Stat Icon %dpx");
+            ImGui::SliderInt("##ICStatIconSize", &settings->inspectCardIconSize, 12, 64, "Stat Icon %dpx");
             ImGui::SetNextItemWidth(-FLT_MIN);
-            ImGui::SliderInt("##ICResistIconSize", &settings->inspectCardResistIconSize, 12, 32, "Resist Icon %dpx");
+            ImGui::SliderInt("##ICResistIconSize", &settings->inspectCardResistIconSize, 12, 64, "Resist Icon %dpx");
 
             ImGui::EndTable();
         }

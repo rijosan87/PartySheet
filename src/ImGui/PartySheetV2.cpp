@@ -527,8 +527,6 @@ namespace PartySheetV2 {
 
         float rowY = origin.y;
 
-        ImFont* headingFont = ImGuiRenderer::GetHeadingFont();
-
         const char* name = actor->GetDisplayFullName();
         static std::string s_unknownName;
         if (s_unknownName.empty()) s_unknownName = LocalizationManager::Get("Common.Unknown");
@@ -537,13 +535,13 @@ namespace PartySheetV2 {
         snprintf(nameBuf, sizeof(nameBuf), "%s", name);
         for (char* p = nameBuf; *p; ++p) *p = static_cast<char>(toupper(*p));
 
-        if (headingFont) ImGui::PushFont(headingFont);
+        ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
         ImGui::SetWindowFontScale(FontDisplay());
         ImVec2 nameSz = ImGui::CalcTextSize(nameBuf);
         dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
             ImVec2(origin.x, rowY), kTheme.textMain, nameBuf);
         ImGui::SetWindowFontScale(1.0f);
-        if (headingFont) ImGui::PopFont();
+        ImGui::PopFont();
 
         float lineB_Y = rowY + nameSz.y + 4.0f * sc;
         float penX    = origin.x;
@@ -568,7 +566,7 @@ namespace PartySheetV2 {
             std::string levelWord = Upper(LocalizationManager::Get("Common.Level") + " " + std::to_string(actor->GetLevel()));
             const std::string sep = "  |  ";
 
-            if (headingFont) ImGui::PushFont(headingFont);
+            ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
             ImGui::SetWindowFontScale(FontHeading());
             const bool modalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
             const float lineH = ImGui::GetTextLineHeight();
@@ -658,7 +656,7 @@ namespace PartySheetV2 {
             if (blessed) blessHover = DrawWord(blessWord, kTheme.textMuted, true, s_TexBlessIco);
             penX += 16.0f * sc;
             ImGui::SetWindowFontScale(1.0f);
-            if (headingFont) ImGui::PopFont();
+            ImGui::PopFont();
 
             if (levelHover) {
                 Tip::TipRow r;
@@ -855,11 +853,11 @@ namespace PartySheetV2 {
             ImGui::SetWindowFontScale(1.0f);
         }
 
-        if (headingFont) ImGui::PushFont(headingFont);
+        ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
         ImGui::SetWindowFontScale(FontHeading());
         float lineBH = ImGui::GetTextLineHeight();
         ImGui::SetWindowFontScale(1.0f);
-        if (headingFont) ImGui::PopFont();
+        ImGui::PopFont();
         const float sepY = lineB_Y + lineBH + 10.0f * sc;
         HUDDraw::DrawFadeRule(dl, origin.x, origin.x + size.x, sepY, IM_COL32(212,175,55,100));
 
@@ -1038,8 +1036,7 @@ namespace PartySheetV2 {
         ImDrawList* dl  = ImGui::GetWindowDrawList();
         ImVec2 origin   = ImGui::GetCursorScreenPos();
 
-        ImFont* headingFont = ImGuiRenderer::GetHeadingFont();
-        if (headingFont) ImGui::PushFont(headingFont);
+        ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
         ImGui::SetWindowFontScale(FontHeading());
         std::string skillsTitle = LocalizationManager::Get("Skills.SectionTitle");
         for (char& c : skillsTitle) c = static_cast<char>(toupper(c));
@@ -1048,7 +1045,7 @@ namespace PartySheetV2 {
         AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(),
             ImVec2(origin.x, origin.y), kTheme.accent, titleText);
         ImGui::SetWindowFontScale(1.0f);
-        if (headingFont) ImGui::PopFont();
+        ImGui::PopFont();
 
         const float sepY  = origin.y + titleSz.y + 4.0f * sc;
         const float lineW = size.x;
@@ -1308,13 +1305,13 @@ namespace PartySheetV2 {
         };
 
         auto DrawSubTitle = [&](float ox, float y, const char* title) -> float {
-            if (headingFont) ImGui::PushFont(headingFont);
+            ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
             ImGui::SetWindowFontScale(FontHeading());
             ImVec2 titleSz = ImGui::CalcTextSize(title);
             AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(),
                 ImVec2(ox, y), kTheme.accent, title);
             ImGui::SetWindowFontScale(1.0f);
-            if (headingFont) ImGui::PopFont();
+            ImGui::PopFont();
 
             float sepY = y + titleSz.y + 4.0f * sc;
             HUDDraw::DrawFadeRule(dl, ox, ox + dcColW, sepY, IM_COL32(212,175,55,100));
@@ -2132,14 +2129,13 @@ namespace PartySheetV2 {
         };
 
         auto DrawSectionTitle = [&](float y, const char* title) -> float {
-            ImFont* hf = ImGuiRenderer::GetHeadingFont();
-            if (hf) ImGui::PushFont(hf);
+            ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
             ImGui::SetWindowFontScale(FontHeading());
             ImVec2 tSz = ImGui::CalcTextSize(title);
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                 ImVec2(origin.x, y), kTheme.accent, title);
             ImGui::SetWindowFontScale(1.0f);
-            if (hf) ImGui::PopFont();
+            ImGui::PopFont();
             float sepY = y + tSz.y + 3.0f * sc;
             HUDDraw::DrawFadeRule(dl, origin.x, origin.x + size.x, sepY, IM_COL32(212,175,55,100));
             return sepY + 1.0f + 6.0f * sc;

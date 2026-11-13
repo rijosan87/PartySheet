@@ -238,11 +238,10 @@ namespace InspectCard {
         std::uint16_t level = g_TargetActor->GetLevel();
         
         ImVec4 nameCol = hexToImVec4(settings->inspectCardNameColor);
-        ImFont* headingFont = ImGuiRenderer::GetHeadingFont();
         ImGui::SetWindowFontScale(settings->inspectCardFontScale * scale);
-        if (headingFont) ImGui::PushFont(headingFont);
+        ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
         ImGui::TextColored(nameCol, "%s", name);
-        if (headingFont) ImGui::PopFont();
+        ImGui::PopFont();
         ImGui::SetWindowFontScale(scale * settings->icBodyFontScale);
 
         if (auto race = g_TargetActor->GetRace()) {

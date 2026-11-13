@@ -225,7 +225,7 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Checkbox("Uppercase##Name", &settings->nameUppercase);
 
                 ImGui::SetNextItemWidth(-40.0f);
-                if (ImGui::SliderInt("##NameFont", &nameScale, 50, 150, "Name %d%%")) {
+                if (ImGui::SliderInt("##NameFont", &nameScale, 50, 200, "Name %d%%")) {
                     settings->nameFontScale = static_cast<float>(nameScale) / 100.0f;
                 }
                 ImGui::SameLine();
@@ -344,7 +344,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::Checkbox("Show Border##LevelBadgeBorder", &settings->hudLevelBadgeShowBorder);
 
                     int badgeScale = static_cast<int>(settings->hudBadgeFontScale * 100);
-                    if (ImGui::SliderInt("Font##LevelBadge", &badgeScale, 50, 150, "%d%%"))
+                    if (ImGui::SliderInt("Font##LevelBadge", &badgeScale, 50, 200, "%d%%"))
                         settings->hudBadgeFontScale = static_cast<float>(badgeScale) / 100.0f;
 
                     ImGui::SliderInt("Offset X##LevelBadgeOX", &settings->hudLevelBadgeOffsetX, -50, 50, "%dpx");
@@ -500,7 +500,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TableSetColumnIndex(1);
 
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderFloat("Bar Text Scale##Bars", &barScale, 0.5f, 1.5f, "Bar Text Scale %.2f"))
+                    if (ImGui::SliderFloat("Bar Text Scale##Bars", &barScale, 0.5f, 2.0f, "Bar Text Scale %.2f"))
                         settings->barTextFontScale = barScale;
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("Bar Width##Bars", &settings->hudBarWidth, 50, 300, "Bar Width %d px");
@@ -761,7 +761,7 @@ namespace ImGuiRenderer::SettingsUI {
                     if (settings->maxEffectsShown < 1) settings->maxEffectsShown = 1;
                     if (settings->maxEffectsShown > 16) settings->maxEffectsShown = 16;
 
-                    ImGui::SliderInt("Icon Size", &settings->effectIconSize, 24, 64);
+                    ImGui::SliderInt("Icon Size", &settings->effectIconSize, 24, 128);
                     ImGui::SliderInt("Icon Spacing", &settings->effectIconSpacing, 0, 20);
                     ImGui::SliderInt("Icon Vert Spacing", &settings->effectIconVertSpacing, -10, 20);
                     ImGui::SliderInt("Max Per Column", &settings->maxEffectIconsPerColumn, 1, 10);

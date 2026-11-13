@@ -422,8 +422,7 @@ namespace PlayerHUD {
 
                 char lvlBuf[16];
                 snprintf(lvlBuf, sizeof(lvlBuf), "%d", static_cast<int>(player->GetLevel()));
-                ImFont* font = ImGuiRenderer::GetHeadingFont();
-                if (!font) font = ImGui::GetFont();
+                ImFont* font = ImGui::GetFont();
                 float emblemFontSize = portSz * 0.45f;
                 ImVec2 ts = font->CalcTextSizeA(emblemFontSize, FLT_MAX, 0.0f, lvlBuf);
                 ImVec2 numPos((fillMin.x + fillMax.x) * 0.5f - ts.x * 0.5f,
@@ -693,9 +692,8 @@ namespace PlayerHUD {
             if (settings->phShowName) {
                 const char* name = player->GetName();
                 if (name && name[0]) {
-                    ImFont* font = ImGuiRenderer::GetHeadingFont();
-                    if (!font) font = ImGui::GetFont();
-                    float sz = font->LegacySize * settings->phNameFontScale;
+                    ImFont* font = ImGui::GetFont();
+                    float sz = ImGuiRenderer::GetHeadingFontSize() * settings->phNameFontScale;
                     rightColH += font->CalcTextSizeA(sz, FLT_MAX, 0.0f, name).y + barSpacing;
                 }
             }
@@ -711,9 +709,8 @@ namespace PlayerHUD {
         if (settings->phShowName) {
             const char* name = player->GetName();
             if (name && name[0]) {
-                ImFont* font = ImGuiRenderer::GetHeadingFont();
-                if (!font) font = ImGui::GetFont();
-                float nameFontSize = font->LegacySize * settings->phNameFontScale;
+                ImFont* font = ImGui::GetFont();
+                float nameFontSize = ImGuiRenderer::GetHeadingFontSize() * settings->phNameFontScale;
                 ImVec2 nameSize = font->CalcTextSizeA(nameFontSize, FLT_MAX, 0.0f, name);
                 ImU32 nameCol = IM_COL32((settings->phNameColor >> 16) & 0xFF,
                                          (settings->phNameColor >> 8) & 0xFF,
@@ -1196,10 +1193,9 @@ namespace PlayerHUD {
                 const ImU32 xpCol = IM_COL32((settings->phBarTextColor >> 16) & 0xFF,
                                               (settings->phBarTextColor >>  8) & 0xFF,
                                                settings->phBarTextColor        & 0xFF, (int)(txtA * 0.7f));
-                ImFont*     hFont   = FontManager::GetSingleton()->GetHeadingFont();
+                ImFont*     hFont   = ImGui::GetFont();
                 ImFont*     bFont   = ImGui::GetFont();
-                if (!hFont) hFont = bFont;
-                const float lvlSz   = hFont->LegacySize * 0.8f;
+                const float lvlSz   = ImGuiRenderer::GetHeadingFontSize() * 0.8f;
                 const float xpSz   = bFont->LegacySize * 0.8f;
                 ImFontBaked* hBaked = hFont->GetFontBaked(lvlSz);
                 ImFontBaked* bBaked = bFont->GetFontBaked(xpSz);

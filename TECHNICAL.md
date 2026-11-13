@@ -196,26 +196,14 @@ FontSize=18
 
 ---
 
-### Built-in Language Support
+### How Glyphs Work (ImGui 1.93, since 3.9.1)
 
-The default font covers Latin, Polish, and Cyrillic glyphs well enough for the standard European translation set.
+Characters load on demand. Any character the loaded font file contains shows up the first time it is drawn, for every language. There are no glyph ranges to configure.
 
-### Glyph Suffixes
-
-These suffixes trigger special glyph ranges:
-
-| Suffix | Glyphs |
-|--------|--------|
-| `_zh` | Chinese |
-| `_ja` | Japanese |
-| `_ko` | Korean |
-| `_vi` | Vietnamese |
-| `_th` | Thai |
-| `_el` | Greek |
-
-> **Note:** These suffixes are the important ones for glyph coverage. Other languages can still use the normal translation pipeline and the default font.
-
-> **Tip:** `_en` is just another valid translation code. You can still pair it with a custom font if you want a non-default English look.
+- The font is picked by name: `fonts/<Language>.ttf`, exactly the `Language` value. The font and the translation file must share that name.
+- If that font is missing, the mod uses Segoe UI Semibold (`seguisb.ttf`), which covers Latin, Polish, Cyrillic and Greek but not Chinese, Japanese or Korean.
+- A character the font does not contain still shows as missing. Fix it with a font that has it, not a setting.
+- Names containing `_zh`, `_ja` or `_ko` count as CJK: slightly lighter font smoothing.
 
 ---
 
@@ -229,12 +217,6 @@ Ally=Ally
 
 > **Note:** Keep `%d` and `%s` placeholders intact.
 > **Note:** The translation file name should match the language code, e.g. `PartySheet_zh.txt`.
-
----
-
-### Extended Language Support
-
-Set `Language=PartySheet_vi`, `PartySheet_zh`, `PartySheet_ja`, `PartySheet_ko`, `PartySheet_th`, or `PartySheet_el` to get the matching glyph range automatically.
 
 ---
 

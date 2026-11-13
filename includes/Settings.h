@@ -106,7 +106,7 @@ public:
     bool          hudLevelBadgeShowBorder = true;    // inner + outer border on level badge
     std::int32_t  hudBadgeRadius        = 16;
     float         nameFontScale        = 0.55f;
-    float         hudBadgeFontScale    = 0.55f;
+    float         hudBadgeFontScale    = 0.75f;
     std::int32_t  hudLevelBadgeOffsetX = 0;
     std::int32_t  hudLevelBadgeOffsetY = 0;
     std::int32_t  textAlignment        = 0;
@@ -242,7 +242,7 @@ public:
     bool          hudArrowShowBorder   = true;    // border rings on arrow disc and distance pill
     std::uint32_t hudArrowBgColor      = 0xC07B1818; // ARGB pill / disc
     std::uint32_t hudArrowTint         = 0xFFFFFF;
-    float         hudDistanceFontScale = 0.5f;
+    float         hudDistanceFontScale = 0.75f;
     std::int32_t  hudArrowOffsetX      = -8;
     std::int32_t  hudArrowOffsetY      = 0;
     std::int32_t  hudDistanceOffsetX   = -22;

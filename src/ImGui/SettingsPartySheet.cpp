@@ -116,7 +116,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psV2FontHeading * 100);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSV2FontHeading", &v, 30, 150, "Heading %d%%"))
+                    if (ImGui::SliderInt("##PSV2FontHeading", &v, 30, 200, "Heading %d%%"))
                         settings->psV2FontHeading = static_cast<float>(v) / 100.0f;
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Section titles: SKILLS, DEFENSE, EQUIPPED, ARMOR");
@@ -125,7 +125,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psV2FontBody * 100);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSV2FontBody", &v, 50, 150, "Body %d%%"))
+                    if (ImGui::SliderInt("##PSV2FontBody", &v, 50, 200, "Body %d%%"))
                         settings->psV2FontBody = static_cast<float>(v) / 100.0f;
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Item names, stat labels, skill names");
@@ -133,7 +133,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psV2FontSmall * 100);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSV2FontSmall", &v, 30, 120, "Small %d%%"))
+                    if (ImGui::SliderInt("##PSV2FontSmall", &v, 30, 200, "Small %d%%"))
                         settings->psV2FontSmall = static_cast<float>(v) / 100.0f;
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Badges, slot labels, fine print");
@@ -445,13 +445,13 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->partySheetNameFontScale * 100);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSNameScale", &v, 50, 150, "Name %d%%"))
+                    if (ImGui::SliderInt("##PSNameScale", &v, 50, 200, "Name %d%%"))
                         settings->partySheetNameFontScale = static_cast<float>(v) / 100.0f;
                 }
                 {
                     int v = static_cast<int>(settings->psLabelFontScale * 100);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSLabelScale", &v, 50, 150, "Label %d%%"))
+                    if (ImGui::SliderInt("##PSLabelScale", &v, 50, 200, "Label %d%%"))
                         settings->psLabelFontScale = static_cast<float>(v) / 100.0f;
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Section headers: Armor/Damage/Move and vertical Equipment/Skills/Resistances text");
@@ -459,7 +459,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psBodyFontScale * 100);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSBodyScale", &v, 50, 150, "Body %d%%"))
+                    if (ImGui::SliderInt("##PSBodyScale", &v, 50, 200, "Body %d%%"))
                         settings->psBodyFontScale = static_cast<float>(v) / 100.0f;
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Body text: level/race, stat values, resistance %%, skill values");
@@ -467,7 +467,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psEquipTextScale * 100);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSEquipScale", &v, 50, 150, "Equip %d%%"))
+                    if (ImGui::SliderInt("##PSEquipScale", &v, 50, 200, "Equip %d%%"))
                         settings->psEquipTextScale = static_cast<float>(v) / 100.0f;
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Text scale for item names in equipment slots");
@@ -475,11 +475,11 @@ namespace ImGuiRenderer::SettingsUI {
 
                 ImGui::TableSetColumnIndex(2);
                 ImGui::SetNextItemWidth(-FLT_MIN);
-                ImGui::SliderInt("##PSIconSize", &settings->psStatIconSize, 16, 48, "Icon %dpx");
+                ImGui::SliderInt("##PSIconSize", &settings->psStatIconSize, 16, 96, "Icon %dpx");
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("All icons: equipment, stats, skills, resistances");
                 ImGui::SetNextItemWidth(-FLT_MIN);
-                ImGui::SliderInt("##PSIconBgSize", &settings->psStatIconBgSize, 24, 64, "Icon BG %dpx");
+                ImGui::SliderInt("##PSIconBgSize", &settings->psStatIconBgSize, 24, 128, "Icon BG %dpx");
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Background box behind icons");
 

@@ -181,7 +181,7 @@ namespace ImGuiRenderer::SettingsUI {
             ImGui::Separator();
             ImGui::Checkbox("Show Hotkey Badge##ptShowHotkeyBadge", &settings->ptShowHotkeyBadge);
             if (settings->ptShowHotkeyBadge) {
-                ImGui::SliderFloat("Badge Scale##ptHotkeyBadgeScale", &settings->ptHotkeyBadgeScale, 0.3f, 1.5f, "%.2f");
+                ImGui::SliderFloat("Badge Scale##ptHotkeyBadgeScale", &settings->ptHotkeyBadgeScale, 0.3f, 2.0f, "%.2f");
                 ImGui::SliderInt("Hotkey Badge X##ptHotkeyBadgeOffsetX", &settings->ptHotkeyBadgeOffsetX, -50, 100);
                 ImGui::SliderInt("Hotkey Badge Y##ptHotkeyBadgeOffsetY", &settings->ptHotkeyBadgeOffsetY, -20, 100);
                 {

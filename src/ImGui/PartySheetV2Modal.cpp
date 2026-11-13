@@ -97,16 +97,16 @@ namespace PartySheetV2 {
             reinterpret_cast<ImTextureID>(srv), 0xFFFFFFFF, IconFxDefault());
     }
 
-    static float DrawModalSectionTitle(ImDrawList* dl, ImFont* headFont,
+    static float DrawModalSectionTitle(ImDrawList* dl,
                                        float ox, float oy, float colW,
                                        const char* title, float sc) {
-        if (headFont) ImGui::PushFont(headFont);
+        ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
         ImGui::SetWindowFontScale(FontHeading());
         ImVec2 tsz = ImGui::CalcTextSize(title);
         dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
             ImVec2(ox, oy), kAccent, title);
         ImGui::SetWindowFontScale(1.0f);
-        if (headFont) ImGui::PopFont();
+        ImGui::PopFont();
 
         float sepY = oy + tsz.y + 3.0f * sc;
         HUDDraw::DrawFadeRule(dl, ox, ox + colW * 0.65f, sepY, kAccent, HUDDraw::RuleFade::Right);
@@ -452,7 +452,6 @@ namespace PartySheetV2 {
 
         ImDrawList* dl    = ImGui::GetWindowDrawList();
         ImVec2      wPos  = ImGui::GetWindowPos();
-        ImFont*     headFont = ImGuiRenderer::GetHeadingFont();
 
         float curY = wPos.y + 16.0f * sc;
         float curX = wPos.x + 20.0f * sc;
@@ -462,13 +461,13 @@ namespace PartySheetV2 {
         if (s_unknown.empty()) s_unknown = LocalizationManager::Get("Common.Unknown");
         if (!actorName || !actorName[0]) actorName = s_unknown.c_str();
 
-        if (headFont) ImGui::PushFont(headFont);
+        ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
         ImGui::SetWindowFontScale(FontDisplay());
         ImVec2 nameSz = ImGui::CalcTextSize(actorName);
         dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
             ImVec2(curX, curY), kAccent, actorName);
         ImGui::SetWindowFontScale(1.0f);
-        if (headFont) ImGui::PopFont();
+        ImGui::PopFont();
 
         const float btnSz  = 20.0f * sc;
         ImVec2 btnTL = ImVec2(wPos.x + modalW - btnSz - 12.0f * sc, wPos.y + 10.0f * sc);
@@ -573,7 +572,7 @@ namespace PartySheetV2 {
             }
             firstSection = false;
             ImVec2 hp = ImGui::GetCursorScreenPos();
-            float contentY = DrawModalSectionTitle(cdl, headFont, hp.x, hp.y, bodyW, title, sc);
+            float contentY = DrawModalSectionTitle(cdl, hp.x, hp.y, bodyW, title, sc);
             ImGui::SetWindowFontScale(FontHeading());
             float titleH = ImGui::GetTextLineHeight() + 10.0f * sc;
             ImGui::SetWindowFontScale(1.0f);

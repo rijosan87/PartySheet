@@ -211,13 +211,13 @@ namespace ImGuiRenderer::SettingsUI {
                     {
                         int nameScale = static_cast<int>(settings->csNameFontScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##CSNameScale", &nameScale, 50, 150, "Name %d%%"))
+                        if (ImGui::SliderInt("##CSNameScale", &nameScale, 50, 200, "Name %d%%"))
                             settings->csNameFontScale = static_cast<float>(nameScale) / 100.0f;
                     }
                     {
                         int barScale = static_cast<int>(settings->csBarTextScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##CSBarTextScale", &barScale, 50, 150, "Text %d%%"))
+                        if (ImGui::SliderInt("##CSBarTextScale", &barScale, 50, 200, "Text %d%%"))
                             settings->csBarTextScale = static_cast<float>(barScale) / 100.0f;
                     }
 
@@ -288,17 +288,17 @@ namespace ImGuiRenderer::SettingsUI {
                     {
                         int fontScale = static_cast<int>(settings->csSlotFontScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##SlotFontScaleCS", &fontScale, 50, 150, "Label Scale %d%%"))
+                        if (ImGui::SliderInt("##SlotFontScaleCS", &fontScale, 50, 200, "Label Scale %d%%"))
                             settings->csSlotFontScale = static_cast<float>(fontScale) / 100.0f;
                     }
                     {
                         int badgeScale = static_cast<int>(settings->csBadgeTextScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##BadgeTextScaleCS", &badgeScale, 50, 150, "Badge Scale %d%%"))
+                        if (ImGui::SliderInt("##BadgeTextScaleCS", &badgeScale, 50, 200, "Badge Scale %d%%"))
                             settings->csBadgeTextScale = static_cast<float>(badgeScale) / 100.0f;
                     }
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderFloat("##DiamondSizeCS", &settings->csDiamondSize, 36.0f, 72.0f, "Diamond Size %.0f px");
+                    ImGui::SliderFloat("##DiamondSizeCS", &settings->csDiamondSize, 36.0f, 144.0f, "Diamond Size %.0f px");
 
                     ImGui::EndTable();
                 }
@@ -368,13 +368,13 @@ namespace ImGuiRenderer::SettingsUI {
 
                     ImGui::TableSetColumnIndex(1);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##StatIconSizeCS", &settings->csStatIconSize, 16, 36, "Stat Icon %dpx");
+                    ImGui::SliderInt("##StatIconSizeCS", &settings->csStatIconSize, 16, 72, "Stat Icon %dpx");
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##ResistIconSizeCS", &settings->csResistIconSize, 16, 40, "Resist Icon %dpx");
+                    ImGui::SliderInt("##ResistIconSizeCS", &settings->csResistIconSize, 16, 80, "Resist Icon %dpx");
                     {
                         int fontScale = static_cast<int>(settings->csStatFontScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##StatFontScaleCS", &fontScale, 50, 150, "Font Scale %d%%"))
+                        if (ImGui::SliderInt("##StatFontScaleCS", &fontScale, 50, 200, "Font Scale %d%%"))
                             settings->csStatFontScale = static_cast<float>(fontScale) / 100.0f;
                     }
 
@@ -431,7 +431,7 @@ namespace ImGuiRenderer::SettingsUI {
                     {
                         int fontScale = static_cast<int>(settings->csSkillFontScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##SkillFontScaleCS", &fontScale, 50, 150, "Font Scale %d%%"))
+                        if (ImGui::SliderInt("##SkillFontScaleCS", &fontScale, 50, 200, "Font Scale %d%%"))
                             settings->csSkillFontScale = static_cast<float>(fontScale) / 100.0f;
                     }
 
@@ -484,7 +484,7 @@ namespace ImGuiRenderer::SettingsUI {
                     {
                         int fontScale = static_cast<int>(settings->csStatusFontScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##StatusFontScaleCS", &fontScale, 50, 150, "Font Scale %d%%"))
+                        if (ImGui::SliderInt("##StatusFontScaleCS", &fontScale, 50, 200, "Font Scale %d%%"))
                             settings->csStatusFontScale = static_cast<float>(fontScale) / 100.0f;
                     }
 

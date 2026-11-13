@@ -3,7 +3,6 @@
 // STATUS: Working
 // Handles custom font loading.
 
-
 #include <imgui.h>
 #include <string>
 #include <vector>
@@ -17,12 +16,11 @@ public:
     }
     void LoadFonts(ImGuiIO& io);
     ImFont* GetBaseFont() const { return baseFont; }
-    ImFont* GetHeadingFont() const { return headingFont; }
+    float GetHeadingSize() const;
 private:
     FontManager() = default;
     FontManager(const FontManager&) = delete;
     FontManager& operator=(const FontManager&) = delete;
     std::string GetFontPath(const std::string& language);
     ImFont* baseFont = nullptr;
-    ImFont* headingFont = nullptr;
 };

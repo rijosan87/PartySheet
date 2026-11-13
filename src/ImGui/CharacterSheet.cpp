@@ -1461,9 +1461,9 @@ void CharacterSheet::DrawUI()
             uint8_t rcG = (settings->csRaceColor >> 8)  & 0xFF;
             uint8_t rcB =  settings->csRaceColor        & 0xFF;
 
-            ImFont* headingFont = ImGuiRenderer::GetHeadingFont();
+            ImFont* headingFont = ImGui::GetFont();
             if (headingFont) {
-                drawList->AddText(headingFont, headingFont->LegacySize * s * settings->csNameFontScale,
+                drawList->AddText(headingFont, ImGuiRenderer::GetHeadingFontSize() * s * settings->csNameFontScale,
                                   ImVec2(col1X, row1Y - 6.0f * s),
                                   IM_COL32(ncR, ncG, ncB, 255),
                                   playerName ? playerName : LocalizationManager::Get("dragonborn").c_str());

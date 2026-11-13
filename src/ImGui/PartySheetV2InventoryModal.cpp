@@ -290,8 +290,7 @@ namespace PartySheetV2 {
         ImVec2 ws      = ImGui::GetWindowSize();
 
         {
-            ImFont* hf = ImGuiRenderer::GetHeadingFont();
-            if (hf) ImGui::PushFont(hf);
+            ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
             ImGui::SetWindowFontScale(0.85f);
             char title[128];
             snprintf(title, sizeof(title), "%s - Inventory",
@@ -299,7 +298,7 @@ namespace PartySheetV2 {
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                 ImVec2(wp.x + 16.0f * sc, wp.y + 12.0f * sc), kAccent, title);
             ImGui::SetWindowFontScale(1.0f);
-            if (hf) ImGui::PopFont();
+            ImGui::PopFont();
 
             ImGui::SetWindowFontScale(FontBody());
             float btnSz = 20.0f * sc;

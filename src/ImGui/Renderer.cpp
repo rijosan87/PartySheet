@@ -1358,9 +1358,9 @@ namespace ImGuiRenderer {
         g_MouseWheelDelta = 0.0f;
         return v;
     }
-    
-    ImFont* GetHeadingFont() {
-        return FontManager::GetSingleton()->GetHeadingFont();
+
+    float GetHeadingFontSize() {
+        return FontManager::GetSingleton()->GetHeadingSize();
     }
 
 }

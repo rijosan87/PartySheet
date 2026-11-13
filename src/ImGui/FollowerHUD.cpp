@@ -2169,8 +2169,7 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
             ImGui::Indent(ribbonPaddingLeft);
             
             ImGui::SetWindowFontScale(settings->nameFontScale);
-            ImFont* headingFont = ImGuiRenderer::GetHeadingFont();
-            if (headingFont) ImGui::PushFont(headingFont);
+            ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
             
             float drawPortraitSize = portraitSize;
             if (healthPercent < 0.25f && healthPercent > 0.0f && !isDowned) {
@@ -2397,8 +2396,8 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
                 
                 ImGui::Dummy(ImVec2(0, (float)barSpacing));
             }
-            
-            if (ImGuiRenderer::GetHeadingFont()) ImGui::PopFont();
+
+            ImGui::PopFont();
             
             ImGui::SetWindowFontScale(settings->barTextFontScale);
             

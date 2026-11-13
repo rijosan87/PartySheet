@@ -479,12 +479,8 @@ namespace WidgetPinnedItems {
                 ImGui::SetWindowFontScale(settings->ptLabelScale);
 
                 bool    kBadgeCountStyle = (settings->ptCountStyle >= 1);
-                ImFont* headingFont      = ImGuiRenderer::GetHeadingFont();
-                ImFont* countFont        = headingFont ? headingFont : ImGui::GetFont();
-                // Height of a count-font number (used for card sizing in badge mode; falls back to base font for CJK)
-                float badgeNumH = countFont
-                    ? (countFont->LegacySize * settings->ptCountScale + ScalePx(4.0f))
-                    : ImGui::GetTextLineHeightWithSpacing();
+                const float countPx   = ImGuiRenderer::GetHeadingFontSize() * settings->ptCountScale;
+                float       badgeNumH = countPx + ScalePx(4.0f);
 
                 // padY must be large enough that a badge overlapping the top of the icon isn't clipped
                 float padY = ScalePx(8.0f);
@@ -514,7 +510,7 @@ namespace WidgetPinnedItems {
                 ImVec4 iconBdrVec4 = ColorUtils::ArgbToVec4(settings->ptIconBorderColor);
                 ImU32  iconBdrCol  = ImGui::ColorConvertFloat4ToU32(iconBdrVec4);
                 const HUDDraw::BadgeStyle countBadgeStyle = MakeBadgeStyle(
-                    settings->ptBadgeBgColor, 0xFFFFFFFF, headingFont, settings->ptCountScale);
+                    settings->ptBadgeBgColor, 0xFFFFFFFF, nullptr, countPx / ImGui::GetFont()->LegacySize);
 
                 const std::string drinkingId = PotionAnimationBridge::ActiveEntryId();
 

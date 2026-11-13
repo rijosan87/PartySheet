@@ -20,7 +20,7 @@ namespace ImGuiRenderer {
 
     bool MsgHookFiredThisFrame();
 
-    ImFont* GetHeadingFont();
+    float GetHeadingFontSize();
 
     void RenderBackgroundPicker(const char* popupId, int& currentIndex, BackgroundManager::Type type);
 

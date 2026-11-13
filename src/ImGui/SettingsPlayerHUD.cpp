@@ -473,13 +473,13 @@ namespace ImGuiRenderer::SettingsUI {
                 if (settings->phShowRegenPip) {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     int regenFontScaleInt = static_cast<int>(settings->phRegenFontScale * 100);
-                    if (ImGui::SliderInt("##phRegenFontScale", &regenFontScaleInt, 50, 150, "Regen Font Scale %d%%"))
+                    if (ImGui::SliderInt("##phRegenFontScale", &regenFontScaleInt, 50, 200, "Regen Font Scale %d%%"))
                         settings->phRegenFontScale = static_cast<float>(regenFontScaleInt) / 100.0f;
                 }
                 if (settings->phShowFortify) {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     int fortifyFontScaleInt = static_cast<int>(settings->phFortifyFontScale * 100);
-                    if (ImGui::SliderInt("##phFortifyFontScale", &fortifyFontScaleInt, 50, 150, "Stat Bonus Font Scale %d%%"))
+                    if (ImGui::SliderInt("##phFortifyFontScale", &fortifyFontScaleInt, 50, 200, "Stat Bonus Font Scale %d%%"))
                         settings->phFortifyFontScale = static_cast<float>(fortifyFontScaleInt) / 100.0f;
                     ImGui::Checkbox("Fortify on Right##phFortifyRight", &settings->phFortifyRight);
                     if (ImGui::IsItemHovered())
@@ -495,7 +495,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     {
                         int barTextScaleInt = static_cast<int>(settings->phBarTextFontScale * 100);
-                        if (ImGui::SliderInt("##phBarTextScale", &barTextScaleInt, 50, 150, "Bar Text Font Scale %d%%"))
+                        if (ImGui::SliderInt("##phBarTextScale", &barTextScaleInt, 50, 200, "Bar Text Font Scale %d%%"))
                             settings->phBarTextFontScale = static_cast<float>(barTextScaleInt) / 100.0f;
                     }
                 }
@@ -720,7 +720,7 @@ namespace ImGuiRenderer::SettingsUI {
                             settings->phBadgeBorderColor = ColorUtils::Vec4ToArgb(c);
                     }
                     int badgeFontScaleInt = static_cast<int>(settings->phBadgeFontScale * 100);
-                    if (ImGui::SliderInt("Font Scale##phBadgeScale", &badgeFontScaleInt, 50, 150, "%d%%"))
+                    if (ImGui::SliderInt("Font Scale##phBadgeScale", &badgeFontScaleInt, 50, 200, "%d%%"))
                         settings->phBadgeFontScale = static_cast<float>(badgeFontScaleInt) / 100.0f;
                     ImGui::SliderFloat("Border Radius##phBadgeRadius", &settings->phBadgeRadius, -1.0f, 32.0f,
                         settings->phBadgeRadius < 0.0f ? "Auto" : "%.1f px");
@@ -749,7 +749,7 @@ namespace ImGuiRenderer::SettingsUI {
                     }
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     int nameScaleInt = static_cast<int>(settings->phNameFontScale * 100);
-                    if (ImGui::SliderInt("##phNameScale", &nameScaleInt, 50, 150, "Name Font Scale %d%%"))
+                    if (ImGui::SliderInt("##phNameScale", &nameScaleInt, 50, 200, "Name Font Scale %d%%"))
                         settings->phNameFontScale = static_cast<float>(nameScaleInt) / 100.0f;
                 }
             }
@@ -1037,7 +1037,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     {
                         float fs = settings->peBadgeFontScale;
-                        if (ImGui::SliderFloat("##peBadgeFontScale", &fs, 0.5f, 1.5f, "Badge Font Scale %.2f"))
+                        if (ImGui::SliderFloat("##peBadgeFontScale", &fs, 0.5f, 2.0f, "Badge Font Scale %.2f"))
                             settings->peBadgeFontScale = fs;
                     }
                     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -1058,7 +1058,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     {
                         float fs = settings->peNameFontScale;
-                        if (ImGui::SliderFloat("##peNameFontScale", &fs, 0.5f, 1.5f, "Name Font Scale %.2f"))
+                        if (ImGui::SliderFloat("##peNameFontScale", &fs, 0.5f, 2.0f, "Name Font Scale %.2f"))
                             settings->peNameFontScale = fs;
                     }
                     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -1218,7 +1218,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     {
                         float prFs = settings->prFontScale;
-                        if (ImGui::SliderFloat("##prFontScale", &prFs, 0.5f, 1.5f, "Font Scale %.2f"))
+                        if (ImGui::SliderFloat("##prFontScale", &prFs, 0.5f, 2.0f, "Font Scale %.2f"))
                             settings->prFontScale = prFs;
                     }
                     ImGui::Spacing();
@@ -1411,11 +1411,11 @@ namespace ImGuiRenderer::SettingsUI {
 
                     ImGui::TableSetColumnIndex(1);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##presIconSize", &settings->presIconSize, 0, 64, settings->presIconSize == 0 ? "Icon Size Auto" : "Icon Size %d");
+                    ImGui::SliderInt("##presIconSize", &settings->presIconSize, 0, 128, settings->presIconSize == 0 ? "Icon Size Auto" : "Icon Size %d");
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     {
                         float presFs = settings->presFontScale;
-                        if (ImGui::SliderFloat("##presFontScale", &presFs, 0.5f, 1.5f, "Font Scale %.2f"))
+                        if (ImGui::SliderFloat("##presFontScale", &presFs, 0.5f, 2.0f, "Font Scale %.2f"))
                             settings->presFontScale = presFs;
                     }
                     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -1734,13 +1734,13 @@ namespace ImGuiRenderer::SettingsUI {
                     {
                         int labelScaleInt = static_cast<int>(settings->phSurvivalLabelScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##phSurvLabelScale", &labelScaleInt, 40, 120, "Label Scale %d%%"))
+                        if (ImGui::SliderInt("##phSurvLabelScale", &labelScaleInt, 40, 200, "Label Scale %d%%"))
                             settings->phSurvivalLabelScale = static_cast<float>(labelScaleInt) / 100.0f;
                     }
                     {
                         int stageScaleInt = static_cast<int>(settings->phSurvivalStageScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##phSurvStageScale", &stageScaleInt, 40, 120, "Stage Scale %d%%"))
+                        if (ImGui::SliderInt("##phSurvStageScale", &stageScaleInt, 40, 200, "Stage Scale %d%%"))
                             settings->phSurvivalStageScale = static_cast<float>(stageScaleInt) / 100.0f;
                     }
                     if (settings->phSurvivalShowPercentage) {
@@ -1941,13 +1941,13 @@ namespace ImGuiRenderer::SettingsUI {
                     {
                         int s = static_cast<int>(settings->phDiseaseLabelScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##phDiseaseLabelScale", &s, 40, 120, "Name Scale %d%%"))
+                        if (ImGui::SliderInt("##phDiseaseLabelScale", &s, 40, 200, "Name Scale %d%%"))
                             settings->phDiseaseLabelScale = static_cast<float>(s) / 100.0f;
                     }
                     {
                         int s = static_cast<int>(settings->phDiseaseStageScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##phDiseaseStageScale", &s, 40, 120, "Text Scale %d%%"))
+                        if (ImGui::SliderInt("##phDiseaseStageScale", &s, 40, 200, "Text Scale %d%%"))
                             settings->phDiseaseStageScale = static_cast<float>(s) / 100.0f;
                     }
 

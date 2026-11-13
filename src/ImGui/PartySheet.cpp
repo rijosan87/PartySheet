@@ -667,10 +667,9 @@ namespace PartySheet {
                 float nb = (settings->partySheetNameColor & 0xFF) / 255.0f;
                 
                 ImGui::SetWindowFontScale(settings->partySheetNameFontScale);
-                ImFont* headingFont = ImGuiRenderer::GetHeadingFont();
-                if (headingFont) ImGui::PushFont(headingFont);
+                ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
                 TextTruncated(nameStr.c_str(), cardWidth - 90, ImVec4(nr, ng, nb, 1.0f));
-                if (headingFont) ImGui::PopFont();
+                ImGui::PopFont();
                 ImGui::SetWindowFontScale(1.0f);
 
                 ImGui::SetWindowFontScale(settings->psBodyFontScale);

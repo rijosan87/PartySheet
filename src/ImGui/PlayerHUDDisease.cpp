@@ -843,8 +843,7 @@ static void RenderWindow(bool allowDrag)
         const float pipsW = showPips ? HUDDraw::MeasurePipRow(priority.maxStage, pipStyle) : 0.0f;
         const float iconBandW = (std::max)(iconSize, pipsW) + pad * 2.0f;
         const float pipH = showPips ? pipR * 2.0f + ScalePx(8.0f) : 0.0f;
-        ImFont* countFont = ImGuiRenderer::GetHeadingFont();
-        if (!countFont) countFont = font;
+        ImFont* countFont = font;
         const float countFontSize = ScalePx(34.0f);
         // 14px floor: 0.65 of the severity size came out ~10px with the Grouped preset.
         const float countLabelSize = (std::max)(stageSize * 0.65f, ScalePx(14.0f));

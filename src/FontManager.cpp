@@ -19,24 +19,25 @@ void FontManager::LoadFonts(ImGuiIO& io) {
 
     fontConfig.FontLoaderFlags = ImGuiFreeTypeLoaderFlags_NoHinting;
     float baseFontSize = static_cast<float>(settings->fontSize);
-    float headingSize = static_cast<float>(settings->headingFontSize);
     baseFont = nullptr;
-    headingFont = nullptr;
     io.Fonts->Clear();
 
     io.Fonts->TexMinWidth = 2048;
     io.Fonts->TexMinHeight = 2048;
     if (!fontPath.empty()) {
         baseFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), baseFontSize, &fontConfig);
-        if (!isCJK && headingSize > baseFontSize) {
-            headingFont = io.Fonts->AddFontFromFileTTF(fontPath.c_str(), headingSize, &fontConfig);
-        }
     }
     if (baseFont) {
     } else {
         io.Fonts->AddFontDefault();
         baseFont = io.Fonts->Fonts[0];
     }
+
+}
+
+float FontManager::GetHeadingSize() const {
+    auto settings = Settings::GetSingleton();
+    return static_cast<float>((std::max)(settings->headingFontSize, settings->fontSize));
 }
 
 std::string FontManager::GetFontPath(const std::string& language) {

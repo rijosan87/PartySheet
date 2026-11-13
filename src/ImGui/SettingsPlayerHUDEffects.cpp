@@ -190,7 +190,7 @@ namespace ImGuiRenderer::SettingsUI {
                     if (settings->phShowEffectMagnitude) {
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         float magScale = settings->phEffectMagnitudeScale;
-                        if (ImGui::SliderFloat("##phEffMagScale", &magScale, 0.4f, 1.5f, "Magnitude Scale %.2f"))
+                        if (ImGui::SliderFloat("##phEffMagScale", &magScale, 0.4f, 2.0f, "Magnitude Scale %.2f"))
                             settings->phEffectMagnitudeScale = magScale;
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         ImGui::SliderInt("##phMagOffX", &settings->phEffectMagnitudeOffsetX, -80, 40, "Magnitude Offset X %d");
@@ -200,7 +200,7 @@ namespace ImGuiRenderer::SettingsUI {
                     if (settings->phShowEffectTimeText) {
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         float timeScale = settings->phEffectTimeTextScale;
-                        if (ImGui::SliderFloat("##phEffTimeScale", &timeScale, 0.4f, 1.5f, "Time Text Scale %.2f"))
+                        if (ImGui::SliderFloat("##phEffTimeScale", &timeScale, 0.4f, 2.0f, "Time Text Scale %.2f"))
                             settings->phEffectTimeTextScale = timeScale;
                     }
                 }
