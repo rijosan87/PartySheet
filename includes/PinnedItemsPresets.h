@@ -3,7 +3,6 @@
 // STATUS: Working
 // Presets for pinned quick-use items.
 
-
 #include "Settings.h"
 
 #include <array>
@@ -16,11 +15,43 @@ namespace PinnedItemsPresets
         const char* name;
     };
 
-    inline constexpr std::array<Preset, 3> kPresets{ {
-        { "1 - Round Row" },
-        { "2 - Row" },
-        { "3 - Compact" }
+    inline constexpr std::array<Preset, 4> kPresets{ {
+        { "Default" },
+        { "Round Row" },
+        { "Row" },
+        { "Compact" }
     } };
+
+    inline void ApplyDefault(Settings& s)
+    {
+        s.ptDirection        = 1;
+        s.ptCardStyle        = 0;
+        s.ptCountStyle       = 1;
+        s.ptIconSize         = 48;
+        s.ptIconBgColor      = 0x79000000;
+        s.ptIconBorderWidth  = 0;
+        s.ptIconBorderRadius = 30;
+        s.ptIconBorderColor  = 0x6BE0E0E0;
+        s.ptIconGlowEnabled  = false;
+        s.ptBadgeBgColor     = 0xCF1D1D1D;
+        s.ptBadgeOffsetX     = 42;
+        s.ptBadgeOffsetY     = 0;
+        s.ptLabelScale       = 0.9f;
+        s.ptCountScale       = 0.55f;
+        s.ptShowLabel        = false;
+        s.ptItemWidth        = 60;
+        s.ptRowSpacing       = -8;
+        s.ptPaddingBottom    = 8;
+        s.ptTextColor        = 0xFFFFFF;
+        s.ptGoalMetColor     = 0x33B333;
+        s.ptIconZoom         = 1.0f;
+        s.ptIconFocusU       = 0.5f;
+        s.ptIconFocusV       = 0.5f;
+        s.ptShowHotkeyBadge  = true;
+        s.ptHotkeyBadgeBgColor = 0x001D1D1D;
+        s.ptHotkeyBadgeOffsetX = 30;
+        s.ptHotkeyBadgeOffsetY = 60;
+    }
 
     inline void ApplyRoundRow(Settings& s)
     {
@@ -112,10 +143,11 @@ namespace PinnedItemsPresets
     inline void ApplyPreset(Settings& s, std::size_t index)
     {
         switch (index) {
-        case 0:  ApplyRoundRow(s);  break;
-        case 1:  ApplyRow(s);     break;
-        case 2:  ApplyCompact(s); break;
-        default: ApplyRow(s);     break;
+        case 0:  ApplyDefault(s);  break;
+        case 1:  ApplyRoundRow(s); break;
+        case 2:  ApplyRow(s);      break;
+        case 3:  ApplyCompact(s);  break;
+        default: ApplyDefault(s);  break;
         }
     }
 }

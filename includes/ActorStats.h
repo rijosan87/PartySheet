@@ -72,6 +72,14 @@ struct ActorStats {
     float armorRating = 0.0f;
     float weaponDamage = 0.0f;
     float baseWeaponDamage = 0.0f;
+
+    struct DamageBreakdown {
+        bool  valid = false;
+        RE::ActorValue skill = RE::ActorValue::kNone;
+        float base = 0.0f, skillLevel = 0.0f, skillMult = 1.0f, fortifyMult = 1.0f;
+        float perkMult = 1.0f, settingMult = 1.0f, otherMult = 1.0f;
+        float physical = 0.0f, enchant = 0.0f;
+    } damageBreakdown;
     float weaponSpeed = 1.0f;
     float weaponReach = 1.0f;
     float unarmedDamage = 0.0f;

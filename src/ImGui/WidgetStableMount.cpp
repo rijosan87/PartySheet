@@ -2,6 +2,7 @@
 #include "../../includes/PerfStats.h"
 #include "../../includes/ImGui/RendererSections.h"
 #include "../../includes/Utils/ColorUtils.h"
+#include "../../includes/Utils/SettingsWidgets.h"
 #include "../../includes/StableMountPresets.h"
 
 #include "../../includes/MenuUtils.h"
@@ -793,33 +794,26 @@ namespace WidgetStableMount {
                         StableMountPresets::kPresets[2].name,
                         StableMountPresets::kPresets[3].name
                     };
-                    ImGui::SetNextItemWidth(300.0f);
-                    if (ImGui::Combo("##smPreset", &presetIndex, presetNames, (int)StableMountPresets::kPresets.size())) {
+                    if (SettingsWidgets::SegmentedPicker("##smPreset", &presetIndex, presetNames, (int)StableMountPresets::kPresets.size())) {
                         StableMountPresets::ApplyPreset(*settings, (std::size_t)presetIndex);
                         g_ForceStableMountPos = true;
                         logger::debug("[StableMount] Preset applied: {}, portrait style={}", presetNames[presetIndex], settings->smPortraitStyle);
                     }
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
                 }
                 ImGui::Spacing();
                 ImGui::Separator();
                 ImGui::Spacing();
 
                 ImGui::TextDisabled("Layout");
+                {
+                    const char* orientItems[] = { "Vertical", "Horizontal" };
+                    if (SettingsWidgets::SegmentedPicker("Layout Orientation##smLO", &settings->smLayoutOrientation, orientItems, 2)) g_ForceStableMountPos = true;
+                    const char* portraitItems[] = { "Card", "Top Style", "Halo" };
+                    if (SettingsWidgets::SegmentedPicker("Portrait Style##smPSy", &settings->smPortraitStyle, portraitItems, 3)) g_ForceStableMountPos = true;
+                }
                 if (ImGui::BeginTable("SMLayout", 2, ImGuiTableFlags_SizingFixedFit)) {
                     ImGui::TableSetupColumn("Label",  ImGuiTableColumnFlags_WidthFixed, 160.0f);
                     ImGui::TableSetupColumn("Slider", ImGuiTableColumnFlags_WidthStretch);
-
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0); ImGui::Text("Layout Orientation");
-                    ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1);
-                    if (ImGui::Combo("##smLO", &settings->smLayoutOrientation, "Vertical\0Horizontal\0")) g_ForceStableMountPos = true;
-
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0); ImGui::Text("Portrait Style");
-                    ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1);
-                    if (ImGui::Combo("##smPSy", &settings->smPortraitStyle, "Card\0Top Style\0Halo\0")) g_ForceStableMountPos = true;
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::Text("X Position");
@@ -886,8 +880,6 @@ namespace WidgetStableMount {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
                     ImGui::Checkbox("First Name Only", &settings->smNameFirstWordOnly);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Display only the first word of the mount's name.");
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
@@ -1039,13 +1031,11 @@ namespace WidgetStableMount {
                     ImGui::TableSetColumnIndex(0); ImGui::Text("Ribbon Gap");
                     ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1);
                     ImGui::SliderInt("##smRibbonGap", &settings->smRibbonGap, 0, 40);
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Extra spacing between ribbons");
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::Text("Item Spacing");
                     ImGui::TableSetColumnIndex(1); ImGui::SetNextItemWidth(-1);
                     if (ImGui::SliderInt("##smMS", &settings->smMountSpacing, -50, 50)) g_ForceStableMountPos = true;
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Gap between mount cards");
 
                     ImGui::EndTable();
                 }
@@ -1056,8 +1046,6 @@ namespace WidgetStableMount {
                 ImGui::TextDisabled("Summoning");
 
                 ImGui::Checkbox("Enable Summon Picker Hotkey##smEnableHorsePicker", &settings->smEnableHorsePicker);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Press the Summon Horses hotkey (set under Hotkeys) to open a list\nand summon one chosen horse. Separate from Summon All Horses below.");
 
                 if (ImGui::BeginTable("SummonTable", 2, ImGuiTableFlags_SizingStretchProp)) {
                     ImGui::TableNextRow();

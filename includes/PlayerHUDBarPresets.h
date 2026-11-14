@@ -14,13 +14,13 @@ namespace PlayerHUDBarPresets
     };
 
     inline constexpr std::array<Preset, 7> kPresets{ {
-        { "1 - Animated Portrait" },
-        { "2 - Custom Bars" },
-        { "3 - Scaled Bars" },
-        { "4 - Level Emblem" },
-        { "5 - No Portrait" },
-        { "6 - Halo" },
-        { "7 - Curved Status" },
+        { "Animated Portrait" },
+        { "Custom Bars" },
+        { "Scaled Bars" },
+        { "Level Emblem" },
+        { "No Portrait" },
+        { "Halo" },
+        { "Curved Status" },
     } };
 
     inline void ApplyAnimatedPortrait(Settings& s)

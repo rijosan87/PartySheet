@@ -13,11 +13,11 @@ namespace PlayerHUDSurvivalPresets
     };
 
     inline constexpr std::array<Preset, 5> kPresets{ {
-        { "1 - Default" },
-        { "2 - Compact" },
-        { "3 - Vivid"   },
-        { "4 - Minimal" },
-        { "5 - Arc"     },
+        { "Default" },
+        { "Compact" },
+        { "Vivid"   },
+        { "Minimal" },
+        { "Arc"     },
     } };
 
     inline void ResetPlacement(Settings& s)

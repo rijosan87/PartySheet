@@ -12,6 +12,7 @@
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
+#include <cctype>
 #include <chrono>
 #include <RE/Skyrim.h>
 
@@ -29,6 +30,72 @@ namespace InspectCard {
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddText(ImVec2(tx + 1.0f, ty + 1.0f), IM_COL32(0, 0, 0, 200), text);
         dl->AddText(ImVec2(tx, ty), IM_COL32(255, 255, 255, 255), text);
+    }
+
+    static void DrawBarLabelLeft(const char* label, const char* valueText, float iconRight, float scale) {
+        ImVec2 barMin = ImGui::GetItemRectMin();
+        ImVec2 barMax = ImGui::GetItemRectMax();
+        float tx = iconRight + 8.0f * scale;
+        float labelW = ImGui::CalcTextSize(label).x;
+        float valueLeft = barMax.x - ImGui::CalcTextSize(valueText).x - 6.0f;
+        if (tx + labelW + 8.0f * scale > valueLeft) return;
+        float ty = barMin.y + ((barMax.y - barMin.y) - ImGui::GetTextLineHeight()) * 0.5f;
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        dl->AddText(ImVec2(tx + 1.0f, ty + 1.0f), IM_COL32(0, 0, 0, 200), label);
+        dl->AddText(ImVec2(tx, ty), IM_COL32(255, 255, 255, 255), label);
+    }
+
+    static void DrawSectionRule(float width) {
+        ImGui::Spacing();
+        ImVec2 p = ImGui::GetCursorScreenPos();
+        HUDDraw::DrawFadeRule(ImGui::GetWindowDrawList(), p.x, p.x + width, p.y, IM_COL32(255, 255, 255, 70));
+        ImGui::Dummy(ImVec2(width, 1.0f));
+        ImGui::Spacing();
+    }
+
+    static void DrawCombatStatCards(float width, float scale, float bodyScale,
+                                    bool revealed, float damage, float armor) {
+        struct StatCard { const char* iconName; const char* labelKey; float value; };
+        const StatCard cards[2] = {
+            {"weapon", "Stats.Damage", damage},
+            {"armor",  "Stats.Armor",  armor},
+        };
+
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        ImFont* font = ImGui::GetFont();
+        float labelSize = font->LegacySize * scale * bodyScale * 0.85f;
+        float valueSize = font->LegacySize * scale * bodyScale * 1.6f;
+        float blockH = labelSize + valueSize;
+        float cardIcon = blockH;
+        float pad = 8.0f * scale;
+        float gap = 8.0f * scale;
+        float cardW = (width - gap) * 0.5f;
+        float cardH = cardIcon + pad * 2.0f;
+        ImVec2 origin = ImGui::GetCursorScreenPos();
+
+        for (int i = 0; i < 2; ++i) {
+            const auto& card = cards[i];
+            ImVec2 cMin(origin.x + i * (cardW + gap), origin.y);
+
+            ImVec2 iconMin(cMin.x + pad, cMin.y + pad);
+            if (auto icon = TextureManager::GetPartyIcon(card.iconName))
+                dl->AddImage((ImTextureID)icon, iconMin, ImVec2(iconMin.x + cardIcon, iconMin.y + cardIcon),
+                             ImVec2(0, 0), ImVec2(1, 1), revealed ? IM_COL32_WHITE : IM_COL32(128, 128, 128, 255));
+
+            std::string label = LocalizationManager::Get(card.labelKey);
+            for (auto& c : label) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            char valueText[32];
+            if (revealed) snprintf(valueText, sizeof(valueText), "%.0f", (std::max)(card.value, 0.0f));
+            else snprintf(valueText, sizeof(valueText), "???");
+
+            float textX = iconMin.x + cardIcon + pad;
+            float textY = iconMin.y;
+            dl->AddText(font, labelSize, ImVec2(textX, textY), IM_COL32(200, 200, 200, 200), label.c_str());
+            ImU32 valueCol = revealed ? IM_COL32(240, 240, 240, 255) : IM_COL32(128, 128, 128, 255);
+            dl->AddText(font, valueSize, ImVec2(textX + 1.0f, textY + labelSize + 1.0f), IM_COL32(0, 0, 0, 180), valueText);
+            dl->AddText(font, valueSize, ImVec2(textX, textY + labelSize), valueCol, valueText);
+        }
+        ImGui::Dummy(ImVec2(width, cardH));
     }
     
     static std::chrono::steady_clock::time_point s_LastDrainTime;
@@ -325,9 +392,7 @@ namespace InspectCard {
         }
 
         ImGui::SetWindowFontScale(scale);
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
+        DrawSectionRule(cardContentWidth);
         // === STAT BARS (with icons) ===
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0.0f);
         ImGui::SetWindowFontScale(scale * settings->icBodyFontScale);
@@ -346,6 +411,7 @@ namespace InspectCard {
             ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hexToImVec4(settings->inspectCardHealthColor));
             ImGui::ProgressBar(hpPct, ImVec2(barWidth, barHeight), "");
             DrawBarValueRight(hpText);
+            DrawBarLabelLeft(LocalizationManager::Get("Stats.Health").c_str(), hpText, ImGui::GetItemRectMin().x + 5.0f * scale + iconSize, scale);
             ImGui::PopStyleColor();
             
             if (hpIcon) {
@@ -379,6 +445,7 @@ namespace InspectCard {
                 ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hexToImVec4(settings->inspectCardStaminaColor));
                 ImGui::ProgressBar(spPct, ImVec2(barWidth, barHeight), "");
                 DrawBarValueRight(spText);
+                DrawBarLabelLeft(LocalizationManager::Get("Stats.Stamina").c_str(), spText, ImGui::GetItemRectMin().x + 5.0f * scale + iconSize, scale);
                 ImGui::PopStyleColor();
                 
                 if (spIcon) {
@@ -413,6 +480,7 @@ namespace InspectCard {
                 ImGui::PushStyleColor(ImGuiCol_PlotHistogram, hexToImVec4(settings->inspectCardMagickaColor));
                 ImGui::ProgressBar(mpPct, ImVec2(barWidth, barHeight), "");
                 DrawBarValueRight(mpText);
+                DrawBarLabelLeft(LocalizationManager::Get("Stats.Magicka").c_str(), mpText, ImGui::GetItemRectMin().x + 5.0f * scale + iconSize, scale);
                 ImGui::PopStyleColor();
                 
                 if (mpIcon) {
@@ -445,41 +513,15 @@ namespace InspectCard {
         ImGui::PopStyleVar();
         ImGui::SetWindowFontScale(scale);
 
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
+        if (avo) {
+            DrawSectionRule(cardContentWidth);
 
         ImGui::SetWindowFontScale(scale * settings->icBodyFontScale);
-        ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 0.55f), LocalizationManager::Get("Resistances.Title").c_str());
-
-        if (avo) {
-            float iconSize = 19.0f * scale;
-            float armorRating = targetStats.armorRating;
-            std::string armorLabel = LocalizationManager::Get("Stats.Armor");
-            auto armorIcon = TextureManager::GetPartyIcon("block");
-
-            char armorText[64];
-            if (playerAlt >= TIER_STATS)
-                snprintf(armorText, sizeof(armorText), "%s: %.0f", armorLabel.c_str(), armorRating);
-            else
-                snprintf(armorText, sizeof(armorText), "%s: ???", armorLabel.c_str());
-
-            float textWidth = ImGui::CalcTextSize(armorText).x;
-            float totalWidth = (armorIcon ? iconSize + ImGui::GetStyle().ItemSpacing.x : 0.0f) + textWidth;
-            float windowWidth = ImGui::GetContentRegionAvail().x;
-
-            ImGui::SameLine(windowWidth - totalWidth);
-
-            if (playerAlt >= TIER_STATS) {
-                if (armorIcon) {
-                    ImGui::Image((ImTextureID)armorIcon, ImVec2(iconSize, iconSize));
-                    ImGui::SameLine();
+            float damage = targetStats.weaponDamage > 0.0f ? targetStats.weaponDamage : targetStats.unarmedDamage;
+            DrawCombatStatCards(cardContentWidth, scale, settings->icBodyFontScale, playerAlt >= TIER_STATS, damage, targetStats.armorRating);
                 }
-                ImGui::Text("%s: %.0f", armorLabel.c_str(), armorRating);
-            } else {
-                ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s: ???", armorLabel.c_str());
-            }
-        }
+
+        DrawSectionRule(cardContentWidth);
         ImGui::SetWindowFontScale(scale);
         
         if (avo && playerAlt >= TIER_RESISTS) {
@@ -498,35 +540,28 @@ namespace InspectCard {
                 char valText[32];
                 snprintf(valText, sizeof(valText), "%.0f%%", value);
 
-                float gap = 15.0f * scale;
-                ImVec2 labelSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, label);
-                float labelX = x + (resistIconSize - labelSize.x) / 2.0f;
-
-                drawList->AddText(font, fontSize, ImVec2(labelX, y), color, label);
-
-                float labelIconPadding = 8.0f * scale;
-                float iconY = y + fontSize + labelIconPadding;
-                ImVec2 center(x + resistIconSize / 2.0f, iconY + resistIconSize / 2.0f);
+                float gap = resistIconSize * 0.2f + 10.0f * scale;
+                ImVec2 center(x + resistIconSize / 2.0f, y + resistIconSize / 2.0f);
 
                 HUDDraw::GlowDiscStyle disc;
                 disc.layers        = 2;
                 disc.glowStep      = 2.0f * scale;
                 disc.ringThickness = 2.0f * scale;
                 HUDDraw::DrawGlowDisc(drawList, center, circleRadius, IM_COL32(r, g, b, 200), disc);
+                if (icon) drawList->AddImage((ImTextureID)icon, ImVec2(x, y), ImVec2(x + resistIconSize, y + resistIconSize));
 
-                if (icon) drawList->AddImage((ImTextureID)icon, ImVec2(x, iconY), ImVec2(x + resistIconSize, iconY + resistIconSize));
-
-                float valX = x + resistIconSize + gap;
-                float valY = iconY + (resistIconSize - fontSize) / 2.0f;
-                drawList->AddText(font, fontSize, ImVec2(valX, valY), IM_COL32(220, 220, 220, 255), valText);
+                float textX = x + resistIconSize + gap;
+                float textY = center.y - fontSize;
+                drawList->AddText(font, fontSize, ImVec2(textX, textY), color, label);
+                drawList->AddText(font, fontSize, ImVec2(textX, textY + fontSize), IM_COL32(220, 220, 220, 255), valText);
             };
             
             ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-            float startX = cursorPos.x + 20.0f * scale;
-            float startY = cursorPos.y;
+            float startX = cursorPos.x + resistIconSize * 0.25f;
+            float startY = cursorPos.y + resistIconSize * 0.2f;
             float barWidth = static_cast<float>(settings->inspectCardBarWidth) * scale;
             float colGap = barWidth * 0.55f;
-            float rowGap = 70.0f * scale;
+            float rowGap = resistIconSize * 1.4f + 8.0f * scale;
             
             struct ResistData {
                 const char* iconName;
@@ -566,33 +601,27 @@ namespace InspectCard {
                 float fontSize = font->LegacySize * scale * settings->icBodyFontScale;
 
                 char valText[] = "???";
-                float gap = 15.0f * scale;
-                ImVec2 labelSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, label);
-                float labelX = x + (resistIconSize - labelSize.x) / 2.0f;
-
-                drawList->AddText(font, fontSize, ImVec2(labelX, y), hiddenColor, label);
-
-                float iconY = y + fontSize + 8.0f * scale;
-                ImVec2 center(x + resistIconSize / 2.0f, iconY + resistIconSize / 2.0f);
+                float gap = resistIconSize * 0.2f + 10.0f * scale;
+                ImVec2 center(x + resistIconSize / 2.0f, y + resistIconSize / 2.0f);
 
                 HUDDraw::GlowDiscStyle disc;
                 disc.layers        = 0;
                 disc.ringThickness = 2.0f * scale;
                 HUDDraw::DrawGlowDisc(drawList, center, circleRadius, hiddenColor, disc);
+                if (icon) drawList->AddImage((ImTextureID)icon, ImVec2(x, y), ImVec2(x + resistIconSize, y + resistIconSize));
 
-                if (icon) drawList->AddImage((ImTextureID)icon, ImVec2(x, iconY), ImVec2(x + resistIconSize, iconY + resistIconSize));
-
-                float valX = x + resistIconSize + gap;
-                float valY = iconY + (resistIconSize - fontSize) / 2.0f;
-                drawList->AddText(font, fontSize, ImVec2(valX, valY), hiddenColor, valText);
+                float textX = x + resistIconSize + gap;
+                float textY = center.y - fontSize;
+                drawList->AddText(font, fontSize, ImVec2(textX, textY), hiddenColor, label);
+                drawList->AddText(font, fontSize, ImVec2(textX, textY + fontSize), hiddenColor, valText);
             };
             
             ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-            float startX = cursorPos.x + 20.0f * scale;
-            float startY = cursorPos.y;
+            float startX = cursorPos.x + resistIconSize * 0.25f;
+            float startY = cursorPos.y + resistIconSize * 0.2f;
             float barWidth = static_cast<float>(settings->inspectCardBarWidth) * scale;
             float colGap = barWidth * 0.55f;
-            float rowGap = 70.0f * scale;
+            float rowGap = resistIconSize * 1.4f + 8.0f * scale;
             
             static const char* hiddenIcons[] = {"fire", "frost", "magic", "shock", "disease", "poison"};
             static const char* hiddenLabels[] = {"Resistances.Fire", "Resistances.Frost", "Resistances.Magic", "Resistances.Shock", "Resistances.Disease", "Resistances.Poison"};
@@ -613,9 +642,7 @@ namespace InspectCard {
         if (settings->icShowKYEResists && playerAlt >= TIER_RESISTS && InspectCardKYE::IsKYE2Loaded()) {
             auto entries = InspectCardKYE::GetResists(g_TargetActor);
 
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
+            DrawSectionRule(cardContentWidth);
             ImGui::SetWindowFontScale(scale * settings->icBodyFontScale);
 
             ImDrawList* dl = ImGui::GetWindowDrawList();

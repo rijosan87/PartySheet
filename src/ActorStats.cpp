@@ -1,8 +1,10 @@
 #include "../includes/ActorStats.h"
 #include "../includes/SurvivalSymptoms.h"
+#include "../includes/Utils/PerkModifiers.h"
 #include <RE/P/PlayerCharacter.h>
 #include <RE/T/TESForm.h>
 #include <RE/T/TESBoundObject.h>
+#include <algorithm>
 static void PopulateRichStat(RichStat& stat, RE::Actor* actor, RE::ActorValueOwner* avo, RE::ActorValue av) {
     if (!actor || !avo) return;
     
@@ -127,9 +129,35 @@ ActorStats GetActorStats(RE::Actor* actor) {
                     }
                 }
             } else {
-                float skillMultiplier = 1.0f + (skillLevel / 200.0f);
-                float fortifyMultiplier = 1.0f + (fortifyMod / 100.0f);
-                stats.weaponDamage = combinedBase * skillMultiplier * fortifyMultiplier;
+                const auto est = PerkModifiers::GetHitEstimate(actor, weapon);
+                auto readSetting = [](const char* name, float fallback) {
+                    auto* gs = RE::GameSettingCollection::GetSingleton();
+                    auto* s = gs ? gs->GetSetting(name) : nullptr;
+                    return s ? s->GetFloat() : fallback;
+                };
+                static const float skillMin = readSetting("fDamageSkillMin", 1.0f);
+                static const float skillMax = readSetting("fDamageSkillMax", 3.0f);
+                static const float weaponMult = readSetting("fDamageWeaponMult", 1.0f);
+                const float skill = std::clamp(skillLevel, 0.0f, 100.0f);
+                const float skillMultiplier = skillMin + (skillMax - skillMin) * skill / 100.0f;
+                const float fortifyMultiplier = 1.0f + (fortifyMod / 100.0f);
+                const float formula = combinedBase * skillMultiplier * fortifyMultiplier *
+                                      est.perkMult * weaponMult;
+                stats.weaponDamage = est.physicalDamage >= 0.0f ? est.physicalDamage : formula;
+
+                auto& bd = stats.damageBreakdown;
+                bd.valid = true;
+                bd.base = combinedBase;
+                bd.skillLevel = skillLevel;
+                bd.skill = weapon->IsBow() || weapon->IsCrossbow() ? RE::ActorValue::kArchery
+                         : weapon->IsTwoHandedSword() || weapon->IsTwoHandedAxe() ? RE::ActorValue::kTwoHanded
+                         : weapon->IsMelee() ? RE::ActorValue::kOneHanded : RE::ActorValue::kNone;
+                bd.skillMult = skillMultiplier;
+                bd.fortifyMult = fortifyMultiplier;
+                bd.perkMult = est.perkMult;
+                bd.settingMult = weaponMult;
+                bd.otherMult = formula > 0.0f ? stats.weaponDamage / formula : 1.0f;
+                bd.physical = stats.weaponDamage;
 
                 if (auto* enchantable = weapon->As<RE::TESEnchantableForm>()) {
                     if (auto* enchant = enchantable->formEnchanting) {
@@ -145,6 +173,7 @@ ActorStats GetActorStats(RE::Actor* actor) {
                                 resistType == RE::ActorValue::kResistShock  ||
                                 resistType == RE::ActorValue::kPoisonResist) {
                                 stats.weaponDamage += mag;
+                                stats.damageBreakdown.enchant = mag;
                                 break;
                             }
                         }

@@ -3,6 +3,7 @@
 #include "../../includes/SettingsIni.h"
 #include "../../includes/BackgroundManager.h"
 #include "../../includes/Utils/ColorUtils.h"
+#include "../../includes/Utils/SettingsWidgets.h"
 #include "../../includes/ImGui/WidgetCollectiblesInternal.h"
 #include "../../includes/CollectiblesPresets.h"
 
@@ -49,11 +50,8 @@ namespace ImGuiRenderer::SettingsUI {
                     CollectiblesPresets::kPresets[1].name,
                     CollectiblesPresets::kPresets[2].name
                 };
-                ImGui::SetNextItemWidth(300.0f);
-                if (ImGui::Combo("##ccPreset", &presetIndex, presetNames, (int)CollectiblesPresets::kPresets.size()))
+                if (SettingsWidgets::SegmentedPicker("##ccPreset", &presetIndex, presetNames, (int)CollectiblesPresets::kPresets.size()))
                     CollectiblesPresets::ApplyPreset(*settings, (std::size_t)presetIndex);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
             }
             ImGui::Spacing();
 
@@ -163,13 +161,11 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::TableSetColumnIndex(1);
                 {
                     const char* dirItems[] = { "Column", "Row" };
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::Combo("Direction##ccDirection", &settings->ccDirection, dirItems, 2);
+                    SettingsWidgets::SegmentedPicker("Direction##ccDirection", &settings->ccDirection, dirItems, 2);
                 }
                 {
                     const char* styleItems[] = { "Inline", "Stacked" };
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::Combo("Card Style##ccCardStyle", &settings->ccCardStyle, styleItems, 2);
+                    SettingsWidgets::SegmentedPicker("Card Style##ccCardStyle", &settings->ccCardStyle, styleItems, 2);
                 }
                 ImGui::SliderFloat("Label Scale##ccLabelScale", &settings->ccLabelScale, 0.5f, 2.0f, "%.2f");
                 ImGui::SliderFloat("Bar Text Scale##ccBarTextScale", &settings->ccBarTextScale, 0.5f, 2.0f, "%.2f");

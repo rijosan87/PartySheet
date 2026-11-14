@@ -13,10 +13,10 @@ namespace PlayerHUDEquipmentPresets
     };
 
     inline constexpr std::array<Preset, 4> kPresets{ {
-        { "1 - Default" },
-        { "2 - Compact" },
-        { "3 - Minimal" },
-        { "4 - Weapon Focus" },
+        { "Default" },
+        { "Compact" },
+        { "Minimal" },
+        { "Weapon Focus" },
     } };
 
     inline void ApplyDefault(Settings& s)

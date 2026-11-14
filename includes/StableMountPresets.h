@@ -13,10 +13,10 @@ namespace StableMountPresets
     };
 
     inline constexpr std::array<Preset, 4> kPresets{ {
-        { "1 - Default" },
-        { "2 - Dark Knight" },
-        { "3 - Ranger" },
-        { "4 - Halo" }
+        { "Default" },
+        { "Dark Knight" },
+        { "Ranger" },
+        { "Halo" }
     } };
 
     inline void ApplyDefault(Settings& s)

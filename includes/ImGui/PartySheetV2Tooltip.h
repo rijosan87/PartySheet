@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../Settings.h"
+#include "../ActorStats.h"
 #include "../EffectCategories.h"
+#include "../LocalizationManager.h"
 #include "../Utils/HUDDraw.h"
 
 #include <imgui.h>
@@ -165,6 +167,45 @@ namespace PartySheetV2::Tip {
         char buf[160];
         snprintf(buf, sizeof(buf), "%s %s%s%s", nm, hostile ? "-" : "+", Num(mag).c_str(), pct ? "%" : "");
         return buf;
+    }
+
+    inline void DrawDamageTooltip(const std::string& title, const ActorStats::DamageBreakdown& bd, float sc) {
+        if (!bd.valid) return;
+        std::vector<TipRow> rows;
+        char buf[32];
+        auto Add = [&](const char* key, std::string type, const char* fmt, float v, int tone) {
+            snprintf(buf, sizeof(buf), fmt, v);
+            TipRow r;
+            r.name = LocalizationManager::Get(key);
+            r.type = std::move(type);
+            r.lines.push_back({ buf, tone > 0 ? kBuff : (tone < 0 ? kDebuff : kTextMain) });
+            r.tone = tone;
+            rows.push_back(std::move(r));
+        };
+        auto Mult = [&](const char* key, std::string type, float m) {
+            if (std::abs(m - 1.0f) < 0.005f) return;
+            Add(key, std::move(type), "x%.2f", m, m > 1.0f ? 1 : -1);
+        };
+
+        Add("Stats.DmgBase", {}, "%.0f", bd.base, 0);
+        snprintf(buf, sizeof(buf), "%.0f", bd.skillLevel);
+        std::string skillType = buf;
+        if (bd.skill != RE::ActorValue::kNone)
+            skillType = EffectCategories::LocalizedAVName(bd.skill) + " " + skillType;
+        Mult("Stats.DmgSkill", std::move(skillType), bd.skillMult);
+        Mult("Stats.DmgFortify", {}, bd.fortifyMult);
+        Mult("Stats.DmgPerks", {}, bd.perkMult);
+        Mult("Stats.DmgSetting", {}, bd.settingMult);
+        Mult("Stats.DmgOther", LocalizationManager::Get("Stats.DmgOtherNote"), bd.otherMult);
+        if (bd.enchant > 0.0f) {
+            Add("Stats.DmgPhysical", {}, "%.0f", bd.physical, 0);
+            Add("Stats.DmgEnchant", {}, "+%.0f", bd.enchant, 1);
+
+}
+
+        std::string t = title;
+        for (char& c : t) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+        DrawCompactTooltip(t, rows, {}, sc);
     }
 
 }

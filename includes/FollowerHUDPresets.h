@@ -13,11 +13,11 @@ namespace FollowerHUDPresets
     };
 
     inline constexpr std::array<Preset, 5> kPresets{ {
-        { "1 - Default" },
-        { "2 - Inline" },
-        { "3 - Stacked" },
-        { "4- Minimal" },
-        { "5 - Ribbon Fill" }
+        { "Default" },
+        { "Inline" },
+        { "Stacked" },
+        { "Minimal" },
+        { "Ribbon Fill" }
     } };
 
     inline void ApplyDefault(Settings& s)

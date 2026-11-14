@@ -6,6 +6,7 @@
 #include "../../includes/ImGui/PlayerHUDEffects.h"
 #include "../../includes/Utils/ColorUtils.h"
 #include "../../includes/PlayerHUDEffectsPresets.h"
+#include "../../includes/Utils/SettingsWidgets.h"
 
 #include <imgui.h>
 
@@ -21,17 +22,15 @@ namespace ImGuiRenderer::SettingsUI {
         if (settings->enablePlayerEffectWidget) {
             ImGui::Spacing();
             ImGui::Separator();
-            ImGui::TextDisabled("Presets");
+            ImGui::TextDisabled("Preset Styles");
             ImGui::Spacing();
             {
                 static int presetIndex = 0;
                 static constexpr const char* presetNames[] = {
-                    "1 - Default", "2 - Compact", "3 - Floating Icons", "4 - Timeline", "5 - Minimal"
+                    "Default", "Compact", "Floating Icons", "Timeline", "Minimal"
                 };
-                ImGui::SetNextItemWidth(300.0f);
-                if (ImGui::Combo("##phEffPreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
+                if (SettingsWidgets::SegmentedPicker("##phEffPreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
                     PlayerHUDEffectsPresets::ApplyPreset(*settings, static_cast<std::size_t>(presetIndex));
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
             }
             ImGui::Spacing();
             ImGui::Separator();
@@ -42,13 +41,11 @@ namespace ImGuiRenderer::SettingsUI {
             if (ImGui::SliderInt("Pos Y##phEffPosY", &settings->phEffectPosY, 0, static_cast<int>(displaySize.y)))
                 PlayerHUDEffects::ForceReposition();
             const char* layoutItems[] = { "Vertical", "Horizontal" };
-            if (ImGui::Combo("Layout##phEffDir", &settings->phEffectColumnDirection, layoutItems, 2))
+            if (SettingsWidgets::SegmentedPicker("Layout##phEffDir", &settings->phEffectColumnDirection, layoutItems, 2))
                 PlayerHUDEffects::ForceReposition();
             const char* anchorItems[] = { "Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right" };
-            if (ImGui::Combo("Anchor##phEffAnchor", &settings->phEffectAnchor, anchorItems, 4))
+            if (SettingsWidgets::SegmentedPicker("Anchor##phEffAnchor", &settings->phEffectAnchor, anchorItems, 4))
                 PlayerHUDEffects::ForceReposition();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Which corner of the icon area is pinned at Pos X/Y.\nIcons grow away from this corner, so it never shifts\nas effects appear, expire, or wrap.");
             ImGui::SliderInt("Max Icons##phEffMax",       &settings->phEffectMaxIcons,      1, 32);
             ImGui::SliderInt("Wrap After##phEffPerCol",   &settings->phEffectMaxPerColumn,  1, 16);
             ImGui::SliderInt("Min Duration (s)##phEffMinDur", &settings->phEffectMinDuration, 0, 60);
@@ -120,10 +117,8 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::SliderInt("##phEffHSpc",  &settings->phEffectHorizSpacing, 0, 64,  "Horiz Spacing %d");
                 if (settings->phShowEffectTimer) {
                     ImGui::Spacing();
-                    ImGui::TextDisabled("Timer");
                     static const char* timerStyles[] = { "Arc", "Vertical Bar", "Background Fill" };
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::Combo("##phEffTStyle", &settings->phEffectTimerStyle, timerStyles, 3);
+                    SettingsWidgets::SegmentedPicker("Timer Style##phEffTStyle", &settings->phEffectTimerStyle, timerStyles, 3);
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##phEffTBW", &settings->phEffectTimerBorderWidth, 1, 6, "Timer Thickness %d");
                 }
@@ -158,22 +153,12 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Spacing();
                 ImGui::TextDisabled("Icon Depth");
                 ImGui::Checkbox("Duotone##phEffDepthDuo", &settings->phEffectDepthDuotone);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Shade each icon from a lit top to a darker bottom\ninstead of one flat color.");
                 ImGui::SameLine();
                 ImGui::Checkbox("Shadow##phEffDepthSh", &settings->phEffectDepthShadow);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Drop shadow + rim light behind each icon.");
                 ImGui::Checkbox("Glow##phEffDepthGlow", &settings->phEffectDepthGlow);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Soft white bloom behind the icon, adding depth.");
                 ImGui::SameLine();
                 ImGui::Checkbox("Gloss##phEffDepthGloss", &settings->phEffectDepthGloss);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("White sheen across the icon's top half,\nfor a polished look.");
                 ImGui::Checkbox("Outline##phEffDepthOl", &settings->phEffectDepthOutline);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Dark contour ring hugging the icon shape.");
                 if (settings->phEffectDepthOutline) {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##phEffDepthOlW", &settings->phEffectDepthOutlineWidth, 1, 3, "Outline Width %d px");

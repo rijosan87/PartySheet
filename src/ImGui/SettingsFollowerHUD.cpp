@@ -424,9 +424,6 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TableSetColumnIndex(1);
                     if (!settings->barStyleEnabled) {
                         ImGui::Checkbox("Glow Effect", &settings->barGlowEnabled);
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("Add an outer glow around the bars (Best for flat bar)");
-                        }
                     }
 
                     ImGui::TableNextRow();
@@ -437,15 +434,11 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::Checkbox("Show Bar Text", &settings->showTextOnBars);
                     ImGui::TableSetColumnIndex(1); ImGui::Checkbox("Halo", &settings->hudHaloEnable);
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Replace the bars with a resource ring around the portrait");
-                    }
                     ImGui::EndTable();
                 }
 
                 ImGui::BeginDisabled(settings->hudHaloEnable);
                 ImGui::Checkbox("Custom Bar Style##fhBarStyleEnable", &settings->barStyleEnabled);
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Use custom images for bars");
                 if (settings->barStyleEnabled) {
                     ImGui::SameLine();
                     RenderBackgroundPicker("BarStylePicker", settings->barStyleIndex, BackgroundManager::Type::BarStyle);
@@ -480,20 +473,11 @@ namespace ImGuiRenderer::SettingsUI {
                         if (ImGui::ColorEdit3("Health End##BarsColor", (float*)&hpGradCol, ImGuiColorEditFlags_NoInputs)) {
                             settings->healthGradientColor = ColorUtils::Vec4ToRgb(hpGradCol);
                         }
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("Health Gradient End Color");
-                        }
                         if (ImGui::ColorEdit3("Magicka End##BarsColor", (float*)&mpGradCol, ImGuiColorEditFlags_NoInputs)) {
                             settings->magickaGradientColor = ColorUtils::Vec4ToRgb(mpGradCol);
                         }
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("Magicka Gradient End Color");
-                        }
                         if (ImGui::ColorEdit3("Stamina End##BarsColor", (float*)&spGradCol, ImGuiColorEditFlags_NoInputs)) {
                             settings->staminaGradientColor = ColorUtils::Vec4ToRgb(spGradCol);
-                        }
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("Stamina Gradient End Color");
                         }
                     }
 
@@ -530,28 +514,18 @@ namespace ImGuiRenderer::SettingsUI {
                         if (ImGui::IsItemHovered())
                             ImGui::SetTooltip("Stat points per segment cell; segment count = max stat / this value");
                         ImGui::SliderInt("Segment Gap##hudBarSegGap", &settings->hudBarSegmentGap, 0, 10);
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("Gap carved between segments (px); 0 = hairline notch lines");
                     }
                     ImGui::SliderFloat("Radius##Bars", &settings->barCornerRadius, 0.0f, 15.0f, "%.1f");
 
                     ImGui::Spacing();
                     ImGui::TextDisabled("Depth & Light");
                     ImGui::Checkbox("Track##Bars", &settings->barTrackEnabled);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Dark recessed well behind the fill (empty part of the bar)");
                     ImGui::SameLine();
                     ImGui::Checkbox("Depth##Bars", &settings->barDepthShading);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Vertical shading on the fill: lit top edge, deep bottom");
                     ImGui::SameLine();
                     ImGui::Checkbox("Edge Light##Bars", &settings->barEdgeLightEnabled);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Brightness that follows the current value's edge");
                     ImGui::SameLine();
                     ImGui::Checkbox("Tip##Bars", &settings->barTipEnabled);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Hot bright strip right at the fill edge");
 
                     SettingsWidgets::SegmentedPicker("Right End##Bars", &settings->barEndStyle, endStyles, 5);
                     SettingsWidgets::SegmentedPicker("Left End##Bars", &settings->barEndStyleLeft, endStyles, 5);
@@ -559,12 +533,8 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::Spacing();
                     ImGui::TextDisabled("Motion");
                     ImGui::Checkbox("Smooth Drain##Bars", &settings->barSmoothDrain);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Damage drains the bar smoothly (~250ms) so the lit edge travels;\nheals still fill near-instantly");
                     ImGui::SameLine();
                     ImGui::Checkbox("Damage Ghost##Bars", &settings->barDamageGhost);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Pale segment lingers at the pre-hit health, then drains away\n(health bar only, same as the Player HUD ghost)");
 
                     ImGui::Spacing();
                     ImGui::TextDisabled("Border");
@@ -619,12 +589,8 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TableSetColumnIndex(0); ImGui::Checkbox("Show Portrait", &settings->showPortrait);
                     ImGui::SameLine();
                     ImGui::Checkbox("Light FX##Portrait", &settings->hudPortraitFx);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Lighting on the portrait: cinematic shading, top light,\nbottom shade, edge vignette, rim light");
                     ImGui::SameLine();
                     ImGui::Checkbox("Backlight##Portrait", &settings->hudPortraitBacklight);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Glow behind the portrait: halo past the frame edges plus\nan inner light that halos the character on dark art");
                     if (settings->hudPortraitBacklight) {
                         ImGui::SameLine();
                         ImVec4 blCol = ColorUtils::RgbToVec4(settings->hudPortraitBacklightColor);
@@ -642,14 +608,8 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
                     ImGui::Checkbox("Hit Shake##FHPortrait", &settings->hudPortraitHitShake);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Briefly shakes the portrait horizontally when taking a hit");
                     ImGui::SameLine();
                     ImGui::Checkbox("Hit Flash/Pulse##FHPortrait", &settings->hudPortraitHitFlash);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Red flash on the portrait when taking an unblocked hit.\n"
-                                          "Also controls the pulsing red low-health warning below 80%% HP\n"
-                                          "(faster with a border below 25%%).");
                     ImGui::EndTable();
                 }
 
@@ -755,9 +715,6 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TableSetColumnIndex(0);
 
                     ImGui::InputInt("Max Effects Shown", &settings->maxEffectsShown);
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Max no of active effects displayed on screen at once.");
-                    }
                     if (settings->maxEffectsShown < 1) settings->maxEffectsShown = 1;
                     if (settings->maxEffectsShown > 16) settings->maxEffectsShown = 16;
 
@@ -852,24 +809,14 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Spacing();
                 ImGui::TextDisabled("Icon Depth");
                 ImGui::Checkbox("Duotone##fhEffIconDuo", &settings->hudEffectIconDuotone);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Shade each icon from a lit top to a darker bottom\ninstead of one flat color.");
                 ImGui::SameLine();
                 ImGui::Checkbox("Shadow##fhEffIconSh", &settings->hudEffectIconShadow);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Drop shadow + rim light behind each icon.");
                 ImGui::SameLine();
                 ImGui::Checkbox("Outline##fhEffIconOl", &settings->hudEffectIconOutline);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Dark contour ring hugging the icon shape.");
 
                 ImGui::Checkbox("Glow##fhEffIconGlow", &settings->hudEffectIconGlow);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Soft white bloom behind the icon, adding depth.");
                 ImGui::SameLine();
                 ImGui::Checkbox("Gloss##fhEffIconGloss", &settings->hudEffectIconGloss);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("White sheen across the icon's top half,\nfor a polished look.");
 
                 if (settings->hudEffectIconOutline) {
                     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -987,8 +934,6 @@ namespace ImGuiRenderer::SettingsUI {
                                     visible.size(), allSpells.size());
 
                 ImGui::SliderInt("Min HP % to Trigger", &settings->qhMinHpPercent, 1, 100);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Only target allies whose HP%% is below this value.");
 
                 ImGui::SliderInt("Max Range (units)", &settings->qhMaxRange, 100, 4096);
                 if (ImGui::IsItemHovered())
@@ -1011,14 +956,8 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Spacing();
                 ImGui::TextDisabled("Portrait Flash");
                 ImGui::Checkbox("Heal Flash##qhHealFlash", &settings->qhHealFlash);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Green flash and small pulse on a follower's portrait when they are healed.\n"
-                                      "Turn off if an aura or regen mod keeps healing followers.");
                 ImGui::SameLine();
                 ImGui::Checkbox("Buff Flash##qhBuffFlash", &settings->qhBuffFlash);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Orange flash and small pulse on a follower's portrait when they receive\n"
-                                      "a non-hostile spell that is not a heal (e.g. Bestow Gift).");
             }
 
             ImGui::PopStyleVar();

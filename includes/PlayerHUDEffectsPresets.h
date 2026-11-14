@@ -16,11 +16,11 @@ namespace PlayerHUDEffectsPresets
     };
 
     inline constexpr std::array<Preset, 5> kPresets{ {
-        { "1 - Default"        },
-        { "2 - Compact"        },
-        { "3 - Floating Icons" },
-        { "4 - Timeline"       },
-        { "5 - Minimal"        },
+        { "Default"        },
+        { "Compact"        },
+        { "Floating Icons" },
+        { "Timeline"       },
+        { "Minimal"        },
     } };
 
     inline void ApplyDefault(Settings& s)

@@ -3,7 +3,6 @@
 // STATUS: Working
 // Presets for Character Sheet UI.
 
-
 #include "Settings.h"
 
 #include <array>
@@ -17,9 +16,9 @@ namespace CharacterSheetPresets
     };
 
     inline constexpr std::array<Preset, 3> kPresets{ {
-        { "1 - Default" },
-        { "2 - Warm Gold" },
-        { "3 - Minimal" }
+        { "Default" },
+        { "Warm Gold" },
+        { "Minimal" }
     } };
 
     inline void ApplyDefault(Settings& s)

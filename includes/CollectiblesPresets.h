@@ -3,7 +3,6 @@
 // STATUS: Working
 // Presets for tracked collectible items.
 
-
 #include "Settings.h"
 
 #include <array>
@@ -17,9 +16,9 @@ namespace CollectiblesPresets
     };
 
     inline constexpr std::array<Preset, 3> kPresets{ {
-        { "1 - Default" },
-        { "2 - Compact" },
-        { "3 - Showcase" }
+        { "Default" },
+        { "Compact" },
+        { "Showcase" }
     } };
 
     inline void ApplyDefault(Settings& s)

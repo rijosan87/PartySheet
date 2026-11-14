@@ -447,24 +447,6 @@ namespace EffectCategories {
             case RE::ActorValue::kHealRateMult:
             case RE::ActorValue::kMagickaRateMult:
             case RE::ActorValue::kStaminaRateMult:
-            case RE::ActorValue::kOneHanded:
-            case RE::ActorValue::kTwoHanded:
-            case RE::ActorValue::kArchery:
-            case RE::ActorValue::kBlock:
-            case RE::ActorValue::kSmithing:
-            case RE::ActorValue::kHeavyArmor:
-            case RE::ActorValue::kLightArmor:
-            case RE::ActorValue::kPickpocket:
-            case RE::ActorValue::kLockpicking:
-            case RE::ActorValue::kSneak:
-            case RE::ActorValue::kAlchemy:
-            case RE::ActorValue::kSpeech:
-            case RE::ActorValue::kAlteration:
-            case RE::ActorValue::kConjuration:
-            case RE::ActorValue::kDestruction:
-            case RE::ActorValue::kIllusion:
-            case RE::ActorValue::kRestoration:
-            case RE::ActorValue::kEnchanting:
             case RE::ActorValue::kOneHandedPowerModifier:
             case RE::ActorValue::kTwoHandedPowerModifier:
             case RE::ActorValue::kMarksmanPowerModifier:

@@ -13,11 +13,11 @@ namespace PlayerHUDResistancesPresets
     };
 
     inline constexpr std::array<Preset, 5> kPresets{ {
-        { "1 - Default" },
-        { "2 - Compact" },
-        { "3 - Vivid"   },
-        { "4 - Minimal" },
-        { "5 - Halo"    },
+        { "Default" },
+        { "Compact" },
+        { "Vivid"   },
+        { "Minimal" },
+        { "Halo"    },
     } };
 
     inline void ApplyDefault(Settings& s)

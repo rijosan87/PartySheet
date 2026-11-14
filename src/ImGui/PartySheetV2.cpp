@@ -1372,11 +1372,18 @@ namespace PartySheetV2 {
         };
 
         float cY = combatStartY;
+        bool  damageHovered = false;
         for (const auto& row : combatRows) {
             DrawStatRow(combatOriginX, cY, dcColW,
                 row.label.c_str(), row.value, row.rangeMax, row.isPercent, row.isMult, row.tex);
+            if (&row == &combatRows[0] && !defModalOpen && ImGui::IsWindowHovered() &&
+                ImGui::IsMouseHoveringRect(ImVec2(combatOriginX, cY), ImVec2(combatOriginX + dcColW, cY + dRowH)))
+                damageHovered = true;
             cY += dRowH + dGapY;
         }
+
+        if (damageHovered && !actor->IsPlayerRef())
+            Tip::DrawDamageTooltip(combatRows[0].label, stats.damageBreakdown, sc);
 
         float dcUsedH = std::max(dY, cY) - dcOrigin.y;
         ImGui::Dummy(ImVec2(size.x, dcUsedH));

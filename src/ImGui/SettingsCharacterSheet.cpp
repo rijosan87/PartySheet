@@ -3,6 +3,7 @@
 #include "../../includes/Settings.h"
 #include "../../includes/BackgroundManager.h"
 #include "../../includes/Utils/ColorUtils.h"
+#include "../../includes/Utils/SettingsWidgets.h"
 #include "../../includes/CharacterSheetPresets.h"
 #include <imgui.h>
 
@@ -51,11 +52,8 @@ namespace ImGuiRenderer::SettingsUI {
                     CharacterSheetPresets::kPresets[1].name,
                     CharacterSheetPresets::kPresets[2].name
                 };
-                ImGui::SetNextItemWidth(300.0f);
-                if (ImGui::Combo("##csPreset", &presetIndex, presetNames, (int)CharacterSheetPresets::kPresets.size()))
+                if (SettingsWidgets::SegmentedPicker("##csPreset", &presetIndex, presetNames, (int)CharacterSheetPresets::kPresets.size()))
                     CharacterSheetPresets::ApplyPreset(*settings, (std::size_t)presetIndex);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
             }
             ImGui::Spacing();
             ImGui::Separator();
@@ -91,8 +89,6 @@ namespace ImGuiRenderer::SettingsUI {
                         ImGui::Spacing();
                         ImGui::SetNextItemWidth(260.0f);
                         ImGui::SliderFloat("Zoom (distance)##CSCam", &settings->csCameraZoom, 0.0f, 100.0f, "%.0f");
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("How far the camera sits from you when the Character Sheet opens.\nLow = tight closeup, High = pulled back.");
                     }
                 }
                 ImGui::Unindent(10);

@@ -171,12 +171,12 @@ namespace ImGuiRenderer::SettingsUI {
                 settings->Save();
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Presets");
+            ImGui::TextDisabled("Preset Styles");
             ImGui::Spacing();
             {
                 static int presetIndex = 0;
                 static constexpr const char* presetNames[] = {
-                    "1 - Animated Portrait", "2 - Custom Bars", "3 - Scaled Bars", "4 - Level Emblem", "5 - No Portrait", "6 - Halo", "7 - Curved Status"
+                    "Animated Portrait", "Custom Bars", "Scaled Bars", "Level Emblem", "No Portrait", "Halo", "Curved Status"
                 };
                 // Combo reads every advertised label when opened; keep both arrays in sync.
                 static_assert(IM_ARRAYSIZE(presetNames) == PlayerHUDBarPresets::kPresets.size());
@@ -185,10 +185,8 @@ namespace ImGuiRenderer::SettingsUI {
                     logger::debug("[PlayerHUDPreset] labels={}, presets={}", IM_ARRAYSIZE(presetNames), PlayerHUDBarPresets::kPresets.size());
                     loggedPresetCounts = true;
                 }
-                ImGui::SetNextItemWidth(300.0f);
-                if (ImGui::Combo("##phStatusPreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
+                if (SettingsWidgets::SegmentedPicker("##phStatusPreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
                     PlayerHUDBarPresets::ApplyPreset(*settings, static_cast<std::size_t>(presetIndex));
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
             }
 
             ImGui::Spacing();
@@ -204,7 +202,7 @@ namespace ImGuiRenderer::SettingsUI {
 
                 if (settings->playerHudMode < 1) settings->playerHudMode = 1;
                 int modeIndex = settings->playerHudMode - 1;
-                if (ImGui::Combo("Mode##phMode", &modeIndex, modeItems, 2))
+                if (SettingsWidgets::SegmentedPicker("HUD Mode##phMode", &modeIndex, modeItems, 2))
                     settings->playerHudMode = modeIndex + 1;
 
                 if (settings->playerHudMode == 2) {
@@ -223,8 +221,6 @@ namespace ImGuiRenderer::SettingsUI {
                 if (settings->phDynamicBars) {
                     ImGui::Indent(20);
                     ImGui::Checkbox("Keep Portrait Visible##phPortAlways", &settings->phPortraitAlwaysVisible);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Portrait stays at full opacity when the bars fade out,\nkeeping it as a fixed anchor instead of vanishing with them.");
                     ImGui::Unindent(20);
                 }
 
@@ -249,9 +245,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::Checkbox("Lvl Badge##phLvlBadge", &settings->phLevelBadgeOnPortrait);
                     ImGui::TableSetColumnIndex(1); ImGui::Checkbox("Regen Pip##phRegenPip", &settings->phShowRegenPip);
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show regen rate (dot + +X.X/s) inside the left edge of each bar");
                     ImGui::TableSetColumnIndex(2); ImGui::Checkbox("Stat Bonus##phShowFortify", &settings->phShowFortify);
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show net stat modifier outside the left of each bar: green +N for buffs, red -N for penalties");
                     ImGui::TableSetColumnIndex(3); ImGui::Checkbox("Bar Icons##phBarIcons", &settings->phShowBarIcons);
                     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show a health/magicka/stamina icon left of each bar.\nOnly appears when the Portrait is hidden (no room otherwise).");
 
@@ -448,7 +442,6 @@ namespace ImGuiRenderer::SettingsUI {
                         char offLabel[48];
                         snprintf(offLabel, sizeof(offLabel), "Bar Text Y Offset %.1f px", settings->phBarTextOffsetY * 0.1f);
                         ImGui::SliderInt("##phBarTextOffsetY", &settings->phBarTextOffsetY, -100, 100, offLabel);
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bar icons grow by the absolute offset and stay centered on their bars.");
                     }
                 }
                 if (ImGui::SmallButton("Reset Bar Positions##phResetOffsets")) {
@@ -511,75 +504,48 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::Text("Build Your Own Bar");
                     ImGui::Spacing();
 
-                    ImGui::TextDisabled("Fill");
-                    ImGui::Combo("Style##phVisualStyle", &settings->phBarVisualStyle, visualStyles, 4);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Flat: Solid color\nGradient: Left-to-right fade\nGlass: adds a top sheen\nSegmented: divider lines by stat points\nAll styles support end shapes and the depth passes");
+                    SettingsWidgets::SegmentedPicker("Fill Style##phVisualStyle", &settings->phBarVisualStyle, visualStyles, 4);
                     if (settings->phBarVisualStyle == 3) {
                         ImGui::SliderInt("Points per Segment##phBarSegPts", &settings->phBarSegmentPoints, 25, 500);
                         if (ImGui::IsItemHovered())
                             ImGui::SetTooltip("Stat points per segment cell; segment count = max stat / this value");
                         ImGui::SliderInt("Segment Gap##phBarSegGap", &settings->phBarSegmentGap, 0, 10);
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("Gap carved between segments (px); 0 = hairline notch lines");
                     }
                     ImGui::SliderFloat("Radius##phBars", &settings->phBarCornerRadius, 0.0f, 15.0f, "%.1f");
 
                     ImGui::Spacing();
                     ImGui::TextDisabled("Depth & Light");
                     ImGui::Checkbox("Track##phBars", &settings->phBarTrack);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Dark recessed well behind the fill (empty part of the bar)");
                     ImGui::SameLine();
                     ImGui::Checkbox("Depth##phBars", &settings->phBarDepthShading);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Vertical shading on the fill: lit top edge, deep bottom");
                     ImGui::SameLine();
                     ImGui::Checkbox("Edge Light##phBars", &settings->phBarEdgeLight);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Brightness that follows the current value's edge");
                     ImGui::SameLine();
                     ImGui::Checkbox("Tip##phBars", &settings->phBarTip);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Hot bright strip right at the fill edge");
                     ImGui::SameLine();
                     ImGui::Checkbox("Glow Effect##phBars", &settings->phBarGlow);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Outer bloom around the filled part");
 
                     ImGui::Spacing();
                     ImGui::TextDisabled("Borders");
                     ImGui::SliderInt("Outer Width##phBarOB", &settings->phBarOuterBorderWidth, 0, 6);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("0 = no outer border");
                     {
                         ImVec4 c = ColorUtils::ArgbToVec4(settings->phBarOuterBorderColor);
                         if (ImGui::ColorEdit4("Outer Color##phBarOBC", reinterpret_cast<float*>(&c), kPHArgb))
                             settings->phBarOuterBorderColor = ColorUtils::Vec4ToArgb(c);
                     }
                     ImGui::SliderInt("Inner Width##phBarIB", &settings->phBarInnerBorderWidth, 0, 6);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("0 = no inner border");
                     {
                         ImVec4 c = ColorUtils::ArgbToVec4(settings->phBarInnerBorderColor);
                         if (ImGui::ColorEdit4("Inner Color##phBarIBC", reinterpret_cast<float*>(&c), kPHArgb))
                             settings->phBarInnerBorderColor = ColorUtils::Vec4ToArgb(c);
                     }
 
-                    ImGui::Spacing();
-                    ImGui::TextDisabled("Shape");
-                    ImGui::Combo("Right End##phBars", &settings->phBarEndStyle, rightEndStyles, 5);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Shape of right bar ending:\nNormal: Standard rectangle\nSlant Forward/Back: Diagonal cut\nArrow: Pointed chevron\nDiamond: Diamond point");
-                    ImGui::Combo("Left End##phBars", &settings->phBarEndStyleLeft, leftEndStyles, 5);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Shape of left bar ending:\nNormal: Standard rectangle\nSlant Forward/Back: Diagonal cut\nArrow: Pointed chevron\nDiamond: Diamond point");
+                    SettingsWidgets::SegmentedPicker("Right End##phBars", &settings->phBarEndStyle, rightEndStyles, 5);
+                    SettingsWidgets::SegmentedPicker("Left End##phBars", &settings->phBarEndStyleLeft, leftEndStyles, 5);
 
                     ImGui::Spacing();
                     ImGui::TextDisabled("Motion");
                     ImGui::Checkbox("Smooth Drain##phBars", &settings->phBarSmoothDrain);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Damage drains the bar smoothly (~250ms) so the lit edge travels;\nheals still fill near-instantly");
                 }
 
             }
@@ -609,8 +575,8 @@ namespace ImGuiRenderer::SettingsUI {
                                        : settings->phPortraitIndex > 0   ? PortraitStyle::Custom
                                                                           : PortraitStyle::Auto;
                 int styleInt = static_cast<int>(style);
-                if (ImGui::Combo("Portrait Style##phPortraitStyle", &styleInt,
-                                  "Auto\0Custom Image\0Animated\0Level Emblem\0")) {
+                static const char* portraitStyles[] = { "Auto", "Custom Image", "Animated", "Level Emblem" };
+                if (SettingsWidgets::SegmentedPicker("Portrait Style##phPortraitStyle", &styleInt, portraitStyles, 4)) {
                     switch (static_cast<PortraitStyle>(styleInt)) {
                     case PortraitStyle::Animated:
                         settings->phPortraitMode = 0;
@@ -632,8 +598,6 @@ namespace ImGuiRenderer::SettingsUI {
                     }
                     style = static_cast<PortraitStyle>(styleInt);
                 }
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Auto: name/FormID portrait.\nCustom Image: Portrait-N.png override.\nAnimated: player-sprites.png sheet.\nLevel Emblem: stylized level badge.");
 
                 ImGui::Indent(20.0f);
                 if (style == PortraitStyle::Animated) {
@@ -655,17 +619,11 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Unindent(20.0f);
 
                 const char* portraitShapes[] = { "Square", "Circle", "Diamond" };
-                ImGui::Combo("Portrait Shape##phPortraitShape", &settings->phPortraitShape, portraitShapes, 3);
+                SettingsWidgets::SegmentedPicker("Portrait Shape##phPortraitShape", &settings->phPortraitShape, portraitShapes, 3);
 
                 ImGui::Checkbox("Hit Shake##phHitShake", &settings->phPortraitHitShake);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Briefly shakes the portrait horizontally when taking a hit");
                 ImGui::SameLine();
                 ImGui::Checkbox("Hit Flash/Pulse##phHitFlash", &settings->phPortraitHitFlash);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Red flash on the portrait when taking an unblocked hit.\n"
-                                      "Also controls the pulsing red low-health warning below 80%% HP\n"
-                                      "(faster with a border below 25%%).");
 
                 ImGui::Spacing();
                 ImGui::Separator();
@@ -771,17 +729,15 @@ namespace ImGuiRenderer::SettingsUI {
             if (settings->enablePlayerEquipWidget) {
                 ImGui::Spacing();
                 ImGui::Separator();
-                ImGui::TextDisabled("Presets");
+                ImGui::TextDisabled("Preset Styles");
                 ImGui::Spacing();
                 {
                     static int presetIndex = 0;
                     static constexpr const char* presetNames[] = {
-                        "1 - Default", "2 - Compact", "3 - Minimal", "4 - Weapon Focus"
+                        "Default", "Compact", "Minimal", "Weapon Focus"
                     };
-                    ImGui::SetNextItemWidth(300.0f);
-                    if (ImGui::Combo("##pePreset", &presetIndex, presetNames, (int)PlayerHUDEquipmentPresets::kPresets.size()))
+                    if (SettingsWidgets::SegmentedPicker("##pePreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
                         PlayerHUDEquipmentPresets::ApplyPreset(*settings, static_cast<std::size_t>(presetIndex));
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
                 }
 
                 ImGui::Spacing();
@@ -814,7 +770,7 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Spacing();
 
                 const char* layoutItems[] = { "Row", "Column", "Grid (2-col)" };
-                ImGui::Combo("Layout##peLayout", &settings->peLayout, layoutItems, 3);
+                SettingsWidgets::SegmentedPicker("Layout##peLayout", &settings->peLayout, layoutItems, 3);
 
                 if (ImGui::SliderInt("Pos X##pePosX", &settings->pePosX, 0, static_cast<int>(displaySize.x)))
                     PlayerHUDEquipment::ForceReposition();
@@ -849,9 +805,7 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Spacing();
                 {
                     static const char* chargeStyleItems[] = { "Number Badge", "Vertical Bar", "Off" };
-                    ImGui::Combo("Enchant Charge Display##peChargeStyle", &settings->peChargeStyle, chargeStyleItems, 3);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("How the enchant charge on the equipped weapon/shield is shown.");
+                    SettingsWidgets::SegmentedPicker("Enchant Charge Display##peChargeStyle", &settings->peChargeStyle, chargeStyleItems, 3);
                 }
 
                 ImGui::Checkbox("Custom Slot Background##peIBgTex", &settings->peUseIconBgTexture);
@@ -875,8 +829,7 @@ namespace ImGuiRenderer::SettingsUI {
                             settings->peIconBgColor = ColorUtils::Vec4ToArgb(c);
                         if (!settings->peUseIconBgTexture) {
                             const char* bgStyles[] = { "Solid", "Fade" };
-                            ImGui::SetNextItemWidth(120.0f);
-                            ImGui::Combo("Style##peIconBgStyle", &settings->peIconBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
+                            SettingsWidgets::SegmentedPicker("Background Style##peIconBgStyle", &settings->peIconBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
                             if (settings->peIconBgStyle == 1) {
                                 const char* fadeModes[] = { "Fade Right", "Fade Left", "Fade Down", "Fade Up",
                                                             "Center Out", "Edge Origin", "Diagonal TL", "Diagonal BL" };
@@ -893,8 +846,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TextDisabled("Icon Source");
                     {
                         static const char* styleItems[] = { "Item Art", "PNG Icon Injector" };
-                        // Glyph resolve happens in GatherSlots, so a style flip must force a regather.
-                        if (ImGui::Combo("Icon Style##peIconStyle", &settings->peIconStyle, styleItems, 2))
+                        if (SettingsWidgets::SegmentedPicker("Icon Style##peIconStyle", &settings->peIconStyle, styleItems, 2))
                             PlayerHUDEquipment::MarkSlotsDirty();
                     }
                     if (!PNGIIBridge::Available()) {
@@ -907,8 +859,6 @@ namespace ImGuiRenderer::SettingsUI {
                         if (ImGui::ColorEdit4("Glyph Color##peGlyphColor", reinterpret_cast<float*>(&c), kArgb))
                             settings->peGlyphColor = ColorUtils::Vec4ToArgb(c);
                         ImGui::Checkbox("Tint by Element##peGlyphTint", &settings->peGlyphTintByElement);
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("Poison or enchant element color replaces the glyph color (Aura palette).");
                     }
 
                     ImGui::Spacing();
@@ -939,15 +889,9 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::Spacing();
                     ImGui::TextDisabled("Icon FX (spells + PNG Icon Injector)");
                     ImGui::Checkbox("Duotone##peSpellDuo", &settings->peSpellIconDuotone);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Apply a lit-top → shaded-bottom gradient to spell and shout icons.");
                     ImGui::SameLine();
                     ImGui::Checkbox("Shadow##peSpellSh", &settings->peSpellIconShadow);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Add the same rim-light + soft shadow stack used by other HUD icons.");
                     ImGui::Checkbox("Outline##peSpellOl", &settings->peSpellIconOutline);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Draw a dark contour ring around the spell icon silhouette.");
                     if (settings->peSpellIconOutline) {
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         ImGui::SliderInt("##peSpellOlW", &settings->peSpellIconOutlineWidth, 1, 3, "Outline Width %d px");
@@ -968,7 +912,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::SliderInt("##peSpacing", &settings->peSlotSpacing, 0, 100, "Slot Spacing %d");
                     if (settings->peIconBgEnabled || settings->peUseIconBgTexture) {
                         static const char* shapeItems[] = { "Rectangle", "Circle", "Diamond" };
-                        ImGui::Combo("Backplate Shape##peIBgShape", &settings->peIconBgShape, shapeItems, 3);
+                        SettingsWidgets::SegmentedPicker("Backplate Shape##peIBgShape", &settings->peIconBgShape, shapeItems, 3);
                     }
                     if (settings->peUseIconBgTexture) {
                         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -976,14 +920,10 @@ namespace ImGuiRenderer::SettingsUI {
                     }
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##peSlotOffsetX1", &settings->peSlotOffsetX1, -200, 200, "2nd Slot Offset X %d px");
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Nudges the 2nd drawn slot (after slot order) without affecting layout spacing.");
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##peSlotOffsetY1", &settings->peSlotOffsetY1, -200, 200, "2nd Slot Offset Y %d px");
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##peSlotOffsetX2", &settings->peSlotOffsetX2, -200, 200, "3rd Slot Offset X %d px");
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Nudges the 3rd drawn slot (after slot order) without affecting layout spacing.");
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##peSlotOffsetY2", &settings->peSlotOffsetY2, -200, 200, "3rd Slot Offset Y %d px");
                     EndAppearanceGroup();
@@ -1005,8 +945,6 @@ namespace ImGuiRenderer::SettingsUI {
 
                 if (BeginAppearanceGroup("##PEAuraGrp", "Aura")) {
                     ImGui::Checkbox("Show Aura##peShowAura", &settings->peShowAura);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Master toggle for the weapon poison/enchant edge ring and inner glow wash.");
                     ImGui::BeginDisabled(!settings->peShowAura);
                     c = ColorUtils::ArgbToVec4(settings->peAuraPoisonColor);
                     if (SettingsWidgets::ColorEdit4("Poison##peAuraPoison", reinterpret_cast<float*>(&c), kArgb))
@@ -1023,8 +961,6 @@ namespace ImGuiRenderer::SettingsUI {
                     c = ColorUtils::ArgbToVec4(settings->peAuraOtherColor);
                     if (SettingsWidgets::ColorEdit4("Enchanted (Other)##peAuraOther", reinterpret_cast<float*>(&c), kArgb))
                         settings->peAuraOtherColor = ColorUtils::Vec4ToArgb(c);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Alpha controls glow/ring intensity, not just opacity.");
                     ImGui::EndDisabled();
                     EndAppearanceGroup();
                 }
@@ -1112,17 +1048,15 @@ namespace ImGuiRenderer::SettingsUI {
             if (settings->enablePlayerResistWidget) {
                 ImGui::Spacing();
                 ImGui::Separator();
-                ImGui::TextDisabled("Presets");
+                ImGui::TextDisabled("Preset Styles");
                 ImGui::Spacing();
                 {
                     static int presetIndex = 0;
                     static constexpr const char* presetNames[] = {
-                        "1 - Default", "2 - Compact", "3 - Vivid", "4 - Minimal", "5 - Halo"
+                        "Default", "Compact", "Vivid", "Minimal", "Halo"
                     };
-                    ImGui::SetNextItemWidth(300.0f);
-                    if (ImGui::Combo("##prPreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
+                    if (SettingsWidgets::SegmentedPicker("##prPreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
                         PlayerHUDResistancesPresets::ApplyPreset(*settings, static_cast<std::size_t>(presetIndex));
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
                 }
 
                 ImGui::Spacing();
@@ -1131,19 +1065,15 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Spacing();
 
                 const char* prLayoutItems[] = { "Vertical", "Horizontal", "Radial" };
-                ImGui::Combo("Layout##prLayout", &settings->prLayout, prLayoutItems, 3);
+                SettingsWidgets::SegmentedPicker("Layout##prLayout", &settings->prLayout, prLayoutItems, 3);
 
                 if (settings->prLayout == 2) {
                     ImGui::SliderInt("Radius##prRadialRadius", &settings->prRadialRadius, 30, 200, "%d px");
                     ImGui::SliderInt("Start Angle##prRadialStartAngle", &settings->prRadialStartAngle, -180, 180, "%d\xc2\xb0");
                     ImGui::Checkbox("Value Rings##prRadialShowRing", &settings->prRadialShowRing);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Draw the value arc ring around each icon.\nTurn off to use Icon Fill (or nothing) as the meter instead.");
                 }
 
                 ImGui::Checkbox("Show Values##prShowValue", &settings->prShowValue);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Show the numeric value next to/under each icon.\nOff = icons only.");
                 ImGui::SameLine(0.0f, 16.0f);
                 ImGui::Checkbox("Icon Fill##prIconFill", &settings->prIconFill);
                 if (ImGui::IsItemHovered())
@@ -1178,8 +1108,7 @@ namespace ImGuiRenderer::SettingsUI {
                             settings->prRibbonColor = ColorUtils::Vec4ToArgb(c);
                         {
                             const char* bgStyles[] = { "Solid", "Fade" };
-                            ImGui::SetNextItemWidth(120.0f);
-                            ImGui::Combo("Style##prRibbonBgStyle", &settings->prRibbonBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
+                            SettingsWidgets::SegmentedPicker("Ribbon BG Style##prRibbonBgStyle", &settings->prRibbonBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
                             if (settings->prRibbonBgStyle == 1) {
                                 const char* fadeModes[] = { "Fade Right", "Fade Left", "Fade Down", "Fade Up",
                                                             "Center Out", "Edge Origin", "Diagonal TL", "Diagonal BL" };
@@ -1264,10 +1193,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::Checkbox("Enable Background##prBgTint", &settings->prBgTintEnabled);
                     if (settings->prBgTintEnabled) {
                         const char* prBgStyleItems[] = { "Flat Tint", "Layered Chip" };
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::Combo("Style##prBgStyle", &settings->prBgStyle, prBgStyleItems, 2);
-                        if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("Flat Tint: dim per-resist colored fill (classic).\nLayered Chip: dark gradient card with shadow, double border\nand an element-colored accent strip.");
+                        SettingsWidgets::SegmentedPicker("Background Style##prBgStyle", &settings->prBgStyle, prBgStyleItems, 2);
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         ImGui::SliderInt("##prCornerRadius", &settings->prCornerRadius, 0, 12, "Corner Radius %d");
 
@@ -1305,7 +1231,6 @@ namespace ImGuiRenderer::SettingsUI {
                             ImGui::Checkbox("Color Accent Strip##prChipAcc", &settings->prChipAccent);
                             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Thin strip along the chip bottom in the resist's color.\nBuff/debuff states still show their strip when this is off.");
                             ImGui::Checkbox("Neutral Value Text##prChipTxt", &settings->prChipNeutralText);
-                            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ivory value text instead of the resist color.");
                         }
                     }
 
@@ -1335,7 +1260,7 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Spacing();
 
                 const char* presLayoutItems[] = { "Vertical", "Horizontal" };
-                ImGui::Combo("Layout##presLayout", &settings->presLayout, presLayoutItems, 2);
+                SettingsWidgets::SegmentedPicker("Layout##presLayout", &settings->presLayout, presLayoutItems, 2);
                 if (ImGui::SliderInt("Pos X##presPosX", &settings->presPosX, 0, static_cast<int>(displaySize.x)))
                     PlayerHUDResources::ForceReposition();
                 if (ImGui::SliderInt("Pos Y##presPosY", &settings->presPosY, 0, static_cast<int>(displaySize.y)))
@@ -1359,8 +1284,6 @@ namespace ImGuiRenderer::SettingsUI {
                 if (settings->presShowTime) {
                     ImGui::Indent(20);
                     ImGui::Checkbox("24-Hour Clock##pres24Hour", &settings->pres24HourTime);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("On: 19:05. Off: 7:05 PM.");
                     ImGui::Unindent(20);
                 }
 
@@ -1437,8 +1360,7 @@ namespace ImGuiRenderer::SettingsUI {
                 }
                 {
                     const char* bgStyles[] = { "Solid", "Fade" };
-                    ImGui::SetNextItemWidth(120.0f);
-                    ImGui::Combo("Style##presBgStyle", &settings->presBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
+                    SettingsWidgets::SegmentedPicker("Background Style##presBgStyle", &settings->presBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
                     if (settings->presBgStyle == 1) {
                         const char* fadeModes[] = { "Fade Right", "Fade Left", "Fade Down", "Fade Up",
                                                     "Center Out", "Edge Origin", "Diagonal TL", "Diagonal BL" };
@@ -1483,8 +1405,7 @@ namespace ImGuiRenderer::SettingsUI {
                     }
                     {
                         const char* bgStyles[] = { "Solid", "Fade" };
-                        ImGui::SetNextItemWidth(120.0f);
-                        ImGui::Combo("Style##presLocBgStyle", &settings->presLocBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
+                        SettingsWidgets::SegmentedPicker("Background Style##presLocBgStyle", &settings->presLocBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
                         if (settings->presLocBgStyle == 1) {
                             const char* fadeModes[] = { "Fade Right", "Fade Left", "Fade Down", "Fade Up",
                                                         "Center Out", "Edge Origin", "Diagonal TL", "Diagonal BL" };
@@ -1541,18 +1462,16 @@ namespace ImGuiRenderer::SettingsUI {
             if (settings->enablePlayerSurvivalWidget) {
                 ImGui::Spacing();
                 ImGui::Separator();
-                ImGui::TextDisabled("Presets");
+                ImGui::TextDisabled("Preset Styles");
                 ImGui::Spacing();
                 {
                     static int presetIndex = 0;
                     static constexpr const char* presetNames[] = {
-                        "1 - Default", "2 - Compact", "3 - Vivid", "4 - Minimal", "5 - Arc"
+                        "Default", "Compact", "Vivid", "Minimal", "Arc"
                     };
                     static_assert(IM_ARRAYSIZE(presetNames) == PlayerHUDSurvivalPresets::kPresets.size());
-                    ImGui::SetNextItemWidth(300.0f);
-                    if (ImGui::Combo("##phSurvPreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
+                    if (SettingsWidgets::SegmentedPicker("##phSurvPreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
                         PlayerHUDSurvivalPresets::ApplyPreset(*settings, static_cast<std::size_t>(presetIndex));
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
                 }
 
                 ImGui::Spacing();
@@ -1654,16 +1573,10 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::TextDisabled("Items (Show / Hide)");
                 ImGui::Spacing();
                 ImGui::Checkbox("Label##phSurvShowLabel", &settings->phSurvivalShowLabel);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Show the need name (Cold / Hunger / Fatigue).");
                 ImGui::SameLine();
                 ImGui::Checkbox("Stage##phSurvShowStage", &settings->phSurvivalShowStage);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Show the stage description (Warm / Starving / etc.).");
                 ImGui::SameLine();
                 ImGui::Checkbox("Alarm Pulse##phSurvAlarmPulse", &settings->phSurvivalAlarmPulse);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Pulsing alarm ring around a need's card once it reaches its final stage.");
                 ImGui::Checkbox("Percentage##phSurvPercentage", &settings->phSurvivalShowPercentage);
                 ImGui::SetNextItemWidth(200.0f);
                 ImGui::SliderInt("##phSurvivalHideBelowStage", &settings->phSurvivalHideBelowStage, 0, 5, "Auto-Hide Below Stage %d");
@@ -1829,17 +1742,15 @@ namespace ImGuiRenderer::SettingsUI {
             if (settings->enablePlayerDiseaseWidget) {
                 ImGui::Spacing();
                 ImGui::Separator();
-                ImGui::TextDisabled("Presets");
+                ImGui::TextDisabled("Preset Styles");
                 ImGui::Spacing();
                 {
                     static int presetIndex = 0;
                     static constexpr const char* presetNames[] = {
-                        "1 - Default", "2 - Compact", "3 - Minimal", "4 - Grouped"
+                        "Default", "Compact", "Minimal", "Grouped"
                     };
-                    ImGui::SetNextItemWidth(300.0f);
-                    if (ImGui::Combo("##phDiseasePreset", &presetIndex, presetNames, 4))
+                    if (SettingsWidgets::SegmentedPicker("##phDiseasePreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
                         PlayerHUDDiseasePresets::ApplyPreset(*settings, static_cast<std::size_t>(presetIndex));
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
                 }
 
                 ImGui::Spacing();
@@ -1848,9 +1759,9 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Spacing();
 
                 static const char* kStyles[] = { "Standard", "Compact" };
-                ImGui::Combo("Style##phDiseaseStyle", &settings->phDiseaseStyle, kStyles, 2);
+                SettingsWidgets::SegmentedPicker("Card Style##phDiseaseStyle", &settings->phDiseaseStyle, kStyles, 2);
                 static const char* kDirs[] = { "Horizontal", "Vertical" };
-                ImGui::Combo("Direction##phDiseaseDir", &settings->phDiseaseDirection, kDirs, 2);
+                SettingsWidgets::SegmentedPicker("Direction##phDiseaseDir", &settings->phDiseaseDirection, kDirs, 2);
 
                 ImGui::Checkbox("Grouped##phDiseaseGrouped", &settings->phDiseaseGrouped);
                 ImGui::SameLine(); ImGui::TextDisabled("(?)");
@@ -2054,8 +1965,6 @@ namespace ImGuiRenderer::SettingsUI {
             int delayInt = static_cast<int>(settings->hvFadeOutDelay);
             if (ImGui::SliderInt("Fade-Out Delay (sec)##hvDelay", &delayInt, 1, 60))
                 settings->hvFadeOutDelay = static_cast<float>(delayInt);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("How long a widget stays fully visible after its last trigger");
 
             ImGui::SliderFloat("Fade Duration (sec)##hvFadeDur", &settings->hvFadeDuration, 0.1f, 3.0f, "%.1f");
             if (ImGui::IsItemHovered())

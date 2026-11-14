@@ -2,6 +2,7 @@
 #include "../../includes/Settings.h"
 #include "../../includes/SettingsIni.h"
 #include "../../includes/Utils/ColorUtils.h"
+#include "../../includes/Utils/SettingsWidgets.h"
 #include "../../includes/ImGui/WidgetPinnedItemsInternal.h"
 #include "../../includes/PinnedItemsPresets.h"
 
@@ -42,13 +43,11 @@ namespace ImGuiRenderer::SettingsUI {
                 const char* presetNames[] = {
                     PinnedItemsPresets::kPresets[0].name,
                     PinnedItemsPresets::kPresets[1].name,
-                    PinnedItemsPresets::kPresets[2].name
+                    PinnedItemsPresets::kPresets[2].name,
+                    PinnedItemsPresets::kPresets[3].name
                 };
-                ImGui::SetNextItemWidth(300.0f);
-                if (ImGui::Combo("##ptPreset", &presetIndex, presetNames, (int)PinnedItemsPresets::kPresets.size()))
+                if (SettingsWidgets::SegmentedPicker("##ptPreset", &presetIndex, presetNames, (int)PinnedItemsPresets::kPresets.size()))
                     PinnedItemsPresets::ApplyPreset(*settings, (std::size_t)presetIndex);
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Applies immediately for preview.\nClick Save Settings to persist.");
             }
             ImGui::Spacing();
 
@@ -144,20 +143,17 @@ namespace ImGuiRenderer::SettingsUI {
 
                 {
                     const char* dirItems[] = { "Column", "Row" };
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::Combo("Direction##ptDirection", &settings->ptDirection, dirItems, 2);
+                    SettingsWidgets::SegmentedPicker("Direction##ptDirection", &settings->ptDirection, dirItems, 2);
                 }
                 {
                     const char* styleItems[] = { "Inline", "Stacked" };
-                    ImGui::SetNextItemWidth(-1);
                     if (settings->ptDirection == 1) ImGui::BeginDisabled();
-                    ImGui::Combo("Card Style##ptCardStyle", &settings->ptCardStyle, styleItems, 2);
+                    SettingsWidgets::SegmentedPicker("Card Style##ptCardStyle", &settings->ptCardStyle, styleItems, 2);
                     if (settings->ptDirection == 1) ImGui::EndDisabled();
                 }
                 {
                     const char* countStyles[] = { "Count", "Badge" };
-                    ImGui::SetNextItemWidth(-1);
-                    ImGui::Combo("Count Style##ptCountStyle", &settings->ptCountStyle, countStyles, 2);
+                    SettingsWidgets::SegmentedPicker("Count Style##ptCountStyle", &settings->ptCountStyle, countStyles, 2);
                 }
                 ImGui::SliderInt("Icon Size##ptIconSize", &settings->ptIconSize, 48, 128);
                 ImGui::SliderInt("Icon Border##ptIconBorderWidth", &settings->ptIconBorderWidth, 0, 6);

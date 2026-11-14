@@ -13,10 +13,10 @@ namespace PlayerHUDDiseasePresets
     };
 
     inline constexpr std::array<Preset, 4> kPresets{ {
-        { "1 - Default" },
-        { "2 - Compact" },
-        { "3 - Minimal" },
-        { "4 - Grouped" },
+        { "Default" },
+        { "Compact" },
+        { "Minimal" },
+        { "Grouped" },
     } };
 
     inline void ApplyDefault(Settings& s)
