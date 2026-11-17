@@ -127,3 +127,8 @@ std::string LocalizationManager::GetLabel(const std::string& key) const {
     logger::debug("Missing translation for key: {}", key);
     return key;
 }
+std::string LocalizationManager::FindLabel(const std::string& key) const {
+    if (auto it = labels.find(key); it != labels.end()) return it->second;
+    if (auto it = englishFallback.find(key); it != englishFallback.end()) return it->second;
+    return {};
+}

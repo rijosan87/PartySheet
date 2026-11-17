@@ -10,6 +10,7 @@
 #include "../../includes/ImGui/PlayerHUDSurvival.h"
 #include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/Utils/EffectAttribution.h"
+#include "../../includes/Utils/PerkModifiers.h"
 #include "../../includes/ImGui/PartySheetV2Tooltip.h"
 
 #include <imgui.h>
@@ -1105,6 +1106,13 @@ namespace PartySheetV2 {
             }
         };
 
+        const bool skillPool = EffectCategories::GetSkillTarget(pool) == pool;
+        static std::string s_secEquip, s_secEffects;
+        if (s_secEquip.empty()) {
+            s_secEquip   = LocalizationManager::Get("PartySheetV2.SectionEquipment");
+            s_secEffects = LocalizationManager::Get("PartySheetV2.SectionEffects");
+        }
+
         for (const auto& rec : EffectAttribution::Get(actor)) {
             auto* base = rec.mgef;
             AV av = rec.primaryAV;
@@ -1118,13 +1126,15 @@ namespace PartySheetV2 {
             const bool hostile = rec.hostile;
             TipRow r;
             r.name = EffectAttribution::OwnerName(rec);
-            r.type = EffectAttribution::KindLabel(rec.kind);
             r.icon = EffectAttribution::OwnerIcon(rec);
+            const bool gear = rec.kind == EffectAttribution::OwnerKind::Equipment;
+            if (skillPool) r.section = gear ? s_secEquip : s_secEffects;
+            if (!(skillPool && gear)) r.type = EffectAttribution::KindLabel(rec.kind);
             if (auto origin = EffectAttribution::OwnerOrigin(rec); !origin.empty())
-                r.type += " \xC2\xB7 " + origin;
+                r.type += (r.type.empty() ? "" : " \xC2\xB7 ") + origin;
 
             if (rec.duration > 0.0f && rec.timeLeft > 0.0f)
-                r.type += " \xC2\xB7 " + FormatTimeLeft(rec.timeLeft);
+                r.type += (r.type.empty() ? "" : " \xC2\xB7 ") + FormatTimeLeft(rec.timeLeft);
 
             r.tone = hostile ? -1 : 1;
             std::string val;
@@ -1137,6 +1147,26 @@ namespace PartySheetV2 {
             auto it = std::find_if(rows.begin(), rows.end(), [&](const TipRow& x) {
                 return x.name == r.name && x.tone == r.tone; });
             if (it == rows.end()) rows.push_back(std::move(r));
+        }
+        if (!skillPool) return rows;
+
+        std::stable_partition(rows.begin(), rows.end(), [](const TipRow& x) { return x.section == s_secEquip; });
+
+        static std::string s_secPerks;
+        if (s_secPerks.empty()) s_secPerks = LocalizationManager::Get("PartySheetV2.SectionPerks");
+        auto* perkIcon = TextureManager::GetPartyIcon("perk");
+        for (const auto& p : PerkModifiers::GetSkillPerks(actor, pool).perks) {
+            TipRow r;
+            r.icon    = perkIcon;
+            r.name    = p.name;
+            r.section = s_secPerks;
+            if (p.maxRank > 1) {
+                char buf[16];
+                snprintf(buf, sizeof(buf), "%d/%d", p.rank, p.maxRank);
+                r.type = buf;
+            }
+            if (!p.description.empty()) r.lines.push_back({ p.description, kTextMuted });
+            rows.push_back(std::move(r));
         }
         return rows;
     }
@@ -1193,6 +1223,27 @@ namespace PartySheetV2 {
         }
         if (stone) rows.push_back(std::move(stoneRow));
         for (auto& r : plain) rows.push_back(std::move(r));
+
+        if (!stoneOnly) {
+            const auto other = PerkModifiers::GetOtherPerks(actor).perks;
+            if (!other.empty()) {
+                static std::string s_secPassive, s_secPerks;
+                if (s_secPassive.empty()) {
+                    s_secPassive = LocalizationManager::Get("PartySheetV2.SectionPassive");
+                    s_secPerks   = LocalizationManager::Get("PartySheetV2.SectionPerks");
+                }
+                for (auto& r : rows) r.section = s_secPassive;
+                auto* perkIcon = TextureManager::GetPartyIcon("perk");
+                for (const auto& p : other) {
+                    TipRow r;
+                    r.icon    = perkIcon;
+                    r.name    = p.name;
+                    r.section = s_secPerks;
+                    r.lines.push_back({ p.description, kTextMuted });
+                    rows.push_back(std::move(r));
+                }
+            }
+        }
         DrawCompactTooltip(title, rows, s_noneTxt, sc);
     }
 
@@ -1332,7 +1383,7 @@ namespace PartySheetV2 {
             bool bad = false;
             for (auto* eff : sp->effects) {
                 if (!eff || !eff->baseEffect) continue;
-                bad = bad || eff->baseEffect->IsDetrimental() || eff->baseEffect->IsHostile();
+                bad = bad || EffectCategories::IsDebuff(eff->baseEffect);
             }
             for (auto* eff : sp->effects) {
                 if (!eff || !eff->baseEffect) continue;

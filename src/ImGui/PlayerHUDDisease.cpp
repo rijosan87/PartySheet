@@ -749,9 +749,7 @@ static void RenderWindow(bool allowDrag)
 
     // Keep the legacy ShowBorder field/INI key for preset compatibility.
     const bool alarmOnCard = ColorUtils::ArgbToVec4(settings->phDiseaseBgColor).w > 0.01f;
-    static const auto alarmStart = std::chrono::steady_clock::now();
-    const float alarmTime = std::chrono::duration<float>(std::chrono::steady_clock::now() - alarmStart).count();
-    const float alarmWave = std::sin(std::fmod(alarmTime, 3.0f) * (2.0f * 3.14159265358979323846f / 3.0f)) * 0.5f + 0.5f;
+    const float alarmWave = UIAnimation::Pulse(2.0f * 3.14159265f / 3.0f, 0.0f, 1.0f);
     auto IsAlarm = [&](const ActiveDisease& d) { return staged && d.maxStage > 1 && d.stage >= d.maxStage; };
     auto DrawAlarm = [&](ImVec2 a, ImVec2 b, float rounding, float fadeAlpha) {
         if (!settings->phDiseaseShowBorder) return;

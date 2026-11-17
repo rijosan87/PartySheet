@@ -90,11 +90,14 @@ add_commonlibsse_plugin(${PROJECT_NAME} MINIMUM_SKSE_VERSION 2.0.17 SOURCES
     src/Utils/HUDDraw.cpp
     src/Utils/IconRenderer.cpp
     src/Utils/EquipmentStatResolver.cpp
+    src/Utils/SpellDamageResolver.cpp
     src/Utils/TraitResolver.cpp
     src/Utils/WornGearStatResolver.cpp
     src/Utils/EffectAttribution.cpp
     src/Utils/LocationUtils.cpp
     src/Utils/PerkModifiers.cpp
+    src/Utils/GearCatalog.cpp
+    src/Utils/GearSwitcher.cpp
     src/ImGui/WidgetStableMount.cpp
     src/ImGui/WidgetHorsePicker.cpp
     src/ImGui/WidgetCollectibles.cpp

@@ -78,7 +78,7 @@ namespace PlayerHUD {
         return (std::max)(1, static_cast<int>(std::lround(ScalePx(static_cast<float>(value)))));
     }
 
-    static float  g_HudAlpha      = 0.0f;
+    static constexpr const char* kHudFadeKey = "ph_hud_fade";
     static bool   g_ForcePos      = false;
     static bool   g_WasInCombat   = false;
     static std::chrono::steady_clock::time_point g_CombatExitTime;
@@ -325,13 +325,13 @@ namespace PlayerHUD {
         const bool  phLowHealth      = ((phHealthPercent < 0.8f && phHealthPercent > 0.0f && settings->phPortraitHitFlash) || isDowned);
         const bool  phCriticalHealth = (phHealthPercent < 0.25f && phHealthPercent > 0.0f) && !isDowned;
         const float phPulseSpeed     = phCriticalHealth ? 5.0f : 2.5f;
-        const float phPulseAlpha     = isDowned ? 0.70f : ((sinf(static_cast<float>(ImGui::GetTime()) * phPulseSpeed) * 0.5f + 0.5f) * 0.4f + 0.1f);
+        const float phPulseAlpha     = isDowned ? 0.70f : UIAnimation::Pulse(phPulseSpeed, 0.1f, 0.5f);
 
         float drawPortSz = portSz;
         if (phCriticalHealth) {
             constexpr float kPulseFreq = 1.8f;
             constexpr float kPulseAmp  = 0.07f;
-            float scale = 1.0f + kPulseAmp * sinf(2.0f * 3.14159265f * kPulseFreq * static_cast<float>(ImGui::GetTime()));
+            float scale = UIAnimation::Pulse(2.0f * 3.14159265f * kPulseFreq, 1.0f - kPulseAmp, 1.0f + kPulseAmp);
             drawPortSz = portSz * scale;
         }
         float portOffset = (drawPortSz - portSz) * 0.5f;
@@ -938,7 +938,7 @@ namespace PlayerHUD {
                 if (s.regen == SurvivalSymptoms::Regen::kStopped) {
                     tint = IM_COL32(207, 233, 255, static_cast<int>(200 * a));
                 } else {
-                    const float pulse = 0.5f + 0.5f * sinf(static_cast<float>(ImGui::GetTime()) * 1.2f);
+                    const float pulse = UIAnimation::Pulse(1.2f, 0.0f, 1.0f);
                     tint = IM_COL32(255, 255, 255, static_cast<int>(255 * a * (0.25f + 0.20f * pulse)));
                 }
                 DrawSlice(x, y, w, h, fillFrac - edgeU, fillFrac, tint, fillTex);
@@ -1072,7 +1072,7 @@ namespace PlayerHUD {
                 if (showBarText) DrawBarText(ax, ay, barW, bh, stats.magicka.current, textMax, dynA);
                 DrawBarIcon(TextureManager::GetPartyIcon("magicka"), bx, by, bh, dynA);
                 if (frac < 0.01f && pulseSettingA > 0) {
-                    float pulseAlpha = (sinf(static_cast<float>(ImGui::GetTime()) * 2.5f) * 0.5f + 0.5f) * 0.3f + 0.05f;
+                    float pulseAlpha = UIAnimation::Pulse(2.5f, 0.05f, 0.35f);
                     std::uint32_t pulseA = static_cast<std::uint32_t>(pulseAlpha * 255 * dynA * (pulseSettingA / 255.0f));
                     if (useCodeBar) {
                         DrawCodeBarPulse(bx, by, barW, bh, (pulseA << 24) | (pulseR << 16) | (pulseG << 8) | pulseB);
@@ -1124,7 +1124,7 @@ namespace PlayerHUD {
                 if (showBarText) DrawBarText(ax, ay, barW, bh, stats.stamina.current, textMax, dynA);
                 DrawBarIcon(TextureManager::GetPartyIcon("stamina"), bx, by, bh, dynA);
                 if (frac < 0.01f && pulseSettingA > 0) {
-                    float pulseAlpha = (sinf(static_cast<float>(ImGui::GetTime()) * 2.5f) * 0.5f + 0.5f) * 0.3f + 0.05f;
+                    float pulseAlpha = UIAnimation::Pulse(2.5f, 0.05f, 0.35f);
                     std::uint32_t pulseA = static_cast<std::uint32_t>(pulseAlpha * 255 * dynA * (pulseSettingA / 255.0f));
                     if (useCodeBar) {
                         DrawCodeBarPulse(bx, by, barW, bh, (pulseA << 24) | (pulseR << 16) | (pulseG << 8) | pulseB);
@@ -1261,30 +1261,20 @@ namespace PlayerHUD {
 
     bool Render() {
         if (MenuUtils::ShouldBlockOverlay()) {
-            g_HudAlpha = 0.0f;
+            UIAnimation::Snap(kHudFadeKey, 0.0f);
             return false;
         }
 
-        static std::chrono::steady_clock::time_point s_lastFadeTick{};
-        const auto nowTick = std::chrono::steady_clock::now();
-        float dt = (s_lastFadeTick.time_since_epoch().count() != 0)
-            ? std::chrono::duration<float>(nowTick - s_lastFadeTick).count()
-            : 0.016f;
-        s_lastFadeTick = nowTick;
-        dt = std::clamp(dt, 0.0f, 0.1f);
-        if (ShouldShow()) {
-            g_HudAlpha = (std::min)(g_HudAlpha + dt * 5.0f, 1.0f);
-        } else {
-            const float dur = (std::max)(0.1f, Settings::GetSingleton()->hvFadeDuration);
-            g_HudAlpha = (std::max)(g_HudAlpha - dt / dur, 0.0f);
-            if (g_HudAlpha <= 0.0f) return false;
-        }
+        constexpr float kHudFadeIn = 0.2f;
+        const float fadeOut = (std::max)(0.1f, Settings::GetSingleton()->hvFadeDuration);
+        const float hudAlpha = UIAnimation::Step(kHudFadeKey, ShouldShow(), kHudFadeIn, fadeOut);
+        if (hudAlpha <= 0.0f) return false;
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        const float eased = g_HudAlpha * g_HudAlpha * (3.0f - 2.0f * g_HudAlpha);
+        const float eased = UIAnimation::SmoothStep(hudAlpha);
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, eased);
         RenderContent(false);
         ImGui::PopStyleVar();

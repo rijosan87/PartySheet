@@ -26,22 +26,6 @@ namespace PartySheet {
     static int g_CurrentPage = 0;
     static constexpr int CARDS_PER_PAGE = 4;
     
-    static void DisablePlayerInput() {
-        if (auto pc = RE::PlayerControls::GetSingleton()) {
-            if (pc->lookHandler) pc->lookHandler->SetInputEventHandlingEnabled(false);
-            if (pc->movementHandler) pc->movementHandler->SetInputEventHandlingEnabled(false);
-            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(false);
-        }
-    }
-    
-    static void EnablePlayerInput() {
-        if (auto pc = RE::PlayerControls::GetSingleton()) {
-            if (pc->lookHandler) pc->lookHandler->SetInputEventHandlingEnabled(true);
-            if (pc->movementHandler) pc->movementHandler->SetInputEventHandlingEnabled(true);
-            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(true);
-        }
-    }
-    
     void Init() {
         g_Visible = false;
     }
@@ -68,12 +52,12 @@ namespace PartySheet {
         g_Visible = !g_Visible;
         
         if (g_Visible && !wasVisible) {
-            DisablePlayerInput();
+            MenuUtils::DisablePlayerInput();
             logger::debug("PartySheet: Opened - player input disabled");
         }
         else if (!g_Visible && wasVisible) {
             if (!ImGuiRenderer::IsVisible()) {
-                EnablePlayerInput();
+                MenuUtils::EnablePlayerInput();
                 logger::debug("PartySheet: Closed - player input enabled");
             } else {
                 logger::debug("PartySheet: Closed but Settings open - input stays disabled");
@@ -94,7 +78,7 @@ namespace PartySheet {
         }
         
         g_Visible = true;
-        DisablePlayerInput();
+        MenuUtils::DisablePlayerInput();
         logger::debug("PartySheet: Force-opened via Show()");
     }
     
@@ -397,7 +381,7 @@ namespace PartySheet {
         if (MenuUtils::ShouldBlockCharacterSheet()) {
             g_Visible = false;
             if (!ImGuiRenderer::IsVisible()) {
-                EnablePlayerInput();
+                MenuUtils::EnablePlayerInput();
             }
             logger::debug("PartySheet: Auto-closed (incompatible menu or Photo Mode)");
             return;
@@ -1330,7 +1314,7 @@ namespace PartySheet {
                 main->freezeTime = false;
             }
             if (!ImGuiRenderer::IsVisible()) {
-                EnablePlayerInput();
+                MenuUtils::EnablePlayerInput();
             }
             ImGui::GetIO().MouseDrawCursor = false;
         }

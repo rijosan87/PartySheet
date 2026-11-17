@@ -15,6 +15,7 @@ namespace WornGearStatResolver {
     inline constexpr std::uint8_t kResistShock  = 1 << 2;
     inline constexpr std::uint8_t kResistPoison = 1 << 3;
     inline constexpr std::uint8_t kResistMagic  = 1 << 4;
+    inline constexpr std::uint8_t kResistDisease = 1 << 5;
 
     struct EnchantBadge {
         int         priority = 0;
@@ -27,7 +28,8 @@ namespace WornGearStatResolver {
         RE::BIPED_MODEL::BipedObjectSlot slot = RE::BIPED_MODEL::BipedObjectSlot::kNone;
         RE::TESObjectARMO*               armor = nullptr;
         float                            armorValue = -1.0f;
-        std::array<EnchantBadge, 2>      enchantBadges{};
+        bool                             armorValueSettled = true;
+        std::array<EnchantBadge, 3>      enchantBadges{};
         std::size_t                      enchantBadgeCount = 0;
     };
 
@@ -39,6 +41,8 @@ namespace WornGearStatResolver {
     };
 
     WornGearData Resolve(RE::Actor* actor);
+
+    float ShownArmorValue(RE::Actor* actor, RE::TESObjectARMO* armor, bool* settled = nullptr);
 
     std::uint32_t SkillBit(RE::ActorValue skill);
 

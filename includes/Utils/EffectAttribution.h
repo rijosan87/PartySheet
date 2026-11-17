@@ -49,4 +49,7 @@ namespace EffectAttribution {
     bool IsKye2ArmorSource(RE::MagicItem* spell);
     ID3D11ShaderResourceView* ResolveMagicIcon(RE::MagicItem* item);
     ID3D11ShaderResourceView* ResolveBlessingIcon(RE::SpellItem* spell);
+
+    bool HasPotionBuff(RE::Actor* actor, RE::ActorValue stat);
+    bool HasStatDebuff(RE::Actor* actor, RE::ActorValue stat);
 }

@@ -160,20 +160,15 @@ namespace PlayerHUDEquipment {
         auto* weap = form->As<RE::TESObjectWEAP>();
         if (!weap) return -1.0f;
 
-        auto* entry = player->GetEquippedEntryData(!isRightHand);
-        bool hasExtraEnchant = false;
-        if (entry && entry->object == weap && entry->extraLists) {
-            for (auto* xl : *entry->extraLists) {
-                if (xl && xl->GetByType<RE::ExtraEnchantment>()) { hasExtraEnchant = true; break; }
-            }
-        }
-        if (!weap->formEnchanting && !hasExtraEnchant) return -1.0f;
+        if (!EquipmentStatResolver::GetWeaponEnchantment(player, weap, !isRightHand)) return -1.0f;
 
         if (auto* avo = player->AsActorValueOwner()) {
             const auto av = isRightHand ? RE::ActorValue::kRightItemCharge : RE::ActorValue::kLeftItemCharge;
             const float liveCharge = avo->GetActorValue(av);
             if (liveCharge >= 0.0f) return liveCharge;
         }
+
+        auto* entry = player->GetEquippedEntryData(!isRightHand);
 
         if (!entry) return -1.0f;
         if (entry->object != weap) return -1.0f;
@@ -291,15 +286,8 @@ namespace PlayerHUDEquipment {
     {
         if (!form || !form->IsWeapon()) return 0;
         auto* entry = player->GetEquippedEntryData(isLeftHand);
-        RE::EnchantmentItem* ench = nullptr;
-        if (entry && entry->object == form->As<RE::TESBoundObject>()) {
-            if (entry->IsPoisoned()) return 1;
-            ench = entry->GetEnchantment();
-        }
-        if (!ench) {
-            if (auto* enchantable = form->As<RE::TESEnchantableForm>())
-                ench = enchantable->formEnchanting;
-        }
+        if (entry && entry->object == form->As<RE::TESBoundObject>() && entry->IsPoisoned()) return 1;
+        auto* ench = EquipmentStatResolver::GetWeaponEnchantment(player, form, isLeftHand);
         if (!ench) return 0;
         for (std::uint32_t i = 0; i < ench->effects.size(); ++i) {
             auto* effect = ench->effects[i];
@@ -388,7 +376,7 @@ namespace PlayerHUDEquipment {
                     d.enchantChargeMax = ResolveEnchantChargeMax(player, lh, false);
                     if (lh) {
                         auto stats = EquipmentStatResolver::ResolveHandWeaponStats(player, lh, true);
-                        d.weaponDamage  = stats.totalDamage;
+                        d.weaponDamage  = stats.hitDamage;
                         d.enchantDamage = stats.enchantDamage;
                         d.enchantType   = stats.enchantType;
                         d.auraType      = ResolveWeaponAura(player, lh, true);
@@ -405,7 +393,7 @@ namespace PlayerHUDEquipment {
                 d.enchantChargeMax = ResolveEnchantChargeMax(player, rh, true);
                 if (rh) {
                     auto stats = EquipmentStatResolver::ResolveHandWeaponStats(player, rh, false);
-                    d.weaponDamage  = stats.totalDamage;
+                    d.weaponDamage  = stats.hitDamage;
                     d.enchantDamage = stats.enchantDamage;
                     d.enchantType   = stats.enchantType;
                     d.auraType      = ResolveWeaponAura(player, rh, false);
@@ -664,7 +652,7 @@ namespace PlayerHUDEquipment {
                 }
                 const int   aR = (auraArgb >> 16) & 0xFF, aG = (auraArgb >> 8) & 0xFF, aB = auraArgb & 0xFF;
                 const float aA = ((auraArgb >> 24) & 0xFF) / 255.0f;
-                const float pulse = 0.72f + 0.28f * std::sin(static_cast<float>(ImGui::GetTime()) * 2.4f);
+                const float pulse = UIAnimation::Pulse(2.4f, 0.44f, 1.0f);
                 const int   alphas[]  = { 170, 70, 30 };
                 const float expands[] = { 0.0f, 2.0f, 4.0f };
                 const float radius = w * s->peIconBorderRadius * 0.01f;
@@ -729,7 +717,7 @@ namespace PlayerHUDEquipment {
                     }
                     const int   aR = (auraArgb >> 16) & 0xFF, aG = (auraArgb >> 8) & 0xFF, aB = auraArgb & 0xFF;
                     const float aA = ((auraArgb >> 24) & 0xFF) / 255.0f;
-                    const float pulse = 0.72f + 0.28f * std::sin(static_cast<float>(ImGui::GetTime()) * 2.4f);
+                    const float pulse = UIAnimation::Pulse(2.4f, 0.44f, 1.0f);
                     DrawGlow(IM_COL32(aR, aG, aB, 255), 0.30f * pulse * aA);
                 }
 
@@ -1027,8 +1015,7 @@ namespace PlayerHUDEquipment {
             DrawCastSweep(data.shoutCooldown, false);
         (void)DrawProgressFrame;
 
-        if (deniedT >= 0.0f && deniedT < k_ShoutDeniedDur) {
-            float k = 1.0f - deniedT / k_ShoutDeniedDur;
+        if (float k = UIAnimation::AgeFade(deniedT, 0.0f, 0.0f, k_ShoutDeniedDur); k > 0.0f) {
             k *= k;
             const ImU32  red = IM_COL32(225, 45, 35, static_cast<int>(150.0f * k));
             const ImVec2 br(screenPos.x + w, screenPos.y + h);
@@ -1326,7 +1313,7 @@ namespace PlayerHUDEquipment {
             for (int i = 0; i < k_SlotCount; ++i) {
                 if (k_Slots[i].type == SlotType::RightHand) {
                     auto stats = EquipmentStatResolver::ResolveHandWeaponStats(player, rh, false);
-                    g_CachedSlots[i].weaponDamage  = stats.totalDamage;
+                    g_CachedSlots[i].weaponDamage  = stats.hitDamage;
                     g_CachedSlots[i].enchantDamage = stats.enchantDamage;
                     g_CachedSlots[i].enchantType   = stats.enchantType;
                     g_CachedSlots[i].castCharge    = ResolveCastCharge(player, RE::MagicSystem::CastingSource::kRightHand, rh);
@@ -1336,7 +1323,7 @@ namespace PlayerHUDEquipment {
                     g_CachedSlots[i].auraType      = ResolveWeaponAura(player, rh, false);
                 } else if (k_Slots[i].type == SlotType::LeftHand) {
                     auto stats = EquipmentStatResolver::ResolveHandWeaponStats(player, g_CachedSlots[i].form, true);
-                    g_CachedSlots[i].weaponDamage  = stats.totalDamage;
+                    g_CachedSlots[i].weaponDamage  = stats.hitDamage;
                     g_CachedSlots[i].enchantDamage = stats.enchantDamage;
                     g_CachedSlots[i].enchantType   = stats.enchantType;
                     g_CachedSlots[i].castCharge    = ResolveCastCharge(player, RE::MagicSystem::CastingSource::kLeftHand, lh);

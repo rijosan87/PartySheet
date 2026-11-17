@@ -25,22 +25,11 @@ namespace logger = SKSE::log;
 
 static int s_statusCarouselPage = 0;
 static float s_statusCarouselTimer = 0.0f;
+static UIAnimation::KeyClock s_statusCarouselClock;
 static constexpr int CAROUSEL_ITEMS_PER_PAGE = 3;
 static constexpr int CAROUSEL_ITEMS_FACTION = 2;
 static constexpr int CAROUSEL_ITEMS_CHAMPION = 3;
 static constexpr int CAROUSEL_ITEMS_THANE = 2;
-
-static void SetHUDMenusHidden(bool hidden)
-{
-    auto ui = RE::UI::GetSingleton();
-    if (!ui) return;
-    for (std::string_view name : { RE::HUDMenu::MENU_NAME, std::string_view{ "TrueHUD" } }) {
-        auto menu = ui->GetMenu(name);
-        if (menu && menu->uiMovie) {
-            menu->uiMovie->SetVisible(!hidden);
-        }
-    }
-}
 
 static HUDDraw::IconFx IconFxDefault() {
     HUDDraw::IconFx fx{};
@@ -74,6 +63,12 @@ static void DrawDiamondFrame(ImDrawList* drawList, ImVec2 center, float size, Im
     drawList->AddQuad(top, right, bottom, left, borderColor, borderThickness);
 }
 
+static std::uint32_t SlotItemId(const EquipSlot& slot) {
+    if (!slot.hasItem) return 0;
+    if (slot.spellItem) return slot.spellItem->GetFormID();
+    return slot.itemForm ? slot.itemForm->GetFormID() : 0;
+}
+
 static void DrawDiamondWithItem(ImDrawList* drawList, ImVec2 center, float size,
                                  ID3D11ShaderResourceView* icon, const char* label,
                                  bool hasItem,
@@ -83,16 +78,17 @@ static void DrawDiamondWithItem(ImDrawList* drawList, ImVec2 center, float size,
                                  float enchantDamage = 0.0f, std::string enchantType = "",
                                  std::string skillIconName = "none",
                                  std::string animKey = "",
+                                 std::uint32_t itemId = 0,
                                  float scale = 1.0f,
                                  bool isSquareIcon = false)
 {
     float animAlpha = 1.0f;
     float animOffsetY = 0.0f;
     if (!animKey.empty()) {
-        UIAnimation::CheckAndAnimateChange(animKey, label ? label : "");
-        animAlpha = UIAnimation::GetAlpha(animKey);
-        ImVec2 offset = UIAnimation::GetOffset(animKey);
-        animOffsetY = offset.y;
+        constexpr bool kSlideOnFirstOpen = true;
+        const float swap = UIAnimation::Swap(animKey, itemId, UIAnimation::Duration::FadeIn, kSlideOnFirstOpen);
+        animAlpha = UIAnimation::SmoothStep(swap);
+        animOffsetY = 30.0f * (1.0f - UIAnimation::EaseOut(swap));
     }
     
     auto* slotSettings = Settings::GetSingleton();
@@ -504,7 +500,7 @@ void CharacterSheet::Toggle()
     _visible = !_visible;
     
     if (ui) {
-        SetHUDMenusHidden(_visible);
+        MenuUtils::SetHUDMenusHidden(_visible);
     }
 
     if (_visible) {
@@ -537,7 +533,7 @@ void CharacterSheet::Open()
 
     _visible = true;
 
-    SetHUDMenusHidden(true);
+    MenuUtils::SetHUDMenusHidden(true);
 
     auto settings = Settings::GetSingleton();
     if (settings->csEnableCameraControl) {
@@ -553,7 +549,7 @@ void CharacterSheet::Close()
     
     _visible = false;
 
-    SetHUDMenusHidden(false);
+    MenuUtils::SetHUDMenusHidden(false);
 
     auto settings = Settings::GetSingleton();
     if (settings->csEnableCameraControl) {
@@ -1334,7 +1330,7 @@ void CharacterSheet::Render()
                 logger::info("[DEBUG-CS] Render() auto-closing — blocked by menu");
             _visible = false;
             RestoreCameraState();
-            SetHUDMenusHidden(false);
+            MenuUtils::SetHUDMenusHidden(false);
             return;
         }
     }
@@ -1547,10 +1543,10 @@ void CharacterSheet::DrawUI()
             
             char shoutText[32];
             snprintf(shoutText, sizeof(shoutText), LocalizationManager::Get("shout_format").c_str(), shoutTotal);
-            
-            UIAnimation::CheckNumericChange("shout_recovery", shoutTotal);
+
+            const auto shoutWatch = UIAnimation::Watch("shout_recovery", shoutTotal);
             ImU32 normalShoutColor = IM_COL32(220, 220, 220, 255);
-            ImU32 shoutTextColor = UIAnimation::GetFlashedColor("shout_recovery", 
+            ImU32 shoutTextColor = UIAnimation::FlashColor(shoutWatch,
                 normalShoutColor,
                 normalShoutColor,
                 IM_COL32(100, 255, 100, 255));
@@ -1588,8 +1584,8 @@ void CharacterSheet::DrawUI()
                 drawList->AddRectFilled(ImVec2(x, y), ImVec2(x + barWidth * std::clamp(pct, 0.0f, 1.0f), y + barHeight), fillCol);
                 HUDDraw::DrawGlowRect(drawList, ImVec2(x, y), ImVec2(x + barWidth, y + barHeight), fillCol, 1.5f * s, 3);
 
-                UIAnimation::CheckNumericChange(animKey, value);
-                ImU32 flashedTextCol = UIAnimation::GetFlashedColor(animKey, row2TextCol,
+                const auto barWatch = UIAnimation::Watch(animKey, value);
+                ImU32 flashedTextCol = UIAnimation::FlashColor(barWatch, row2TextCol,
                     IM_COL32(100, 255, 100, 255),
                     row2TextCol);
 
@@ -1638,7 +1634,7 @@ void CharacterSheet::DrawUI()
                                    icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_head").c_str(), slot.hasItem,
                                    equipTextWidth,
                                    slot.baseValue, slot.skillBonus, slot.fortifyBonus,
-                                   slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_head", s, true);
+                                   slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_head", SlotItemId(slot), s, true);
             }
 
             if (equipment.size() > 3) {
@@ -1648,7 +1644,7 @@ void CharacterSheet::DrawUI()
                                    icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_chest").c_str(), slot.hasItem,
                                    equipTextWidth,
                                    slot.baseValue, slot.skillBonus, slot.fortifyBonus,
-                                   slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_chest", s, true);
+                                   slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_chest", SlotItemId(slot), s, true);
             }
 
             if (equipment.size() > 4) {
@@ -1658,7 +1654,7 @@ void CharacterSheet::DrawUI()
                                    icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_hands").c_str(), slot.hasItem,
                                    equipTextWidth,
                                    slot.baseValue, slot.skillBonus, slot.fortifyBonus,
-                                   slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_hands", s, true);
+                                   slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_hands", SlotItemId(slot), s, true);
             }
 
             if (equipment.size() > 5) {
@@ -1668,7 +1664,7 @@ void CharacterSheet::DrawUI()
                                    icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_feet").c_str(), slot.hasItem,
                                    equipTextWidth,
                                    slot.baseValue, slot.skillBonus, slot.fortifyBonus,
-                                   slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_feet", s, true);
+                                   slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_feet", SlotItemId(slot), s, true);
             }
         }
 
@@ -1688,7 +1684,7 @@ void CharacterSheet::DrawUI()
                                        icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_main").c_str(), slot.hasItem,
                                        equipTextWidth,
                                        slot.baseValue, 0.0f, 0.0f,
-                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_mainhand", s);
+                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_mainhand", SlotItemId(slot), s);
                 }
 
                 if (equipment.size() > 1) {
@@ -1699,7 +1695,7 @@ void CharacterSheet::DrawUI()
                                        icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_off").c_str(), slot.hasItem,
                                        equipTextWidth,
                                        slot.baseValue, 0.0f, 0.0f,
-                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_offhand", s);
+                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_offhand", SlotItemId(slot), s);
                 }
             }
 
@@ -1714,7 +1710,7 @@ void CharacterSheet::DrawUI()
                                        icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_amulet").c_str(), slot.hasItem,
                                        equipTextWidth,
                                        slot.baseValue, slot.skillBonus, slot.fortifyBonus,
-                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_amulet", s, true);
+                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_amulet", SlotItemId(slot), s, true);
                 }
 
                 if (equipment.size() > 7) {
@@ -1724,7 +1720,7 @@ void CharacterSheet::DrawUI()
                                        icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_ring").c_str(), slot.hasItem,
                                        equipTextWidth,
                                        slot.baseValue, slot.skillBonus, slot.fortifyBonus,
-                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_ring", s, true);
+                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_ring", SlotItemId(slot), s, true);
                 }
             }
         }
@@ -1804,8 +1800,8 @@ void CharacterSheet::DrawUI()
                 
                 ImU32 flashedValCol = valCol;
                 if (animKey) {
-                    UIAnimation::CheckNumericChange(animKey, numValue);
-                    flashedValCol = UIAnimation::GetFlashedColor(animKey, valCol,
+                    const auto statWatch = UIAnimation::Watch(animKey, numValue);
+                    flashedValCol = UIAnimation::FlashColor(statWatch, valCol,
                         IM_COL32(100, 255, 100, 255),
                         valCol);
                 }
@@ -1889,8 +1885,8 @@ void CharacterSheet::DrawUI()
                     
                     ImU32 valColor = IM_COL32(220, 220, 220, 255);
                     if (animKey) {
-                        UIAnimation::CheckNumericChange(animKey, value);
-                        valColor = UIAnimation::GetFlashedColor(animKey, valColor,
+                        const auto resistWatch = UIAnimation::Watch(animKey, value);
+                        valColor = UIAnimation::FlashColor(resistWatch, valColor,
                             IM_COL32(100, 255, 100, 255),
                             valColor);
                     }
@@ -2004,12 +2000,12 @@ void CharacterSheet::DrawUI()
                 char dmgValStr[64];
                 snprintf(dmgValStr, sizeof(dmgValStr), "%.0f", totalDamage);
 
-                UIAnimation::CheckNumericChange("stat_damage", totalDamage);
+                const auto damageWatch = UIAnimation::Watch("stat_damage", totalDamage);
                 
                 auto* dmgFont = ImGui::GetFont();
                 float textOffY = y + 5.0f * s;
                 ImU32 valColor = (enchDmg > 0.0f) ? enchColor : IM_COL32(255, 100, 100, 255);
-                ImU32 flashedValColor = UIAnimation::GetFlashedColor("stat_damage",
+                ImU32 flashedValColor = UIAnimation::FlashColor(damageWatch,
                     valColor, IM_COL32(100, 255, 100, 255), valColor);
                 float valWidth = dmgFont->CalcTextSizeA(statFontSz, FLT_MAX, 0.0f, dmgValStr).x;
                 float startX = statsX + statRowWidth - valWidth - 8.0f * s;
@@ -2235,8 +2231,8 @@ void CharacterSheet::DrawUI()
             if (totalPages == 0) totalPages = 1;
             
             if (totalPages > 1) {
-                float deltaTime = UIAnimation::AnimationManager::Get().GetDeltaTime();
-                s_statusCarouselTimer += deltaTime;
+                bool reopened = false;
+                s_statusCarouselTimer += s_statusCarouselClock.Tick(reopened);
                 float carouselInterval = Settings::GetSingleton()->csCarouselInterval;
                 if (s_statusCarouselTimer >= carouselInterval) {
                     s_statusCarouselTimer = 0.0f;

@@ -14,6 +14,7 @@
 #include "../../includes/Utils/BarRenderer.h"
 #include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/HUDVisibility.h"
+#include "../../includes/UIAnimation.h"
 
 #include <imgui_internal.h>
 #include <Windows.h>
@@ -387,7 +388,7 @@ namespace WidgetStableMount {
                         drawList->AddCircleFilled(center, portraitSize * 0.5f, IM_COL32(30, 30, 30, 255));
                     if (hpPct < 0.8f) {
                         const float speed = hpPct < 0.25f ? 5.0f : 2.5f;
-                        const float alpha = (sinf(static_cast<float>(ImGui::GetTime()) * speed) * 0.5f + 0.5f) * 0.4f + 0.1f;
+                        const float alpha = UIAnimation::Pulse(speed, 0.1f, 0.5f);
                         drawList->AddCircleFilled(center, portraitSize * 0.5f, IM_COL32(255, 0, 0, static_cast<int>(alpha * 255)));
                     }
                     const float borderWidth = ScalePx(static_cast<float>(settings->smPortraitBorderWidth));

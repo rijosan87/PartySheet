@@ -25,6 +25,8 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
 #include "../includes/ImGui/WidgetCollectibles.h"
 #include "../includes/ImGui/WidgetPinnedItems.h"
 #include "../includes/QuickHeal.h"
+#include "../includes/Utils/GearCatalog.h"
+#include "../includes/Utils/GearSwitcher.h"
 #include "../includes/InputHooks.h"
 #include "../includes/InputHandler.h"
 #include "../includes/ImGui/CharacterSheet.h"
@@ -727,6 +729,7 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
                 case SKSE::MessagingInterface::kPreLoadGame:
                     PartySheetV2Camera::Exit();
                     PNGIIBridge::Clear();
+                    GearSwitcher::ClearCombatHolds();
                     break;
 
                 case SKSE::MessagingInterface::kPostLoadGame:
@@ -742,6 +745,7 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
                     PlayerStatus::InvalidateCache();
                     PNGIIBridge::Clear();           // PNGII rebuilds its rules cache at load.
                     PlayerHUDEquipment::MarkSlotsDirty();
+                    GearCatalog::Clear();
                     logger::info("PlayerStatus cache invalidated [kPostLoadGame]");
                     break;
 
@@ -754,6 +758,8 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
                     PlayerStatus::InvalidateCache();
                     PNGIIBridge::Clear();
                     PlayerHUDEquipment::MarkSlotsDirty();
+                    GearSwitcher::ClearCombatHolds();
+                    GearCatalog::Clear();
                     logger::info("Widgets reset [kNewGame]");
                     break;
 
@@ -765,6 +771,8 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
                     PlayerHUD::Init();
 
                     EffectBlacklist::Load();
+
+                    GearSwitcher::InstallCombatHold();
 
                     if (auto modCallbackSource = SKSE::GetModCallbackEventSource()) {
                         modCallbackSource->AddEventSink(TweenMenuListener::GetSingleton());

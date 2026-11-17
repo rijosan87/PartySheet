@@ -1,8 +1,11 @@
 #include "../../includes/ImGui/PartySheetV2InventoryModal.h"
 #include "../../includes/ImGui/Renderer.h"
+#include "../../includes/ImGui/FollowerHUD.h"
 #include "../../includes/Settings.h"
 #include "../../includes/TextureManager.h"
 #include "../../includes/LocalizationManager.h"
+#include "../../includes/Utils/GearCatalog.h"
+#include "../../includes/Utils/GearSwitcher.h"
 #include "../../includes/Utils/HUDDraw.h"
 
 #include <imgui.h>
@@ -11,7 +14,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
-#include <cstring>
+#include <optional>
 
 namespace logger = SKSE::log;
 
@@ -19,6 +22,7 @@ namespace PartySheetV2 {
 
     static bool s_InvOpen   = false;
     static int  s_InvFilter = 0;
+    static std::optional<GearCatalog::Card> s_SlotCard;
 
     static HUDDraw::IconFx IconFxDefault() {
         auto* s = Settings::GetSingleton();
@@ -42,10 +46,15 @@ namespace PartySheetV2 {
     void OpenInventoryModal()  {
         s_InvOpen = true;
         s_InvFilter = 0;
+        s_SlotCard.reset();
         s_LastActorFormID  = 0;
         s_NullActorStreak  = 0;
         s_LastItemCount    = -1;
         s_LastVisibleCount = -1;
+    }
+    void OpenInventoryModal(GearCatalog::Card card) {
+        OpenInventoryModal();
+        s_SlotCard = card;
     }
     void CloseInventoryModal() {
         s_InvOpen = false;
@@ -55,165 +64,73 @@ namespace PartySheetV2 {
     static constexpr ImU32 kAccent    = IM_COL32(212, 175,  55, 255);
     static constexpr ImU32 kTextMain  = IM_COL32(240, 240, 240, 255);
     static constexpr ImU32 kTextMuted = IM_COL32(136, 136, 136, 255);
-    static constexpr ImU32 kBorderDim = IM_COL32( 50,  50,  60, 255);
+    static constexpr ImU32 kEnchanted = IM_COL32(150, 140, 255, 255);
 
     // ── Font scale helpers ────────────────────────────────────────────────────
     static float s_EffectiveScale = 1.0f;
     static float FontBody()  { auto* s = Settings::GetSingleton(); return s->psV2FontBody  * s_EffectiveScale; }
     static float FontSmall() { auto* s = Settings::GetSingleton(); return s->psV2FontSmall * s_EffectiveScale; }
 
-    enum class InvItemType { Weapon, Armor, Potion, Food, Ingredient, Book, Scroll, Misc };
+    using GearCatalog::InventoryItem;
+    using GearCatalog::ItemTab;
+    using GearCatalog::ItemType;
 
-    struct InvEntry {
-        RE::TESForm*                    form    = nullptr;
-        std::string                     name;
-        std::string                     typeLabel;
-        std::string                     hint;
-        InvItemType                     type    = InvItemType::Misc;
-        float                           weight  = 0.0f;
-        int                             value   = 0;
-        int                             count   = 1;
-    };
-
-    static InvItemType ClassifyForm(RE::TESForm* form, std::string& outHint, std::string& outTypeLabel) {
-        static std::string s_weapon, s_armor, s_potion, s_food, s_ammo, s_ingredient, s_soulgem, s_key, s_book, s_scroll, s_misc;
-        if (s_misc.empty()) {
-            s_weapon     = LocalizationManager::Get("Inventory.TypeWeapon");
-            s_armor      = LocalizationManager::Get("Inventory.TypeArmor");
-            s_potion     = LocalizationManager::Get("Inventory.TypePotion");
-            s_food       = LocalizationManager::Get("Inventory.TypeFood");
-            s_ammo       = LocalizationManager::Get("Inventory.TypeAmmo");
-            s_ingredient = LocalizationManager::Get("Inventory.TypeIngredient");
-            s_soulgem    = LocalizationManager::Get("Inventory.TypeSoulGem");
-            s_key        = LocalizationManager::Get("Inventory.TypeKey");
-            s_book       = LocalizationManager::Get("Inventory.TypeBook");
-            s_scroll     = LocalizationManager::Get("Inventory.TypeScroll");
-            s_misc       = LocalizationManager::Get("Inventory.TypeMisc");
+    static const std::string& TypeLabel(ItemType type) {
+        static std::string s_labels[11];
+        static bool        s_loaded = false;
+        if (!s_loaded) {
+            s_labels[static_cast<int>(ItemType::Weapon)]     = LocalizationManager::Get("Inventory.TypeWeapon");
+            s_labels[static_cast<int>(ItemType::Armor)]      = LocalizationManager::Get("Inventory.TypeArmor");
+            s_labels[static_cast<int>(ItemType::Potion)]     = LocalizationManager::Get("Inventory.TypePotion");
+            s_labels[static_cast<int>(ItemType::Food)]       = LocalizationManager::Get("Inventory.TypeFood");
+            s_labels[static_cast<int>(ItemType::Ammo)]       = LocalizationManager::Get("Inventory.TypeAmmo");
+            s_labels[static_cast<int>(ItemType::Ingredient)] = LocalizationManager::Get("Inventory.TypeIngredient");
+            s_labels[static_cast<int>(ItemType::SoulGem)]    = LocalizationManager::Get("Inventory.TypeSoulGem");
+            s_labels[static_cast<int>(ItemType::Key)]        = LocalizationManager::Get("Inventory.TypeKey");
+            s_labels[static_cast<int>(ItemType::Book)]       = LocalizationManager::Get("Inventory.TypeBook");
+            s_labels[static_cast<int>(ItemType::Scroll)]     = LocalizationManager::Get("Inventory.TypeScroll");
+            s_labels[static_cast<int>(ItemType::Misc)]       = LocalizationManager::Get("Inventory.TypeMisc");
+            s_loaded = true;
         }
-        if (!form) { outHint = "misc"; outTypeLabel = s_misc; return InvItemType::Misc; }
-
-        if (form->As<RE::TESObjectWEAP>()) {
-            auto* w = form->As<RE::TESObjectWEAP>();
-            using WT = RE::WEAPON_TYPE;
-            switch (w->GetWeaponType()) {
-                case WT::kHandToHandMelee: outHint = "fist";     break;
-                case WT::kOneHandSword:    outHint = "sword";    break;
-                case WT::kOneHandDagger:   outHint = "dagger";   break;
-                case WT::kOneHandAxe:      outHint = "axe";      break;
-                case WT::kOneHandMace:     outHint = "mace";     break;
-                case WT::kTwoHandSword:    outHint = "greatsword"; break;
-                case WT::kTwoHandAxe:      outHint = "battleaxe"; break;
-                case WT::kBow:             outHint = "bow";      break;
-                case WT::kStaff:           outHint = "staff";    break;
-                case WT::kCrossbow:        outHint = "crossbow"; break;
-                default:                   outHint = "sword";    break;
-            }
-            outTypeLabel = s_weapon;
-            return InvItemType::Weapon;
-        }
-        if (form->As<RE::TESObjectARMO>()) {
-            auto* a = form->As<RE::TESObjectARMO>();
-            using SL = RE::BIPED_MODEL::BipedObjectSlot;
-            if      (a->HasPartOf(SL::kHead))    outHint = "helmet";
-            else if (a->HasPartOf(SL::kBody))    outHint = "cuirass";
-            else if (a->HasPartOf(SL::kHands))   outHint = "gauntlets";
-            else if (a->HasPartOf(SL::kFeet))    outHint = "boots";
-            else if (a->HasPartOf(SL::kShield))  outHint = "shield";
-            else if (a->HasPartOf(SL::kAmulet))  outHint = "amulet";
-            else if (a->HasPartOf(SL::kRing))    outHint = "ring";
-            else if (a->HasPartOf(SL::kCirclet)) outHint = "circlet";
-            else                                 outHint = "cuirass";
-            outTypeLabel = s_armor;
-            return InvItemType::Armor;
-        }
-        if (auto* alch = form->As<RE::AlchemyItem>()) {
-            if (alch->IsFood()) {
-                outHint = "food";
-                outTypeLabel = s_food;
-                return InvItemType::Food;
-            }
-            outHint = "potion";
-            outTypeLabel = s_potion;
-            return InvItemType::Potion;
-        }
-        if (form->As<RE::TESAmmo>()) {
-            outHint = "arrow";
-            outTypeLabel = s_ammo;
-            return InvItemType::Misc;
-        }
-        if (form->As<RE::IngredientItem>()) {
-            outHint = "ingredient";
-            outTypeLabel = s_ingredient;
-            return InvItemType::Ingredient;
-        }
-        if (form->As<RE::TESSoulGem>()) {
-            outHint = "soulgem";
-            outTypeLabel = s_soulgem;
-            return InvItemType::Misc;
-        }
-        if (form->As<RE::TESKey>()) {
-            outHint = "key";
-            outTypeLabel = s_key;
-            return InvItemType::Misc;
-        }
-        if (form->As<RE::TESObjectBOOK>()) {
-            outHint = "book";
-            outTypeLabel = s_book;
-            return InvItemType::Book;
-        }
-        if (form->As<RE::ScrollItem>()) {
-            outHint = "scroll";
-            outTypeLabel = s_scroll;
-            return InvItemType::Scroll;
-        }
-        outHint = "misc";
-        outTypeLabel = s_misc;
-        return InvItemType::Misc;
-    }
-
-    static std::vector<InvEntry> BuildInventory(RE::Actor* actor) {
-        std::vector<InvEntry> out;
-        if (!actor) return out;
-
-        auto inv = actor->GetInventory([](const RE::TESBoundObject& obj) {
-            return obj.GetFormID() != 0xF;
-        });
-
-        for (auto& [form, data] : inv) {
-            if (!form) continue;
-            auto&  entry = data.second;
-            int    count = data.first;
-            if (count <= 0) continue;
-
-            const char* nm = entry ? entry->GetDisplayName() : nullptr;
-            auto isMissing = [](const char* s) {
-                return !s || !s[0] || std::strcmp(s, "<Missing Name>") == 0;
-            };
-            if (isMissing(nm)) nm = form->GetName();
-            if (isMissing(nm)) continue;
-
-            InvEntry e;
-            e.form  = form;
-            e.name  = nm;
-            e.count = count;
-            e.type  = ClassifyForm(form, e.hint, e.typeLabel);
-
-            if (entry) {
-                e.weight = entry->GetWeight();
-                e.value  = entry->GetValue();
-            } else {
-                if (auto* w = form->As<RE::TESWeightForm>()) e.weight = w->weight;
-                if (auto* v = form->As<RE::TESValueForm>())  e.value  = v->value;
+        return s_labels[static_cast<int>(type)];
             }
 
-            out.push_back(std::move(e));
+    static bool IsUsableRow(const InventoryItem& e) {
+        return e.type == ItemType::Weapon || e.type == ItemType::Armor || e.type == ItemType::Potion ||
+               e.type == ItemType::Food || e.type == ItemType::Ammo;
         }
 
-        std::sort(out.begin(), out.end(), [](const InvEntry& a, const InvEntry& b) {
-            if (a.type != b.type) return static_cast<int>(a.type) < static_cast<int>(b.type);
-            return a.name < b.name;
-        });
+    static GearCatalog::Card CardForRow(const InventoryItem& e) {
+        if (s_SlotCard) return *s_SlotCard;
+        return e.type == ItemType::Ammo ? GearCatalog::Card::LeftHand : GearCatalog::Card::RightHand;
+        }
+
+    static void UseRow(RE::Actor* actor, const InventoryItem& e) {
+        const int count = e.type == ItemType::Ammo ? e.count : 1;
+        const bool queued = GearSwitcher::Equip(actor, e.key, CardForRow(e), count);
+        logger::info("[InventoryModal] use {:08X} on {:08X}, queued {}", e.key.baseID, actor->GetFormID(), queued);
+            }
+
+    static std::vector<RE::Actor*> SendTargets(RE::Actor* from) {
+        std::vector<RE::Actor*> out;
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (player && player != from) out.push_back(player);
+        for (auto* ally : FollowerHUD::GetAllies())
+            if (ally && ally != from && ally->IsPlayerTeammate()) out.push_back(ally);
         return out;
+        }
+
+    static bool RowInTab(const InventoryItem& e, int filter) {
+        switch (filter) {
+            case 1: return e.tab == ItemTab::Weapon;
+            case 2: return e.tab == ItemTab::Armor;
+            case 3: return e.tab == ItemTab::Potion;
+            case 4: return e.tab == ItemTab::Food;
+            case 5: return e.tab == ItemTab::Ingredient;
+            case 6: return e.tab == ItemTab::Book || e.tab == ItemTab::Scroll;
+            case 7: return e.tab == ItemTab::Misc;
+            default: return true;
+        }
     }
 
     void RenderInventoryModal(RE::Actor* actor) {
@@ -246,29 +163,14 @@ namespace PartySheetV2 {
         const float sc = (std::min)(settings->psV2Scale, fitScale);
         s_EffectiveScale = sc;
 
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::SetNextWindowSize(io.DisplaySize);
-        ImGui::SetNextWindowBgAlpha(0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::Begin("##psv2_inv_overlay", nullptr,
-            ImGuiWindowFlags_NoTitleBar            | ImGuiWindowFlags_NoResize     |
-            ImGuiWindowFlags_NoMove                | ImGuiWindowFlags_NoScrollbar  |
-            ImGuiWindowFlags_NoCollapse            | ImGuiWindowFlags_NoFocusOnAppearing |
-            ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNav        |
-            ImGuiWindowFlags_NoInputs);
-        ImGui::GetWindowDrawList()->AddRectFilled(
-            ImVec2(0, 0), io.DisplaySize, IM_COL32(0, 0, 0, 160));
-        ImGui::End();
-        ImGui::PopStyleVar();
+        const float modalW = 400.0f * sc;
+        const float modalH = 470.0f * sc;
+        ImVec2 modalPos = ImVec2((io.DisplaySize.x - modalW) * 0.5f, io.DisplaySize.y * 0.18f);
 
-        const float modalW = 640.0f * sc;
-        const float modalH = 520.0f * sc;
-        ImVec2 modalPos = ImVec2((io.DisplaySize.x - modalW) * 0.5f,
-                                 (io.DisplaySize.y - modalH) * 0.5f);
-
-        ImGui::SetNextWindowPos(modalPos, ImGuiCond_Always);
+        ImGui::SetNextWindowPos(modalPos, ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(modalW, modalH), ImGuiCond_Always);
         ImGui::SetNextWindowBgAlpha(1.0f);
+        if (!ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
         ImGui::SetNextWindowFocus();
 
         ImGui::PushStyleColor(ImGuiCol_WindowBg,    ImVec4( 9/255.f,  9/255.f, 11/255.f, 1.f));
@@ -281,7 +183,7 @@ namespace PartySheetV2 {
 
         ImGui::Begin("##psv2_inv_modal", nullptr,
             ImGuiWindowFlags_NoTitleBar  | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove      | ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoCollapse  |
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
             ImGuiWindowFlags_NoNav);
 
@@ -321,7 +223,7 @@ namespace PartySheetV2 {
         ImGui::Dummy(ImVec2(ws.x - 32.0f * sc, 42.0f * sc));
 
         static std::string s_tabAll, s_tabWeapons, s_tabArmor, s_tabPotions, s_tabFood, s_tabIngredients, s_tabBooks, s_tabMisc;
-        static std::string s_colName, s_colType, s_colWgt, s_colVal, s_colQty, s_emptyMsg;
+        static std::string s_emptyMsg;
         if (s_tabAll.empty()) {
             s_tabAll         = LocalizationManager::Get("Inventory.TabAll");
             s_tabWeapons     = LocalizationManager::Get("Inventory.TabWeapons");
@@ -331,11 +233,6 @@ namespace PartySheetV2 {
             s_tabIngredients = LocalizationManager::Get("Inventory.TabIngredients");
             s_tabBooks       = LocalizationManager::Get("Inventory.TabBooks");
             s_tabMisc        = LocalizationManager::Get("Inventory.TabMisc");
-            s_colName        = LocalizationManager::Get("Inventory.ColName");
-            s_colType        = LocalizationManager::Get("Inventory.ColType");
-            s_colWgt         = LocalizationManager::Get("Inventory.ColWeight");
-            s_colVal         = LocalizationManager::Get("Inventory.ColValue");
-            s_colQty         = LocalizationManager::Get("Inventory.ColQty");
             s_emptyMsg       = LocalizationManager::Get("Inventory.Empty");
         }
         const char* kTabLabels[] = {
@@ -347,7 +244,7 @@ namespace PartySheetV2 {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(4.0f * sc, 0));
         ImGui::SetWindowFontScale(FontSmall());
         for (int i = 0; i < kNumTabs; ++i) {
-            bool active = (s_InvFilter == i);
+            bool active = !s_SlotCard && s_InvFilter == i;
             ImGui::PushStyleColor(ImGuiCol_Button,
                 active ? ImVec4(212/255.f,175/255.f,55/255.f,0.25f)
                        : ImVec4(22/255.f, 22/255.f, 30/255.f, 1.f));
@@ -357,50 +254,25 @@ namespace PartySheetV2 {
                        : ImVec4(50/255.f, 50/255.f, 60/255.f, 1.f));
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
             char btnId[32]; snprintf(btnId, sizeof(btnId), "%s##inv_tab_%d", kTabLabels[i], i);
-            if (ImGui::Button(btnId, ImVec2(0, 0))) s_InvFilter = i;
+            if (ImGui::Button(btnId, ImVec2(0, 0))) { s_InvFilter = i; s_SlotCard.reset(); }
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(3);
-            if (i < kNumTabs - 1) ImGui::SameLine();
-        }
+            if (i < kNumTabs - 1) {
+                const float lastRight = ImGui::GetItemRectMax().x;
+                const float nextW = ImGui::CalcTextSize(kTabLabels[i + 1]).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+                if (lastRight + 4.0f * sc + nextW < wp.x + ws.x - 16.0f * sc) ImGui::SameLine();
+                else ImGui::Dummy(ImVec2(1, 4.0f * sc));
+            }        }
         ImGui::SetWindowFontScale(1.0f);
         ImGui::PopStyleVar(2);
         ImGui::Dummy(ImVec2(1, 6.0f * sc));
-
-        const float iconCol  = 34.0f * sc;
         const float scrollbarW = 14.0f;
         const float bodyW    = ws.x - 32.0f * sc - scrollbarW;
-        const float wgtCol   = 52.0f * sc;
-        const float valCol   = 52.0f * sc;
-        const float qtyCol   = 32.0f * sc;
-        const float typeCol  = 72.0f * sc;
-        const float nameCol  = bodyW - iconCol - typeCol - wgtCol - valCol - qtyCol;
-
-        ImGui::SetWindowFontScale(FontSmall());
-        {
-            ImVec2 hdr = ImGui::GetCursorScreenPos();
-            float x = hdr.x + iconCol;
-            float lineH = ImGui::GetTextLineHeight();
-            dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(x, hdr.y), kTextMuted, s_colName.c_str());
-            x += nameCol;
-            dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(x, hdr.y), kTextMuted, s_colType.c_str());
-            x += typeCol;
-            auto RightText = [&](float colW, const char* txt) {
-                float tw = ImGui::CalcTextSize(txt).x;
-                dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(x + colW - tw, hdr.y), kTextMuted, txt);
-                x += colW;
-            };
-            RightText(wgtCol, s_colWgt.c_str());
-            RightText(valCol, s_colVal.c_str());
-            RightText(qtyCol, s_colQty.c_str());
-            ImGui::Dummy(ImVec2(bodyW, lineH + 4.0f * sc));
-        }
-
-        {
-            ImVec2 divPos = ImGui::GetCursorScreenPos();
-            HUDDraw::DrawRuleH(dl, divPos.x, divPos.x + bodyW, divPos.y, kBorderDim);
-            ImGui::Dummy(ImVec2(bodyW, 3.0f * sc));
-        }
-        ImGui::SetWindowFontScale(1.0f);
+        const float gap     = 6.0f * sc;
+        const int   columns = (std::max)(1, static_cast<int>((bodyW + gap) / (84.0f * sc + gap)));
+        const float tileW   = (bodyW - gap * (columns - 1)) / columns;
+        const float tileH   = tileW;
+        const float iconSz  = tileW * 0.46f;
 
         // ── Scrollable item list ──────────────────────────────────────────────
         float listH = (std::max)(1.0f, ws.y - (ImGui::GetCursorScreenPos().y - wp.y) - 14.0f * sc);
@@ -418,91 +290,95 @@ namespace PartySheetV2 {
                 ImGui::SetScrollY(ImGui::GetScrollY() - wheel * 40.0f * sc);
         }
 
-        auto items = BuildInventory(actor);
+        static const std::vector<InventoryItem> kNoItems;
+        const auto gear = GearCatalog::Get(actor);
+        const std::vector<InventoryItem>& items = gear ? gear->items : kNoItems;
 
         int curItemCount = static_cast<int>(items.size());
         if (curItemCount != s_LastItemCount) {
             s_LastItemCount = curItemCount;
         }
 
-        const float rowH   = 28.0f * sc;
-        const float iconSz = 24.0f * sc;
+        const GearCatalog::CardList* slotList = (gear && s_SlotCard) ? &gear->cards[static_cast<std::size_t>(*s_SlotCard)] : nullptr;
+        auto RowInSlot = [&](const InventoryItem& e) {
+            return std::any_of(slotList->items.begin(), slotList->items.end(),
+                [&](const GearCatalog::GearItem& g) { return g.key == e.key; });
+        };
         bool anyShown = false;
         int  visibleCount = 0;
+        const bool popupOpen = ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
-        ImGui::SetWindowFontScale(FontBody());
-        for (auto& e : items) {
-            bool show = false;
-            switch (s_InvFilter) {
-                case 0: show = true; break;
-                case 1: show = (e.type == InvItemType::Weapon);     break;
-                case 2: show = (e.type == InvItemType::Armor);      break;
-                case 3: show = (e.type == InvItemType::Potion);     break;
-                case 4: show = (e.type == InvItemType::Food);       break;
-                case 5: show = (e.type == InvItemType::Ingredient); break;
-                case 6: show = (e.type == InvItemType::Book || e.type == InvItemType::Scroll); break;
-                case 7: show = (e.type == InvItemType::Misc);       break;
-            }
-            if (!show) continue;
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(gap, gap));
+        ImGui::SetWindowFontScale(FontSmall());
+        for (int rowIndex = 0; rowIndex < static_cast<int>(items.size()); ++rowIndex) {
+            const auto& e = items[rowIndex];
+            if (s_SlotCard ? !(slotList && RowInSlot(e)) : !RowInTab(e, s_InvFilter)) continue;
+            if (visibleCount % columns != 0) ImGui::SameLine();
             anyShown = true;
             ++visibleCount;
 
-            ImVec2 rp = ImGui::GetCursorScreenPos();
+            const bool usable = IsUsableRow(e);
+            ImGui::PushID(rowIndex);
+            const bool clicked = ImGui::InvisibleButton("##tile", ImVec2(tileW, tileH));
+            const bool hovered = ImGui::IsItemHovered();
+            const bool pressed = ImGui::IsItemActive();
+            const ImVec2 tp = ImGui::GetItemRectMin();
+            const ImVec2 tq = ImGui::GetItemRectMax();
+            if (!e.quest && ImGui::BeginPopupContextItem("##send")) {
+                for (auto* target : SendTargets(actor)) {
+                    const char* nm = target->GetDisplayFullName();
+                    if (ImGui::MenuItem(nm && nm[0] ? nm : "?")) GearSwitcher::Send(actor, target, e.key);
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopID();
+            if (clicked && usable) {
+                if (e.worn) GearSwitcher::Unequip(actor, e.key);
+                else UseRow(actor, e);
+            }
 
-            bool hovered = ImGui::IsMouseHoveringRect(rp, ImVec2(rp.x + bodyW, rp.y + rowH));
-            if (hovered)
-                ImGui::GetWindowDrawList()->AddRectFilled(rp, ImVec2(rp.x + bodyW, rp.y + rowH),
-                    IM_COL32(212, 175, 55, 18));
+            ImDrawList* tdl = ImGui::GetWindowDrawList();
+            tdl->AddRectFilled(tp, tq, IM_COL32(18, 18, 24, 255), 4.0f * sc);
+            if (hovered) {
+                const int alpha = !usable ? 18 : pressed ? 70 : 40;
+                tdl->AddRectFilled(tp, tq, IM_COL32(212, 175, 55, alpha), 4.0f * sc);
+            }
+            tdl->AddRect(tp, tq, e.worn ? kAccent : IM_COL32(42, 42, 52, 255), 4.0f * sc, 0, e.worn ? 1.5f : 1.0f);
 
-            float x = rp.x;
-
-            {
-                auto* tex = TextureManager::GetItemIcon(e.form, e.hint);
+            auto* form = RE::TESForm::LookupByID(e.key.baseID);
+            auto* tex  = form ? TextureManager::GetItemIcon(form, e.iconHint) : nullptr;
                 if (tex) {
-                    float iconOff = (rowH - iconSz) * 0.5f;
-                    HUDDraw::DrawIconStyled(ImGui::GetWindowDrawList(),
-                        ImVec2(x, rp.y + iconOff), iconSz,
+                HUDDraw::DrawIconStyled(tdl, ImVec2(tp.x + (tileW - iconSz) * 0.5f, tp.y + tileH * 0.18f), iconSz,
                         reinterpret_cast<ImTextureID>(tex), 0xFFFFFFFF, IconFxDefault());
                 }
-            }
-            x += iconCol;
 
-            float textY = rp.y + (rowH - ImGui::GetTextLineHeight()) * 0.5f;
-            ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(x, textY), kTextMain, e.name.c_str());
-            x += nameCol;
-
-            ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(x, textY), kTextMuted, e.typeLabel.c_str());
-            x += typeCol;
-
-            {
-                char buf[16];
-                snprintf(buf, sizeof(buf), "%.1f", e.weight);
-                float tw = ImGui::CalcTextSize(buf).x;
-                ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                    ImVec2(x + wgtCol - tw, textY), kTextMuted, buf);
-                x += wgtCol;
+            const float pad = 4.0f * sc;
+            if (e.statValue >= 0.0f) {
+                char num[12];
+                snprintf(num, sizeof(num), "%d", static_cast<int>(e.statValue + 0.5f));
+                tdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(tp.x + pad, tp.y + pad), kTextMain, num);
             }
-            {
-                char buf[16];
-                snprintf(buf, sizeof(buf), "%d", e.value);
-                float tw = ImGui::CalcTextSize(buf).x;
-                ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                    ImVec2(x + valCol - tw, textY), kTextMuted, buf);
-                x += valCol;
-            }
-            {
-                char buf[12];
-                snprintf(buf, sizeof(buf), "%d", e.count);
-                float tw = ImGui::CalcTextSize(buf).x;
-                ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                    ImVec2(x + qtyCol - tw, textY),
-                    e.count > 1 ? kAccent : kTextMuted, buf);
+            if (e.count > 1) {
+                char qty[12];
+                snprintf(qty, sizeof(qty), "x%d", e.count);
+                const float qw = ImGui::CalcTextSize(qty).x;
+                tdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(tq.x - pad - qw, tp.y + pad), kAccent, qty);
             }
 
-            ImGui::Dummy(ImVec2(bodyW, rowH));
-        }
+            const ImU32 nameCol = e.enchanted ? kEnchanted : IM_COL32(200, 200, 200, 255);
+            const float nw = ImGui::CalcTextSize(e.name.c_str()).x;
+            const float nameX = nw < tileW - 2.0f * pad ? tp.x + (tileW - nw) * 0.5f : tp.x + pad;
+            const float nameY = tq.y - pad - ImGui::GetTextLineHeight();
+            tdl->PushClipRect(ImVec2(tp.x + pad, tp.y), ImVec2(tq.x - pad, tq.y), true);
+            tdl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(nameX, nameY), nameCol, e.name.c_str());
+            tdl->PopClipRect();
+
+            if (hovered && !popupOpen && form) {
+                auto* enchant = e.key.enchantID ? RE::TESForm::LookupByID<RE::EnchantmentItem>(e.key.enchantID) : nullptr;
+                DrawInventoryItemTooltip(actor, form, e.name.c_str(), enchant, TypeLabel(e.type).c_str(), tex, sc);
+            }
+            }
+        ImGui::PopStyleVar();
 
         if (!anyShown) {
             ImVec2 ep = ImGui::GetCursorScreenPos();

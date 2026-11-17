@@ -1,8 +1,17 @@
 #include "../includes/UIAnimation.h"
+#include <algorithm>
 #include <cmath>
 
 namespace UIAnimation {
-    
+
+    float KeyClock::Tick(bool& reseed) {
+        const auto now = std::chrono::steady_clock::now();
+        const float elapsed = started ? std::chrono::duration<float>(now - last).count() : 0.0f;
+        reseed = !started || elapsed > kHiddenGap;
+        started = true;
+        last = now;
+        return reseed ? 0.0f : std::clamp(elapsed, 0.0f, kMaxStep);
+    }
     
     AnimState& AnimationManager::GetState(const std::string& key) {
         std::lock_guard<std::mutex> lock(_mutex);
@@ -39,33 +48,20 @@ namespace UIAnimation {
                     if (state.alpha > state.targetAlpha) state.alpha = state.targetAlpha;
                 }
             }
+
+            const float slideSpeed = 1.0f / std::max(state.slideDuration, 0.001f);
             
             if (state.offsetX != state.targetOffsetX) {
-                float speed = 1.0f / Duration::SlideIn;
-                state.offsetX = Lerp(state.offsetX, state.targetOffsetX, deltaTime * speed * 5.0f);
+                state.offsetX = Lerp(state.offsetX, state.targetOffsetX, deltaTime * slideSpeed * 5.0f);
                 if (std::abs(state.offsetX - state.targetOffsetX) < 0.1f) {
                     state.offsetX = state.targetOffsetX;
                 }
             }
             if (state.offsetY != state.targetOffsetY) {
-                float speed = 1.0f / Duration::SlideIn;
-                state.offsetY = Lerp(state.offsetY, state.targetOffsetY, deltaTime * speed * 5.0f);
+                state.offsetY = Lerp(state.offsetY, state.targetOffsetY, deltaTime * slideSpeed * 5.0f);
                 if (std::abs(state.offsetY - state.targetOffsetY) < 0.1f) {
                     state.offsetY = state.targetOffsetY;
                 }
-            }
-            
-            if (state.scale != state.targetScale) {
-                float speed = 1.0f / Duration::Pulse;
-                state.scale = Lerp(state.scale, state.targetScale, deltaTime * speed * 8.0f);
-                if (std::abs(state.scale - state.targetScale) < 0.01f) {
-                    state.scale = state.targetScale;
-                }
-            }
-            
-            if (state.flashIntensity > 0.0f) {
-                state.flashIntensity -= deltaTime * (1.0f / Duration::ColorFlash);
-                if (state.flashIntensity < 0.0f) state.flashIntensity = 0.0f;
             }
 
             // Hit flash decay
@@ -102,7 +98,7 @@ namespace UIAnimation {
                     state.bounceActive = false;
                     state.offsetY = 0.0f;
                 } else {
-                    float t = state.bounceTimer / Duration::Bounce;
+                    float t = state.bounceTimer / std::max(state.bounceDuration, 0.001f);
                     constexpr float kFreq  = 18.0f;
                     constexpr float kAmp   = 6.0f;
                     state.offsetY = -kAmp * t * sinf(kFreq * state.bounceTimer);
@@ -116,19 +112,15 @@ namespace UIAnimation {
                     state.shakeActive = false;
                     state.offsetX = 0.0f;
                 } else {
-                    float dur = state.hitShakeAmp > 0.0f ? Duration::HitShake : Duration::Shake;
-                    float t = state.shakeTimer / dur;
+                    float t = state.shakeTimer / std::max(state.shakeDuration, 0.001f);
                     constexpr float kFreq = 35.0f;  // fast oscillation
-                    float kAmp = state.hitShakeAmp > 0.0f ? state.hitShakeAmp : 4.0f;
-                    state.offsetX = kAmp * t * sinf(kFreq * state.shakeTimer);
+                    state.offsetX = state.hitShakeAmp * t * sinf(kFreq * state.shakeTimer);
                 }
             }
 
             state.isAnimating = (state.alpha != state.targetAlpha) ||
                                (state.offsetX != state.targetOffsetX) ||
                                (state.offsetY != state.targetOffsetY) ||
-                               (state.scale != state.targetScale) ||
-                               (state.flashIntensity > 0.0f) ||
                                state.bounceActive ||
                                state.shakeActive ||
                                state.hitFlashActive ||
@@ -144,7 +136,7 @@ namespace UIAnimation {
                 burst.timer = 0.0f;
                 burst.active = false;
             } else {
-                float speedDecay = burst.timer / 0.35f;
+                float speedDecay = burst.timer / std::max(burst.duration, 0.001f);
                 for (size_t i = 0; i < burst.count; ++i) {
                     burst.particles[i].distance += burst.particles[i].speed * deltaTime * speedDecay;
                 }
@@ -156,65 +148,22 @@ namespace UIAnimation {
         std::lock_guard<std::mutex> lock(_mutex);
         _states.clear();
         _attackBursts.clear();
-    }
-    
-
-    void TriggerBounce(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        state.bounceTimer  = Duration::Bounce;
-        state.bounceActive = true;
-        state.isAnimating  = true;
+        _followByName.clear();
+        _followById.clear();
+        _watchByName.clear();
+        _watchById.clear();
+        _baselineByName.clear();
+        _stepByName.clear();
     }
 
-    void TriggerShake(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        state.hitShakeAmp = 4.0f;
-        state.shakeTimer  = Duration::Shake;
-        state.shakeActive = true;
-        state.isAnimating = true;
-    }
-
-    void TriggerHitFeedback(const std::string& key, bool isBlocked) {
-        auto& state = AnimationManager::Get().GetState(key);
-        state.hitShakeAmp = isBlocked ? 2.0f : 4.0f;
-        state.shakeTimer  = Duration::HitShake;
-        state.shakeActive = true;
-        state.isAnimating = true;
-
-        if (!isBlocked) {
-            state.hitFlashTimer  = Duration::HitFlash;
-            state.hitFlashActive = true;
-        }
-    }
-
-    void TriggerHealFeedback(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        state.healFlashTimer  = Duration::HealFlash;
-        state.healFlashActive = true;
-        state.healFlashIsBuff = false;
-        state.healScaleTimer  = Duration::HealScale;
-        state.healScaleActive = true;
-        state.isAnimating     = true;
-    }
-
-    void TriggerBuffFeedback(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        // A running heal flash wins; don't recolor it.
-        if (state.healFlashActive && !state.healFlashIsBuff) return;
-        state.healFlashTimer  = Duration::HealFlash;
-        state.healFlashActive = true;
-        state.healFlashIsBuff = true;
-        state.healScaleTimer  = Duration::HealScale;
-        state.healScaleActive = true;
-        state.isAnimating     = true;
-    }
-
-    void AnimationManager::TriggerAttackFeedback(const std::string& key, AttackCategory category, bool isPowerAttack) {
+    void AnimationManager::TriggerAttackFeedback(const std::string& key, AttackCategory category, bool isPowerAttack,
+                                                 float seconds) {
         std::lock_guard<std::mutex> lock(_mutex);
         auto& burst = _attackBursts[key];
         burst.category = category;
         burst.isPowerAttack = isPowerAttack;
-        burst.timer = 0.35f;
+        burst.duration = std::max(seconds, 0.001f);
+        burst.timer = burst.duration;
         burst.active = true;
 
         burst.count = isPowerAttack ? 15 : 10;
@@ -285,7 +234,7 @@ namespace UIAnimation {
         if (it == _attackBursts.end() || !it->second.active) return;
 
         auto& burst = it->second;
-        const float fadeAlpha = std::clamp(burst.timer / 0.35f, 0.0f, 1.0f);
+        const float fadeAlpha = std::clamp(burst.timer / burst.duration, 0.0f, 1.0f);
 
         for (size_t i = 0; i < burst.count; ++i) {
             auto& p = burst.particles[i];
@@ -318,16 +267,16 @@ namespace UIAnimation {
         }
     }
 
-    void TriggerAttackFeedback(const std::string& key, AttackCategory category, bool isPowerAttack) {
-        AnimationManager::Get().TriggerAttackFeedback(key, category, isPowerAttack);
+    void TriggerAttackFeedback(const std::string& key, AttackCategory category, bool isPowerAttack, float seconds) {
+        AnimationManager::Get().TriggerAttackFeedback(key, category, isPowerAttack, seconds);
     }
 
     void DrawAttackParticles(ImDrawList* dl, const std::string& key, ImVec2 badgeCenter, float badgeRadius) {
         AnimationManager::Get().DrawAttackParticles(dl, key, badgeCenter, badgeRadius);
     }
 
-    void TriggerSlideIn(const std::string& key, int direction, float distance) {
-        auto& state = AnimationManager::Get().GetState(key);
+    namespace {
+        void StartSlide(AnimState& state, int direction, float distance, float seconds) {
         
         switch (direction) {
             case 0: state.offsetX = -distance; break;
@@ -338,112 +287,291 @@ namespace UIAnimation {
         
         state.targetOffsetX = 0.0f;
         state.targetOffsetY = 0.0f;
+            state.slideDuration = seconds;
         state.isAnimating = true;
     }
-    
-    
-    bool CheckAndAnimateChange(const std::string& key, const std::string& newValue) {
-        auto& state = AnimationManager::Get().GetState(key);
-        
-        if (state.lastValue != newValue) {
-            state.lastValue = newValue;
-            
-            state.alpha = 0.0f;
-            state.targetAlpha = 1.0f;
-            state.isAnimating = true;
-            TriggerSlideIn(key, 3, 30.0f);
-            
-            return true;
-        }
-        return false;
-    }
-    
 
-    bool CheckNumericChange(const std::string& key, float newValue) {
-        auto& state = AnimationManager::Get().GetState(key);
-        
-        float diff = newValue - state.lastNumericValue;
-        if (std::abs(diff) > 0.1f) {
-            state.lastNumericValue = newValue;
-            state.flashIntensity = 1.0f;
-            state.flashDirection = (diff > 0) ? 1 : -1;
+        void StartHealSlot(AnimState& state, bool isBuff, float flashSeconds, float swellSeconds) {
+            state.healFlashDuration = std::max(flashSeconds, 0.001f);
+            state.healFlashTimer    = state.healFlashDuration;
+            state.healFlashActive   = true;
+            state.healFlashIsBuff   = isBuff;
+            state.healScaleDuration = std::max(swellSeconds, 0.001f);
+            state.healScaleTimer    = state.healScaleDuration;
+            state.healScaleActive   = true;
             state.isAnimating = true;
-            return true;
         }
-        return false;
     }
-    
 
-    float GetAlpha(const std::string& key) {
-        return AnimationManager::Get().GetState(key).alpha;
+    void TriggerSlideIn(const std::string& key, int direction, float distance, float seconds) {
+        AnimationManager::Get().Edit(key, [&](AnimState& state) {
+            StartSlide(state, direction, distance, seconds);
+        });
+    }
+
+    void TriggerBounce(const std::string& key, float seconds) {
+        AnimationManager::Get().Edit(key, [&](AnimState& state) {
+            state.bounceDuration = std::max(seconds, 0.001f);
+            state.bounceTimer    = state.bounceDuration;
+            state.bounceActive   = true;
+            state.isAnimating = true;
+        });
+        }
+
+    void TriggerShake(const std::string& key, float seconds, float amplitude) {
+        AnimationManager::Get().Edit(key, [&](AnimState& state) {
+            state.hitShakeAmp   = amplitude;
+            state.shakeDuration = std::max(seconds, 0.001f);
+            state.shakeTimer    = state.shakeDuration;
+            state.shakeActive   = true;
+            state.isAnimating   = true;
+        });
+    }
+
+    void TriggerHitFeedback(const std::string& key, bool isBlocked, float shakeSeconds, float flashSeconds) {
+        AnimationManager::Get().Edit(key, [&](AnimState& state) {
+            state.hitShakeAmp   = isBlocked ? 2.0f : 4.0f;
+            state.shakeDuration = std::max(shakeSeconds, 0.001f);
+            state.shakeTimer    = state.shakeDuration;
+            state.shakeActive   = true;
+            state.isAnimating   = true;
+
+            if (!isBlocked) {
+                state.hitFlashDuration = std::max(flashSeconds, 0.001f);
+                state.hitFlashTimer    = state.hitFlashDuration;
+                state.hitFlashActive   = true;
+            }
+        });
+    }
+
+    void TriggerHealFeedback(const std::string& key, float flashSeconds, float swellSeconds) {
+        AnimationManager::Get().Edit(key, [&](AnimState& state) {
+            StartHealSlot(state, false, flashSeconds, swellSeconds);
+        });
+    }
+
+    void TriggerBuffFeedback(const std::string& key, float flashSeconds, float swellSeconds) {
+        AnimationManager::Get().Edit(key, [&](AnimState& state) {
+            if (state.healFlashActive && !state.healFlashIsBuff) return;
+            StartHealSlot(state, true, flashSeconds, swellSeconds);
+        });
+    }
+
+    namespace {
+        float StepFollow(AnimationManager::FollowTrack& track, float target, float speedUp, float speedDown) {
+            bool reseed = false;
+            const float dt = track.clock.Tick(reseed);
+            if (reseed) {
+                track.value = target;
+                return target;
+            }
+
+            const float rate = target >= track.value ? speedUp : speedDown;
+            const float next = track.value + (target - track.value) * (1.0f - std::exp(-rate * dt));
+            const bool settled = std::fabs(target - next) < 0.001f || (dt > 0.0f && next == track.value);
+            track.value = settled ? target : next;
+            return track.value;
+        }
+
+        WatchResult StepWatch(AnimationManager::WatchTrack& track, float value, float flashSeconds, float threshold) {
+            bool reseed = false;
+            const float dt = track.clock.Tick(reseed);
+            if (reseed) {
+                track.value = value;
+                track.delta = 0.0f;
+                track.direction = 0;
+                track.flash = 0.0f;
+                return {};
+            }
+
+            track.flash = std::max(0.0f, track.flash - dt / track.flashSeconds);
+
+            WatchResult result;
+            const float diff = value - track.value;
+            if (std::fabs(diff) > threshold) {
+                track.value = value;
+                track.delta = diff;
+                track.direction = diff > 0.0f ? 1 : -1;
+                track.flash = 1.0f;
+                track.flashSeconds = std::max(flashSeconds, 0.001f);
+                result.changed = true;
+            }
+
+            if (track.flash <= 0.0f) {
+                track.delta = 0.0f;
+                track.direction = 0;
+            }
+
+            result.delta = track.delta;
+            result.direction = track.direction;
+            result.flash = track.flash;
+            return result;
+        }
+    }
+
+    float AnimationManager::Step(const std::string& key, bool wantOn, float secondsIn, float secondsOut) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        StepTrack& track = _stepByName[key];
+        bool reseed = false;
+        const float dt = track.clock.Tick(reseed);
+        if (wantOn)
+            track.value = std::min(track.value + dt / std::max(secondsIn, 0.001f), 1.0f);
+        else
+            track.value = std::max(track.value - dt / std::max(secondsOut, 0.001f), 0.0f);
+        return track.value;
+    }
+
+    void AnimationManager::Snap(const std::string& key, float value) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _stepByName[key].value = Clamp(value, 0.0f, 1.0f);
+    }
+
+    float AnimationManager::Follow(const std::string& key, float target, float speedUp, float speedDown) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return StepFollow(_followByName[key], target, speedUp, speedDown);
+    }
+
+    float AnimationManager::Follow(std::uint64_t key, float target, float speedUp, float speedDown) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return StepFollow(_followById[key], target, speedUp, speedDown);
+    }
+
+    WatchResult AnimationManager::Watch(const std::string& key, float value, float flashSeconds, float threshold) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return StepWatch(_watchByName[key], value, flashSeconds, threshold);
+    }
+
+    float AnimationManager::Swap(const std::string& key, std::uint64_t id, float seconds, bool animateFirstSight) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        auto& track = _swapByName[key];
+        bool reseed = false;
+        const float dt = track.clock.Tick(reseed);
+        if (reseed) {
+            const bool firstSight = !track.seen;
+            track.seen = true;
+            track.id = id;
+            track.progress = (firstSight && animateFirstSight) ? 0.0f : 1.0f;
+            return track.progress;
+        }
+        if (id != track.id) {
+            track.id = id;
+            track.progress = 0.0f;
+        }
+        track.progress = std::min(1.0f, track.progress + dt / std::max(seconds, 0.001f));
+        return track.progress;
+    }
+
+    float AnimationManager::SinceShown(const std::string& key, float value) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        auto& track = _baselineByName[key];
+        bool reseed = false;
+        track.clock.Tick(reseed);
+        if (reseed) track.baseline = value;
+        return value - track.baseline;
+    }
+
+    WatchResult AnimationManager::Watch(std::uint64_t key, float value, float flashSeconds, float threshold) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return StepWatch(_watchById[key], value, flashSeconds, threshold);
+    }
+
+    float Follow(const std::string& key, float target, float speedUp, float speedDown) {
+        return AnimationManager::Get().Follow(key, target, speedUp, speedDown);
+    }
+
+    float Step(const std::string& key, bool wantOn, float secondsIn, float secondsOut) {
+        return AnimationManager::Get().Step(key, wantOn, secondsIn, secondsOut);
+    }
+
+    void Snap(const std::string& key, float value) {
+        AnimationManager::Get().Snap(key, value);
+    }
+
+    float Follow(std::uint64_t key, float target, float speedUp, float speedDown) {
+        return AnimationManager::Get().Follow(key, target, speedUp, speedDown);
+    }
+
+    WatchResult Watch(const std::string& key, float value, float flashSeconds, float threshold) {
+        return AnimationManager::Get().Watch(key, value, flashSeconds, threshold);
+    }
+
+    WatchResult Watch(std::uint64_t key, float value, float flashSeconds, float threshold) {
+        return AnimationManager::Get().Watch(key, value, flashSeconds, threshold);
+    }
+
+    float Swap(const std::string& key, std::uint64_t id, float seconds, bool animateFirstSight) {
+        return AnimationManager::Get().Swap(key, id, seconds, animateFirstSight);
+    }
+
+    float SinceShown(const std::string& key, float value) {
+        return AnimationManager::Get().SinceShown(key, value);
+    }
+
+    float Pulse(float speed, float low, float high) {
+        static const auto start = std::chrono::steady_clock::now();
+        const double t = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        const float wave = static_cast<float>(std::sin(t * speed)) * 0.5f + 0.5f;
+        return low + (high - low) * wave;
+    }
+
+    float AgeFade(float age, float fadeIn, float hold, float fadeOut) {
+        if (age < 0.0f) return 0.0f;
+        if (age < fadeIn) return age / fadeIn;
+        const float outStart = fadeIn + hold;
+        if (age <= outStart) return 1.0f;
+        if (fadeOut <= 0.0f) return 0.0f;
+        return std::max(0.0f, 1.0f - (age - outStart) / fadeOut);
     }
 
     ImVec2 GetOffset(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        return ImVec2(state.offsetX, state.offsetY);
+        return AnimationManager::Get().Read(key, ImVec2(0.0f, 0.0f),
+            [](const AnimState& s) { return ImVec2(s.offsetX, s.offsetY); });
     }
 
     float GetBounceOffsetY(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        return state.bounceActive ? state.offsetY : 0.0f;
+        return AnimationManager::Get().Read(key, 0.0f,
+            [](const AnimState& s) { return s.bounceActive ? s.offsetY : 0.0f; });
     }
 
     float GetShakeOffsetX(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        return state.shakeActive ? state.offsetX : 0.0f;
+        return AnimationManager::Get().Read(key, 0.0f,
+            [](const AnimState& s) { return s.shakeActive ? s.offsetX : 0.0f; });
     }
 
     float GetHitFlashIntensity(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        if (!state.hitFlashActive || state.hitFlashTimer <= 0.0f) return 0.0f;
-        return std::clamp(state.hitFlashTimer / Duration::HitFlash, 0.0f, 1.0f);
+        return AnimationManager::Get().Read(key, 0.0f, [](const AnimState& s) {
+            if (!s.hitFlashActive || s.hitFlashTimer <= 0.0f) return 0.0f;
+            return std::clamp(s.hitFlashTimer / s.hitFlashDuration, 0.0f, 1.0f);
+        });
     }
 
     float GetHealFlashIntensity(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        if (!state.healFlashActive || state.healFlashTimer <= 0.0f) return 0.0f;
-        float t = std::clamp(state.healFlashTimer / Duration::HealFlash, 0.0f, 1.0f);
-        return sqrtf(t);
+        return AnimationManager::Get().Read(key, 0.0f, [](const AnimState& s) {
+            if (!s.healFlashActive || s.healFlashTimer <= 0.0f) return 0.0f;
+            return sqrtf(std::clamp(s.healFlashTimer / s.healFlashDuration, 0.0f, 1.0f));
+        });
     }
 
     bool GetHealFlashIsBuff(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        return state.healFlashActive && state.healFlashIsBuff;
+        return AnimationManager::Get().Read(key, false,
+            [](const AnimState& s) { return s.healFlashActive && s.healFlashIsBuff; });
     }
 
     float GetHealScale(const std::string& key) {
-        auto& state = AnimationManager::Get().GetState(key);
-        if (!state.healScaleActive || state.healScaleTimer <= 0.0f) return 1.0f;
-        float t = 1.0f - (state.healScaleTimer / Duration::HealScale);
+        return AnimationManager::Get().Read(key, 1.0f, [](const AnimState& s) {
+            if (!s.healScaleActive || s.healScaleTimer <= 0.0f) return 1.0f;
+            const float t = 1.0f - (s.healScaleTimer / s.healScaleDuration);
         constexpr float kMaxSwell = 0.06f;
         return 1.0f + kMaxSwell * sinf(t * 3.14159265359f);
+        });
     }
 
-    ImU32 GetFlashedColor(const std::string& key, ImU32 normalColor, ImU32 increaseColor, ImU32 decreaseColor) {
-        auto& state = AnimationManager::Get().GetState(key);
-        
-        if (state.flashIntensity <= 0.0f) {
-            return normalColor;
-        }
-        
-        ImU32 flashColor = (state.flashDirection > 0) ? increaseColor : decreaseColor;
-        
-        float t = state.flashIntensity;
-        int nr = (normalColor >> 0) & 0xFF;
-        int ng = (normalColor >> 8) & 0xFF;
-        int nb = (normalColor >> 16) & 0xFF;
-        int na = (normalColor >> 24) & 0xFF;
-        
-        int fr = (flashColor >> 0) & 0xFF;
-        int fg = (flashColor >> 8) & 0xFF;
-        int fb = (flashColor >> 16) & 0xFF;
-        int fa = (flashColor >> 24) & 0xFF;
-        
-        int r = static_cast<int>(nr + (fr - nr) * t);
-        int g = static_cast<int>(ng + (fg - ng) * t);
-        int b = static_cast<int>(nb + (fb - nb) * t);
-        int a = static_cast<int>(na + (fa - na) * t);
-        
-        return IM_COL32(r, g, b, a);
+    ImU32 FlashColor(const WatchResult& watch, ImU32 normalColor, ImU32 increaseColor, ImU32 decreaseColor) {
+        if (watch.flash <= 0.0f || watch.direction == 0) return normalColor;
+        const ImVec4 from = ImGui::ColorConvertU32ToFloat4(normalColor);
+        const ImVec4 to = ImGui::ColorConvertU32ToFloat4(watch.direction > 0 ? increaseColor : decreaseColor);
+        const float t = watch.flash;
+        return ImGui::ColorConvertFloat4ToU32(ImVec4(Lerp(from.x, to.x, t), Lerp(from.y, to.y, t),
+                                                     Lerp(from.z, to.z, t), Lerp(from.w, to.w, t)));
     }
 }

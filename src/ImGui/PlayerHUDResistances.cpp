@@ -1,4 +1,5 @@
 #include "../../includes/ImGui/PlayerHUDResistances.h"
+#include "../../includes/EffectCategories.h"
 #include "../../includes/ImGui/Renderer.h"
 #include "../../includes/ImGui/PlayerHUDDisease.h"
 #include "../../includes/Settings.h"
@@ -10,6 +11,7 @@
 #include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/SurvivalSymptoms.h"
 #include "../../includes/ImGui/WidgetDrawHelpers.h"
+#include "../../includes/UIAnimation.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -92,7 +94,7 @@ namespace PlayerHUDResistances {
             }
             if (!target) continue;
 
-            bool isNegative = baseEffect->IsHostile() || baseEffect->IsDetrimental() || (effect->magnitude < 0.0f);
+            bool isNegative = EffectCategories::IsDebuff(baseEffect, effect->magnitude);
             ResistState newState = isNegative ? ResistState::Debuff : ResistState::Buff;
 
             if (*target == ResistState::Debuff) continue;
@@ -248,7 +250,7 @@ namespace PlayerHUDResistances {
             ImU32 wash;
             ImU32 barCol;
             if (isDebuff) {
-                float pulse = 0.5f + 0.5f * sinf(static_cast<float>(ImGui::GetTime()) * 3.5f);
+                float pulse = UIAnimation::Pulse(3.5f, 0.0f, 1.0f);
                 uint8_t a   = static_cast<uint8_t>(180.0f * (0.6f + 0.4f * pulse));
                 wash   = IM_COL32(90, 20, 20, a);
                 barCol = IM_COL32(220, 60, 60, static_cast<uint8_t>(160.0f + 95.0f * pulse));
@@ -277,7 +279,7 @@ namespace PlayerHUDResistances {
 
             cs.accentColor = settings->prChipAccent ? (0xC8000000u | (resistColor & 0x00FFFFFFu)) : 0;
             if (st == ResistState::Debuff) {
-                float pulse = 0.5f + 0.5f * sinf(static_cast<float>(ImGui::GetTime()) * 3.5f);
+                float pulse = UIAnimation::Pulse(3.5f, 0.0f, 1.0f);
                 auto a8  = [](float a) { return static_cast<std::uint32_t>(a) << 24; };
                 cs.accentColor = a8(160.0f + 95.0f * pulse) | 0x00DC3C3Cu;
                 cs.glowColor   = a8(60.0f + 90.0f * pulse)  | 0x00DC3C3Cu;
@@ -362,7 +364,7 @@ namespace PlayerHUDResistances {
                 if (e.state == ResistState::Buff) {
                     ringArgb = 0xFF3CD25Au;
                 } else if (e.state == ResistState::Debuff) {
-                    float pulse = 0.5f + 0.5f * sinf(static_cast<float>(ImGui::GetTime()) * 3.5f);
+                    float pulse = UIAnimation::Pulse(3.5f, 0.0f, 1.0f);
                     std::uint32_t a = static_cast<std::uint32_t>(160.0f + 95.0f * pulse);
                     ringArgb = (a << 24) | 0x00DC3C3Cu;
                 }

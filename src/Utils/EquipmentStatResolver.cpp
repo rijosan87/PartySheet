@@ -2,133 +2,200 @@
 // Resolves equipment stats and damage values.
 
 #include "../../includes/Utils/EquipmentStatResolver.h"
+#include "../../includes/Utils/GearCatalog.h"
+#include "../../includes/Utils/PerkModifiers.h"
 
-#include <cstdint>
+#include <algorithm>
 #include <cmath>
 
 namespace EquipmentStatResolver {
-    HandWeaponStats ResolveHandWeaponStats(RE::PlayerCharacter* player, RE::TESForm* equippedForm, bool isLeftHand)
-    {
-        HandWeaponStats stats;
-        if (!player || !equippedForm) {
-            return stats;
+
+    namespace {
+        float ReadGameSetting(const char* name, float fallback) {
+            auto* gs = RE::GameSettingCollection::GetSingleton();
+            auto* s  = gs ? gs->GetSetting(name) : nullptr;
+            return s ? s->GetFloat() : fallback;
         }
-        auto* weapon = equippedForm->As<RE::TESObjectWEAP>();
-        if (!weapon) {
-            return stats;
-        }
-        stats.isWeapon    = true;
-        stats.weaponSpeed = weapon->GetSpeed();
-        const auto weaponType = weapon->GetWeaponType();
-        switch (weaponType) {
+
+        struct SkillPair { RE::ActorValue skill, modifier; };
+
+        SkillPair SkillFor(RE::WEAPON_TYPE type) {
+            switch (type) {
         case RE::WEAPON_TYPE::kOneHandSword:
         case RE::WEAPON_TYPE::kOneHandDagger:
         case RE::WEAPON_TYPE::kOneHandAxe:
         case RE::WEAPON_TYPE::kOneHandMace:
-            stats.skillIconName = "onehanded";
-            break;
+                return { RE::ActorValue::kOneHanded, RE::ActorValue::kOneHandedModifier };
         case RE::WEAPON_TYPE::kTwoHandSword:
         case RE::WEAPON_TYPE::kTwoHandAxe:
-            stats.skillIconName = "twohanded";
-            stats.isTwoHanded   = true;
-            break;
+                return { RE::ActorValue::kTwoHanded, RE::ActorValue::kTwoHandedModifier };
         case RE::WEAPON_TYPE::kBow:
         case RE::WEAPON_TYPE::kCrossbow:
-            stats.skillIconName = "archery";
-            stats.isTwoHanded   = true;
-            stats.isRanged      = true;
-            break;
+                return { RE::ActorValue::kArchery, RE::ActorValue::kMarksmanModifier };
         default:
-            break;
+                return { RE::ActorValue::kNone, RE::ActorValue::kNone };
         }
-        const float baseDamage = static_cast<float>(weapon->GetAttackDamage());
-        float       totalDamage = baseDamage;
-        if (auto* avo = player->AsActorValueOwner()) {
+        }
+    }
+
+    namespace {
+        struct FormulaParts {
+            RE::ActorValue skill       = RE::ActorValue::kNone;
             float skillLevel = 0.0f;
-            switch (weaponType) {
-            case RE::WEAPON_TYPE::kOneHandSword:
-            case RE::WEAPON_TYPE::kOneHandDagger:
-            case RE::WEAPON_TYPE::kOneHandAxe:
-            case RE::WEAPON_TYPE::kOneHandMace:
-                skillLevel = avo->GetActorValue(RE::ActorValue::kOneHanded);
-                stats.fortifyBonus = avo->GetActorValue(RE::ActorValue::kOneHandedModifier);
-                break;
-            case RE::WEAPON_TYPE::kTwoHandSword:
-            case RE::WEAPON_TYPE::kTwoHandAxe:
-                skillLevel = avo->GetActorValue(RE::ActorValue::kTwoHanded);
-                stats.fortifyBonus = avo->GetActorValue(RE::ActorValue::kTwoHandedModifier);
-                break;
-            case RE::WEAPON_TYPE::kBow:
-            case RE::WEAPON_TYPE::kCrossbow:
-                skillLevel = avo->GetActorValue(RE::ActorValue::kArchery);
-                stats.fortifyBonus = avo->GetActorValue(RE::ActorValue::kMarksmanModifier);
-                break;
-            default:
-                break;
+            float          fortifyMult = 1.0f;
+            float          skillMult   = 1.0f;
+            float          settingMult = 1.0f;
+        };
+
+        FormulaParts ReadFormulaParts(RE::Actor* actor, RE::TESObjectWEAP* weapon) {
+            FormulaParts parts;
+            auto* avo = actor ? actor->AsActorValueOwner() : nullptr;
+            if (!avo || !weapon) return parts;
+
+            const auto pair = SkillFor(weapon->GetWeaponType());
+            parts.skill = pair.skill;
+            if (pair.skill != RE::ActorValue::kNone) {
+                parts.skillLevel  = avo->GetActorValue(pair.skill);
+                parts.fortifyMult = 1.0f + avo->GetActorValue(pair.modifier) / 100.0f;
             }
-            if (auto* entryData = player->GetEquippedEntryData(isLeftHand)) {
-                totalDamage = player->GetDamage(entryData);
-            } else {
-                const float skillMult   = 1.0f + (skillLevel / 200.0f);
-                const float fortifyMult = 1.0f + (stats.fortifyBonus / 100.0f);
-                totalDamage = baseDamage * skillMult * fortifyMult;
+
+            const bool isPlayer = actor->IsPlayerRef();
+            static const float pcMin  = ReadGameSetting("fDamagePCSkillMin", 1.0f);
+            static const float pcMax  = ReadGameSetting("fDamagePCSkillMax", 1.5f);
+            static const float npcMin = ReadGameSetting("fDamageSkillMin", 1.0f);
+            static const float npcMax = ReadGameSetting("fDamageSkillMax", 3.0f);
+            static const float weaponMult = ReadGameSetting("fDamageWeaponMult", 1.0f);
+            const float skill01 = std::clamp(parts.skillLevel, 0.0f, 100.0f) / 100.0f;
+            parts.skillMult   = isPlayer ? pcMin + (pcMax - pcMin) * skill01 : npcMin + (npcMax - npcMin) * skill01;
+            parts.settingMult = isPlayer ? 1.0f : weaponMult;
+            return parts;
             }
-            stats.skillBonus = baseDamage * (skillLevel / 200.0f);
+
+        float ApplyFormula(const FormulaParts& parts, float weaponBase, float ammoBase, float perkMult) {
+            return (weaponBase + ammoBase) * parts.skillMult * parts.fortifyMult * perkMult * parts.settingMult;
         }
-        stats.physicalDamage = std::round(totalDamage);
-        try {
-            if (auto* enchantable = weapon->As<RE::TESEnchantableForm>()) {
-                if (auto* enchant = enchantable->formEnchanting) {
-                    for (std::uint32_t i = 0; i < enchant->effects.size(); ++i) {
-                        auto* effect = enchant->effects[i];
-                        if (!effect || !effect->baseEffect) {
-                            continue;
                         }
-                        const auto resistType = effect->baseEffect->data.resistVariable;
-                        const auto primaryAV  = effect->baseEffect->data.primaryAV;
-                        const float magnitude = effect->effectItem.magnitude;
-                        if (magnitude <= 0.0f || primaryAV != RE::ActorValue::kHealth) {
-                            continue;
+
+    float FormulaDamage(RE::Actor* actor, RE::TESObjectWEAP* weapon, float perkMult, float ammoBase) {
+        if (!actor || !weapon) return 0.0f;
+        return ApplyFormula(ReadFormulaParts(actor, weapon), static_cast<float>(weapon->GetAttackDamage()), ammoBase, perkMult);
                         }
-                        if (resistType == RE::ActorValue::kResistFire) {
-                            stats.enchantDamage = magnitude;
-                            stats.enchantType   = "fire_resist";
-                            break;
+
+    float WeaponDamage::TotalDamage() const {
+        float total = physical;
+        for (const auto& e : enchants)
+            if (e.target == RE::ActorValue::kHealth) total += e.magnitude;
+        return total;
                         }
-                        if (resistType == RE::ActorValue::kResistFrost) {
-                            stats.enchantDamage = magnitude;
-                            stats.enchantType   = "frost_resist";
-                            break;
+
+    const EnchantDamage* WeaponDamage::FirstElementEnchant() const {
+        for (const auto& e : enchants) {
+            if (e.target != RE::ActorValue::kHealth) continue;
+            if (e.resist == RE::ActorValue::kResistFire || e.resist == RE::ActorValue::kResistFrost ||
+                e.resist == RE::ActorValue::kResistShock || e.resist == RE::ActorValue::kPoisonResist)
+                return &e;
                         }
-                        if (resistType == RE::ActorValue::kResistShock) {
-                            stats.enchantDamage = magnitude;
-                            stats.enchantType   = "shock_resist";
-                            break;
+        return nullptr;
                         }
-                        if (resistType == RE::ActorValue::kPoisonResist) {
-                            stats.enchantDamage = magnitude;
-                            stats.enchantType   = "poison_resist";
+
+    RE::EnchantmentItem* GetWeaponEnchantment(RE::Actor* actor, RE::TESForm* equippedForm, bool isLeftHand) {
+        auto* weapon = equippedForm ? equippedForm->As<RE::TESObjectWEAP>() : nullptr;
+        if (!weapon) return nullptr;
+        if (auto* entry = actor ? actor->GetEquippedEntryData(isLeftHand) : nullptr; entry && entry->object == weapon)
+            if (auto* ench = entry->GetEnchantment()) return ench;
+        return weapon->formEnchanting;
+    }
+
+    WeaponDamage ResolveWeaponDamage(RE::Actor* actor, RE::TESForm* equippedForm, bool isLeftHand) {
+        WeaponDamage wd;
+        auto* weapon = equippedForm ? equippedForm->As<RE::TESObjectWEAP>() : nullptr;
+        auto* avo    = actor ? actor->AsActorValueOwner() : nullptr;
+        if (!weapon || !avo) return wd;
+
+        wd.valid       = true;
+        wd.isRanged    = weapon->IsBow() || weapon->IsCrossbow();
+        wd.isTwoHanded = wd.isRanged || weapon->IsTwoHandedSword() || weapon->IsTwoHandedAxe();
+        wd.speed       = weapon->GetSpeed();
+        wd.reach       = weapon->GetReach();
+        wd.stagger     = weapon->GetStagger();
+        wd.weaponBase  = static_cast<float>(weapon->GetAttackDamage());
+        if (wd.isRanged)
+            if (auto* ammo = actor->GetCurrentAmmo())
+                wd.ammoBase = ammo->GetRuntimeData().data.damage;
+
+        const auto parts = ReadFormulaParts(actor, weapon);
+        wd.skill       = parts.skill;
+        wd.skillLevel  = parts.skillLevel;
+        wd.fortifyMult = parts.fortifyMult;
+        wd.skillMult   = parts.skillMult;
+        wd.settingMult = parts.settingMult;
+
+        const bool isPlayer = actor->IsPlayerRef();
+        const auto est = PerkModifiers::GetHitEstimate(actor, weapon, isLeftHand);
+        wd.perkMult = est.perkMult;
+
+        if (isPlayer) {
+            auto* player = actor->As<RE::PlayerCharacter>();
+            const float known = wd.weaponBase * wd.skillMult * wd.fortifyMult * wd.perkMult;
+
+            bool foundWorn = false;
+            if (auto gear = GearCatalog::Get(actor)) {
+                const auto card = isLeftHand ? GearCatalog::Card::LeftHand : GearCatalog::Card::RightHand;
+                for (const auto& item : gear->cards[static_cast<std::size_t>(card)].items) {
+                    if (!item.equipped || item.key.baseID != weapon->GetFormID() || item.statValue < 0.0f) continue;
+                    wd.physical  = item.statValue;
+                    wd.tempered  = item.key.health > 1.0f;
+                    wd.otherMult = known > 0.0f ? (item.statValue - wd.ammoBase) / known : 1.0f;
+                    foundWorn = true;
                             break;
                         }
                     }
-                }
-            }
-        } catch (...) {
+            if (!foundWorn) wd.physical = known + wd.ammoBase;
+        } else {
+            wd.physical  = ApplyFormula(parts, wd.weaponBase, wd.ammoBase, wd.perkMult);
+            wd.otherMult = 1.0f;
         }
-        if (stats.isRanged) {
-            if (auto* ammo = player->GetCurrentAmmo()) {
-                stats.ammoDamage = ammo->GetRuntimeData().data.damage;
-            }
+
+        SpellDamageResolver::CollectDamageEffects(GetWeaponEnchantment(actor, weapon, isLeftHand), wd.enchants);
+        return wd;
+    }
+
+    HandWeaponStats ResolveHandWeaponStats(RE::PlayerCharacter* player, RE::TESForm* equippedForm, bool isLeftHand) {
+        HandWeaponStats stats;
+        const auto wd = ResolveWeaponDamage(player, equippedForm, isLeftHand);
+        if (!wd.valid) return stats;
+
+        stats.isWeapon     = true;
+        stats.isTwoHanded  = wd.isTwoHanded;
+        stats.isRanged     = wd.isRanged;
+        stats.weaponSpeed  = wd.speed;
+        stats.fortifyBonus = (wd.fortifyMult - 1.0f) * 100.0f;
+        stats.skillBonus   = wd.weaponBase * (wd.skillMult - 1.0f);
+        stats.skillIconName = wd.skill == RE::ActorValue::kOneHanded ? "onehanded"
+                            : wd.skill == RE::ActorValue::kTwoHanded ? "twohanded"
+                            : wd.skill == RE::ActorValue::kArchery   ? "archery" : "none";
+        stats.ammoDamage     = wd.ammoBase;
+        stats.physicalDamage = std::round(wd.physical - wd.ammoBase);
+        if (const auto* e = wd.FirstElementEnchant()) {
+            stats.enchantDamage = e->magnitude;
+            stats.enchantType   = e->type;
         }
-        float displayTotal = stats.physicalDamage;
-        if (displayTotal < 0.0f && stats.enchantDamage > 0.0f) {
-            displayTotal = 0.0f;
-        }
-        if (displayTotal >= 0.0f) {
-            displayTotal += stats.ammoDamage;
-            displayTotal += stats.enchantDamage;
-            stats.totalDamage = std::round(displayTotal);
-        }
+        stats.hitDamage = std::round(stats.physicalDamage + stats.ammoDamage);
         return stats;
     }
-}
+
+    float ArmorValue(RE::Actor* actor, RE::TESObjectARMO* armor, RE::InventoryEntryData* entry) {
+        if (!armor) return 0.0f;
+        if (!actor || !entry) return static_cast<float>(armor->GetArmorRating());
+        if (armor->IsClothing()) return 0.0f;
+
+        if (actor->IsPlayerRef())
+            if (auto* player = RE::PlayerCharacter::GetSingleton()) return player->GetArmorValue(entry);
+
+        auto* avo = actor->AsActorValueOwner();
+        const auto  skill = armor->IsHeavyArmor() ? RE::ActorValue::kHeavyArmor : RE::ActorValue::kLightArmor;
+        const float skillMult = avo->GetArmorRatingSkillMultiplier(avo->GetActorValue(skill));
+        const float rated = RE::GetArmorFinalRating(entry, avo->GetActorValue(RE::ActorValue::kArmorPerks), skillMult);
+        return PerkModifiers::ArmorRatingPerk(actor, armor, rated);
+                }
+            }

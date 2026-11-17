@@ -81,7 +81,7 @@ namespace EffectAttribution {
                 if (r.magnitude <= 0.0f && ae->effect) r.magnitude = std::abs(ae->effect->GetMagnitude());
                 r.duration = ae->duration;
                 r.timeLeft = ae->duration > 0.0f ? ae->duration - ae->elapsedSeconds : -1.0f;
-                r.hostile    = base->IsHostile() || base->IsDetrimental() || ae->magnitude < 0.0f;
+                r.hostile    = EffectCategories::IsDebuff(base, ae->magnitude);
                 r.hiddenInUI = base->data.flags.any(RE::EffectSetting::EffectSettingData::Flag::kHideInUI);
                 if (const char* n = base->GetFullName()) r.effectName = n;
                 if (ae->spell)
@@ -137,6 +137,16 @@ namespace EffectAttribution {
             case OwnerKind::Equipment:
                 if (r.item && r.item->GetName() && r.item->GetName()[0])
                     icon = TextureManager::GetItemIcon(r.item, "");
+                if (!icon) icon = TextureManager::GetPartyIcon("armor");
+                break;
+            case OwnerKind::Race:
+                icon = TextureManager::GetPartyIcon("race");
+                break;
+            case OwnerKind::Stone:
+                icon = TextureManager::GetPartyIcon("standing_stone");
+                break;
+            case OwnerKind::Disease:
+                icon = TextureManager::GetPartyIcon("disease");
                 break;
             case OwnerKind::Potion: {
                 RE::TESForm* item = r.item ? static_cast<RE::TESForm*>(r.item)
@@ -287,4 +297,20 @@ namespace EffectAttribution {
         }
         return TextureManager::GetPartyIcon("blessing");
     }
+
+    static bool StatEffectMatches(RE::Actor* actor, RE::ActorValue stat, bool wantDebuff, bool potionOnly) {
+        const bool skill = EffectCategories::GetSkillTarget(stat) == stat;
+        auto Hits = [&](RE::ActorValue av) { return av != RE::ActorValue::kNone && (av == stat || (skill && EffectCategories::GetSkillTarget(av) == stat)); };
+        for (const auto& rec : Get(actor)) {
+            if (rec.hostile != wantDebuff) continue;
+            if (potionOnly && rec.kind != OwnerKind::Potion) continue;
+            const RE::ActorValue av = Hits(rec.primaryAV) ? rec.primaryAV : (Hits(rec.secondaryAV) ? rec.secondaryAV : RE::ActorValue::kNone);
+            if (av == RE::ActorValue::kNone) continue;
+            if (DisplayMagnitude(rec, av) >= 0.5f) return true;
+}
+        return false;
+    }
+
+    bool HasPotionBuff(RE::Actor* actor, RE::ActorValue stat) { return StatEffectMatches(actor, stat, false, true); }
+    bool HasStatDebuff(RE::Actor* actor, RE::ActorValue stat) { return StatEffectMatches(actor, stat, true, false); }
 }

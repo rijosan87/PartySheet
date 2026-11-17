@@ -497,7 +497,7 @@ namespace HUDDraw {
         if (!hasText) return { bMin, bMax };
 
         {
-            const ImVec2 tp(bMin.x + s.padX + iconSz + gap, bMin.y + (h - ts.y) * 0.5f);
+            const ImVec2 tp(bMin.x + s.padX + iconSz + gap, std::floor(bMin.y + (h - ts.y) * 0.5f));
             uint8_t tA = A((s.textColor >> 24) & 0xFF);
             uint8_t tR = (s.textColor >> 16) & 0xFF, tG = (s.textColor >> 8) & 0xFF, tB = s.textColor & 0xFF;
             if (s.textShadow)

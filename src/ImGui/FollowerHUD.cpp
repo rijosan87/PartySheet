@@ -530,7 +530,7 @@ namespace FollowerHUD {
         } else if (healthPercent < 0.8f && settings->hudPortraitHitFlash) {
             bool isCritical = healthPercent < 0.25f;
             float pulseSpeed = isCritical ? 5.0f : 2.5f;
-            float alpha = (sin(static_cast<float>(ImGui::GetTime()) * pulseSpeed) * 0.5f + 0.5f) * 0.4f + 0.1f;
+            float alpha = UIAnimation::Pulse(pulseSpeed, 0.1f, 0.5f);
             ImU32 fillCol   = IM_COL32(255, 0, 0, static_cast<int>(alpha * 255));
             ImU32 borderCol = IM_COL32(255, 0, 0, 200);
             if (ribbonWidth > 0.0f) {
@@ -2175,7 +2175,7 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
             if (healthPercent < 0.25f && healthPercent > 0.0f && !isDowned) {
                 constexpr float kPulseFreq = 1.8f;
                 constexpr float kPulseAmp  = 0.07f;
-                float scale = 1.0f + kPulseAmp * sinf(2.0f * 3.14159265f * kPulseFreq * static_cast<float>(ImGui::GetTime()));
+                float scale = UIAnimation::Pulse(2.0f * 3.14159265f * kPulseFreq, 1.0f - kPulseAmp, 1.0f + kPulseAmp);
                 drawPortraitSize = portraitSize * scale;
             }
             float healScale = UIAnimation::GetHealScale(portraitKey);

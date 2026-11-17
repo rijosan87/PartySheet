@@ -118,30 +118,13 @@ namespace ImGuiRenderer {
     static std::chrono::steady_clock::time_point g_LastPSVisibleTime;
 
     static std::string g_ToastMessage = "";
-    static float g_ToastTimer = 0.0f;
-    static const float g_ToastDuration = 2.0f;
+    static std::chrono::steady_clock::time_point g_ToastShownAt{};
+    static constexpr float kToastHold = 1.5f;
+    static constexpr float kToastFadeOut = 0.5f;
 
     static void ShowToast(const std::string& message) {
         g_ToastMessage = message;
-        g_ToastTimer = g_ToastDuration;
-    }
-    
-    static void DisablePlayerInput() {
-        if (auto pc = RE::PlayerControls::GetSingleton()) {
-            if (pc->lookHandler) pc->lookHandler->SetInputEventHandlingEnabled(false);
-            if (pc->movementHandler) pc->movementHandler->SetInputEventHandlingEnabled(false);
-            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(false);
-            logger::debug("Player input disabled (look, movement, attack handlers)");
-        }
-    }
-    
-    static void EnablePlayerInput() {
-        if (auto pc = RE::PlayerControls::GetSingleton()) {
-            if (pc->lookHandler) pc->lookHandler->SetInputEventHandlingEnabled(true);
-            if (pc->movementHandler) pc->movementHandler->SetInputEventHandlingEnabled(true);
-            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(true);
-            logger::debug("Player input enabled (look, movement, attack handlers)");
-        }
+        g_ToastShownAt = std::chrono::steady_clock::now();
     }
     
     static void SaveCameraZoom();
@@ -714,7 +697,7 @@ namespace ImGuiRenderer {
                 if (MenuUtils::ShouldBlockOverlay() && !g_hkCaptureCb) {
                     g_MenuVisible = false;
                     g_ControlsDisabled = false;
-                    EnablePlayerInput();
+                    MenuUtils::EnablePlayerInput();
                     ApplyPauseState(false);
                     auto& ioCheck = ImGui::GetIO();
                     ioCheck.MouseDrawCursor = false;
@@ -725,7 +708,7 @@ namespace ImGuiRenderer {
                 
                 if (!g_ControlsDisabled) {
                     g_ControlsDisabled = true;
-                    DisablePlayerInput();
+                    MenuUtils::DisablePlayerInput();
                     logger::debug("ImGui: Menu opened - player input disabled");
                 }
 
@@ -904,14 +887,10 @@ namespace ImGuiRenderer {
                     CharacterSheet::GetSingleton()->DrawUI();
                 }
 
-                if (g_ToastTimer > 0.0f) {
-                    float deltaTime = io.DeltaTime;
-                    g_ToastTimer -= deltaTime;
-                    
-                    float alpha = 1.0f;
-                    if (g_ToastTimer < 0.5f) {
-                        alpha = g_ToastTimer / 0.5f;
-                    }
+                const float toastAge = g_ToastShownAt.time_since_epoch().count() != 0
+                    ? std::chrono::duration<float>(std::chrono::steady_clock::now() - g_ToastShownAt).count()
+                    : -1.0f;
+                if (const float alpha = UIAnimation::AgeFade(toastAge, 0.0f, kToastHold, kToastFadeOut); alpha > 0.0f) {
                     
                     ImGui::SetNextWindowPos(ImVec2(100.0f, 100.0f), ImGuiCond_Always);
                     ImGui::SetNextWindowBgAlpha(0.8f * alpha);
@@ -937,7 +916,7 @@ namespace ImGuiRenderer {
                 if (ImGui::IsKeyPressed(ImGuiKey_GamepadFaceRight, false)) {
                     g_MenuVisible = false;
                     g_ControlsDisabled = false;
-                    EnablePlayerInput();
+                    MenuUtils::EnablePlayerInput();
                     ApplyPauseState(false);
                     logger::debug("ImGui: Menu closed via Gamepad B");
                     func(a_menu);
@@ -952,7 +931,7 @@ namespace ImGuiRenderer {
             } else if (g_ControlsDisabled) {
                 g_ControlsDisabled = false;
                 if (!PartySheet::IsVisible() && !PartySheetV2::IsVisible()) {
-                    EnablePlayerInput();
+                    MenuUtils::EnablePlayerInput();
                     logger::debug("ImGui: Menu closed - player input enabled");
                 } else {
                     logger::debug("ImGui: Menu closed but Party Sheet open - input stays disabled");
@@ -965,7 +944,7 @@ namespace ImGuiRenderer {
                     ApplyPauseState(false);
                     if (g_ControlsDisabled && !PartySheet::IsVisible() && !PartySheetV2::IsVisible()) {
                         g_ControlsDisabled = false;
-                        EnablePlayerInput();
+                        MenuUtils::EnablePlayerInput();
                     }
                     auto& ioX = ImGui::GetIO();
                     ioX.MouseDrawCursor = false;
@@ -1286,7 +1265,7 @@ namespace ImGuiRenderer {
 
             if (!PartySheet::IsVisible() && !PartySheetV2::IsVisible()) {
                 g_ControlsDisabled = false;
-                EnablePlayerInput();
+                MenuUtils::EnablePlayerInput();
                 logger::debug("Settings: Closed - player input enabled");
             } else {
                 logger::debug("Settings: Closed but PartySheet/V2 open - input stays disabled");

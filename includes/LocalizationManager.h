@@ -3,7 +3,6 @@
 // STATUS: Working
 // Translates string keys using localization files.
 
-
 #include <string>
 #include <unordered_map>
 
@@ -15,6 +14,8 @@ public:
     }
     void LoadLanguage(const std::string& languageCode);
     std::string GetLabel(const std::string& key) const;
+
+    std::string FindLabel(const std::string& key) const;
     static std::string Get(const std::string& key) {
         return GetSingleton()->GetLabel(key);
     }

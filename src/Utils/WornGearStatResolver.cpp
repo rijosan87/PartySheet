@@ -2,6 +2,8 @@
 // Parses player's currently worn armor and gear.
 
 #include "../../includes/Utils/WornGearStatResolver.h"
+#include "../../includes/Utils/EffectAttribution.h"
+#include "../../includes/Utils/GearCatalog.h"
 
 #include <cstdio>
 
@@ -81,7 +83,8 @@ namespace WornGearStatResolver {
                 int         priority;
                 EnchantBadge badge;
             };
-            std::array<PendingBadge, 3> pending{};
+
+            std::array<PendingBadge, 4> pending{};
             std::size_t pendingCount = 0;
             for (std::size_t i = 0; i < slotData.enchantBadgeCount; ++i) {
                 pending[pendingCount++] = { slotData.enchantBadges[i].priority, slotData.enchantBadges[i] };
@@ -109,33 +112,9 @@ namespace WornGearStatResolver {
                 slotData.enchantBadges[i] = pending[i].badge;
             }
         }
-    }
 
-    WornGearData Resolve(RE::Actor* actor)
+        void ApplyGearEffect(WornGearData& data, WornGearSlotData& slotData, RE::ActorValue av, float magnitude)
     {
-        WornGearData data;
-        if (!actor) {
-            return data;
-        }
-        for (std::size_t i = 0; i < data.slots.size(); ++i) {
-            auto& slotData = data.slots[i];
-            slotData.slot = kSlots[i].slot;
-            slotData.armor = GetWornArmorForSlot(actor, slotData.slot);
-            slotData.armorValue = slotData.armor ? static_cast<float>(slotData.armor->GetArmorRating()) : -1.0f;
-            auto* armor = slotData.armor;
-            if (!armor) {
-                continue;
-            }
-            auto* enchantable = armor->As<RE::TESEnchantableForm>();
-            if (!enchantable || !enchantable->formEnchanting) {
-                continue;
-            }
-            for (auto* effect : enchantable->formEnchanting->effects) {
-                if (!effect || !effect->baseEffect) {
-                    continue;
-                }
-                const auto av = effect->baseEffect->data.primaryAV;
-                const float magnitude = effect->effectItem.magnitude;
                 if (magnitude > 0.0f) {
                     if (av == RE::ActorValue::kResistFire) {
                         data.resistHighlightMask |= kResistFire;
@@ -152,6 +131,8 @@ namespace WornGearStatResolver {
                     } else if (av == RE::ActorValue::kResistMagic) {
                         data.resistHighlightMask |= kResistMagic;
                         InsertEnchantBadge(slotData, 2, "magic_resist", "resist_magic", "%.0f%%", magnitude);
+                } else if (av == RE::ActorValue::kResistDisease) {
+                    data.resistHighlightMask |= kResistDisease;
                     } else if (av == RE::ActorValue::kHealth) {
                         InsertEnchantBadge(slotData, 1, "health", "fortify_health", "+%.0f", magnitude);
                     } else if (av == RE::ActorValue::kMagicka) {
@@ -189,6 +170,101 @@ namespace WornGearStatResolver {
                     break;
                 }
             }
+
+        WornGearSlotData* FindSlotForEffect(WornGearData& data, const EffectAttribution::Record& rec)
+        {
+            for (auto& slotData : data.slots) {
+                if (!slotData.armor) {
+                    continue;
+                }
+                const bool isItem = rec.item && rec.item == slotData.armor;
+                const bool isKyeBody = rec.kye2Armor && slotData.slot == RE::BIPED_MODEL::BipedObjectSlot::kBody;
+                if (isItem || isKyeBody) {
+                    return &slotData;
+                }
+            }
+            return nullptr;
+        }
+
+        float PlayerShownArmor(RE::PlayerCharacter* player, RE::TESObjectARMO* armor)
+        {
+            auto inv = player->GetInventory([armor](const RE::TESBoundObject& obj) { return &obj == armor; });
+            for (auto& [item, data] : inv) {
+                auto& [count, entry] = data;
+                if (count > 0 && entry && entry->IsWorn()) {
+                    return player->GetArmorValue(entry.get());
+                }
+            }
+            return static_cast<float>(armor->GetArmorRating());
+        }
+
+    }
+
+    float ShownArmorValue(RE::Actor* actor, RE::TESObjectARMO* armor, bool* settled)
+    {
+        if (settled) *settled = true;
+        if (!actor || !armor) {
+            return -1.0f;
+        }
+        if (actor->IsPlayerRef()) {
+            if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+                return PlayerShownArmor(player, armor);
+            }
+        }
+
+        if (auto gear = GearCatalog::Get(actor)) {
+            for (const auto& row : gear->items) {
+                if (row.worn && row.key.baseID == armor->GetFormID() && row.statValue >= 0.0f) {
+                    return row.statValue;
+                }
+            }
+        }
+        if (settled) *settled = false;
+        return static_cast<float>(armor->GetArmorRating());
+    }
+
+    WornGearData Resolve(RE::Actor* actor)
+    {
+        WornGearData data;
+        if (!actor) {
+            return data;
+        }
+
+        for (std::size_t i = 0; i < data.slots.size(); ++i) {
+            auto& slotData = data.slots[i];
+            slotData.slot = kSlots[i].slot;
+            slotData.armor = GetWornArmorForSlot(actor, slotData.slot);
+            slotData.armorValue = ShownArmorValue(actor, slotData.armor, &slotData.armorValueSettled);
+
+            auto* armor = slotData.armor;
+            if (!armor) {
+                continue;
+            }
+
+            auto* enchantable = armor->As<RE::TESEnchantableForm>();
+            if (!enchantable || !enchantable->formEnchanting) {
+                continue;
+            }
+
+            for (auto* effect : enchantable->formEnchanting->effects) {
+                if (!effect || !effect->baseEffect) {
+                    continue;
+                }
+
+                ApplyGearEffect(data, slotData, effect->baseEffect->data.primaryAV, effect->effectItem.magnitude);
+            }
+        }
+
+        for (const auto& rec : EffectAttribution::Get(actor)) {
+            if (rec.kind != EffectAttribution::OwnerKind::Equipment) {
+                continue;
+            }
+            auto* slotData = FindSlotForEffect(data, rec);
+            if (!slotData) {
+                continue;
+            }
+            const float magnitude = EffectAttribution::DisplayMagnitude(rec, rec.primaryAV);
+            ApplyGearEffect(data, *slotData, rec.primaryAV, rec.rawMagnitude < 0.0f ? -magnitude : magnitude);
         }
         for (std::size_t i = 0; i < data.slots.size(); ++i) {
             auto* armorI = data.slots[i].armor;

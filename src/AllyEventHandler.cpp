@@ -1,8 +1,11 @@
 #include "../includes/AllyEventHandler.h"
+#include "../includes/EffectCategories.h"
 #include "../includes/ImGui/FollowerHUD.h"
 #include "../includes/HUDVisibility.h"
 #include "../includes/UIAnimation.h"
 #include "../includes/Settings.h"
+#include "../includes/Utils/GearCatalog.h"
+#include "../includes/Utils/GearSwitcher.h"
 
 #include <chrono>
 #include <unordered_map>
@@ -117,6 +120,10 @@ namespace AllyEvents {
     {
         if (!event) return RE::BSEventNotifyControl::kContinue;
 
+        GearSwitcher::OnEquipChanged(event->actor.get());
+
+        if (auto* equipActor = event->actor.get()) GearCatalog::Invalidate(equipActor->GetFormID());
+
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player) return RE::BSEventNotifyControl::kContinue;
 
@@ -156,7 +163,7 @@ namespace AllyEvents {
         for (auto* effect : magicItem->effects) {
             if (!effect || !effect->baseEffect) continue;
             auto* base = effect->baseEffect;
-            if (base->IsHostile() || base->IsDetrimental()) return false;
+            if (EffectCategories::IsDebuff(base)) return false;
             if (base->data.primaryAV == RE::ActorValue::kHealth && effect->effectItem.magnitude > 0.0f) return true;
             if (base->GetMagickSkill() == RE::ActorValue::kRestoration && effect->effectItem.magnitude > 0.0f) return true;
         }
@@ -171,7 +178,7 @@ namespace AllyEvents {
 
         for (auto* effect : magicItem->effects) {
             if (!effect || !effect->baseEffect) continue;
-            if (effect->baseEffect->IsHostile() || effect->baseEffect->IsDetrimental()) return false;
+            if (EffectCategories::IsDebuff(effect->baseEffect)) return false;
         }
         return true;
     }

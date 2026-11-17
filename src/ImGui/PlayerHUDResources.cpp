@@ -8,6 +8,7 @@
 #include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/SurvivalSymptoms.h"
 #include "../../includes/ImGui/WidgetDrawHelpers.h"
+#include "../../includes/UIAnimation.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -26,7 +27,8 @@ namespace PlayerHUDResources {
     static bool g_ForceLocPos = false;
     static int  g_PrevGold   = -1;
     static float g_PrevCarry    = -1.0f;
-    static float g_DisplayGold  = -1.0f;
+    static float g_ShownGold    = 0.0f;
+    static ImU32 g_GoldRollTint = 0;
     static RE::FormID g_PrevWeatherFormID = 0;
     static std::uint8_t g_PrevWeatherKind = 0xFF;
 
@@ -54,8 +56,6 @@ namespace PlayerHUDResources {
     {
         return static_cast<int>(std::lround(ScalePx(static_cast<float>(value))));
     }
-
-    constexpr float kCounterBlendSpeed = 18.0f;
 
     enum class WeatherKind : std::uint8_t {
         kUnknown = 0,
@@ -154,12 +154,20 @@ namespace PlayerHUDResources {
         return false;
     }
 
-    static void AnimateTowards(float& displayValue, float targetValue, float dt, float snapEpsilon) {
-        float t = 1.0f - std::exp(-kCounterBlendSpeed * dt);
-        displayValue += (targetValue - displayValue) * t;
-        if (std::abs(displayValue - targetValue) < snapEpsilon) {
-            displayValue = targetValue;
+    static int ReadPlayerGold(RE::PlayerCharacter* player) {
+        if (auto* goldForm = RE::TESForm::LookupByID(0x0000000F))
+            if (auto* goldObj = goldForm->As<RE::TESBoundObject>())
+                return player->GetItemCount(goldObj);
+        return 0;
         }
+
+    static void TickGoldRoll(RE::PlayerCharacter* player) {
+        const float gold = static_cast<float>(ReadPlayerGold(player));
+        constexpr float kRollSpeed = 10.0f;
+        g_ShownGold = UIAnimation::Follow("phres_gold", gold, kRollSpeed, kRollSpeed);
+        g_GoldRollTint = 0;
+        if (std::fabs(g_ShownGold - gold) >= 0.5f)
+            g_GoldRollTint = g_ShownGold < gold ? IM_COL32(125, 220, 122, 255) : IM_COL32(232, 103, 106, 255);
     }
 
     static WeatherDisplay GetCurrentWeatherDisplay(RE::PlayerCharacter* player) {
@@ -289,17 +297,13 @@ namespace PlayerHUDResources {
         if (!player || !player->Is3DLoaded()) return;
         if (MenuUtils::ShouldBlockOverlay()) return;
 
-        int gold = 0;
-        if (auto* goldForm = RE::TESForm::LookupByID(0x0000000F))
-            if (auto* goldObj = goldForm->As<RE::TESBoundObject>())
-                gold = player->GetItemCount(goldObj);
+        const int gold = ReadPlayerGold(player);
 
         float carryWeight    = player->GetWeightInContainer();
         float carryWeightMax = player->AsActorValueOwner()->GetActorValue(RE::ActorValue::kCarryWeight);
 
-        if (g_DisplayGold < 0.0f || g_PrevGold < 0) {
+        if (g_PrevGold < 0) {
             g_PrevGold = gold;
-            g_DisplayGold = static_cast<float>(gold);
         } else {
             int goldDiff = gold - g_PrevGold;
             float carryDiff = carryWeight - g_PrevCarry;
@@ -307,10 +311,6 @@ namespace PlayerHUDResources {
                 g_PrevGold = gold;
                 g_PrevCarry = carryWeight;
                 HUDVisibility::Trigger(HUDVisibility::WidgetID::PlayerResources);
-
-                if (std::abs(goldDiff) <= 1) {
-                    g_DisplayGold = static_cast<float>(gold);
-                }
             }
         }
 
@@ -345,9 +345,6 @@ namespace PlayerHUDResources {
         ImGui::SetWindowFontScale(settings->presFontScale);
         DrawWindowBackground(settings->presBgColor, settings->presBgStyle, settings->presFadeMode,
                              settings->presFadeAnchor, settings->presFadeLength);
-
-        float dt = std::clamp(ImGui::GetIO().DeltaTime, 0.001f, 0.1f);
-        AnimateTowards(g_DisplayGold, static_cast<float>(gold), dt, 0.15f);
 
         float autoIconSz = std::floor(ImGui::GetTextLineHeight() * 1.2f);
         float iconSz  = settings->presIconSize > 0 ? ScalePx(static_cast<float>(settings->presIconSize)) : autoIconSz;
@@ -384,7 +381,7 @@ namespace PlayerHUDResources {
             static_cast<int>(textCol.w * 255));
 
         auto DrawItem = [&](ID3D11ShaderResourceView* icon, const char* text, ImU32 iconTint,
-                            const char* symptomTail = nullptr) {
+                            const char* symptomTail = nullptr, ImU32 rollTint = 0) {
             if (horiz && !firstItem)
                 ImGui::SameLine(0.0f, spacing);
             else if (!horiz && !firstItem)
@@ -403,7 +400,8 @@ namespace PlayerHUDResources {
 
             ImVec2 textPos = ImGui::GetCursorScreenPos();
             ImVec2 textSize = ImGui::CalcTextSize(text);
-            HUDDraw::DrawTextStyled(dl, textPos, textColU32, text, HUDDraw::TextFx{});
+            const ImU32 itemTextCol = rollTint ? ((rollTint & ~IM_COL32_A_MASK) | (textColU32 & IM_COL32_A_MASK)) : textColU32;
+            HUDDraw::DrawTextStyled(dl, textPos, itemTextCol, text, HUDDraw::TextFx{});
             if (symptomTail) {
                 const ImU32 red = IM_COL32(0xE0, 0x5A, 0x4A, 0) | (textColU32 & IM_COL32_A_MASK);
                 const ImVec2 tailPos(textPos.x + textSize.x, textPos.y);
@@ -418,8 +416,8 @@ namespace PlayerHUDResources {
         };
 
         if (settings->presShowGold) {
-            snprintf(buf, sizeof(buf), "%d", static_cast<int>(std::round(g_DisplayGold)));
-            DrawItem(iconGold, buf, argbToU32(settings->presGoldColor));
+            snprintf(buf, sizeof(buf), "%d", static_cast<int>(std::round(g_ShownGold)));
+            DrawItem(iconGold, buf, argbToU32(settings->presGoldColor), nullptr, g_GoldRollTint);
         }
 
         if (settings->presShowCarryWeight) {
@@ -652,6 +650,7 @@ namespace PlayerHUDResources {
         if (!player || !player->Is3DLoaded() || MenuUtils::ShouldBlockOverlay()) return;
 
         DetectWeatherLocationChange(player);
+        TickGoldRoll(player);
 
         bool lootMenuOpen = false;
         if (auto* ui = RE::UI::GetSingleton()) {
@@ -676,7 +675,10 @@ namespace PlayerHUDResources {
     }
 
     void RenderPreview() {
-        DetectWeatherLocationChange(RE::PlayerCharacter::GetSingleton());
+        if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+            DetectWeatherLocationChange(player);
+            TickGoldRoll(player);
+        }
         RenderWindow(true);
         RenderLocationWindow(true);
     }

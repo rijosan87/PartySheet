@@ -1066,27 +1066,13 @@ static void RenderWindow(bool allowDrag)
             }
         }
     }
-
-    static std::unordered_map<std::string, float> s_cardAlpha;
     std::vector<float> cardAlpha(needCount, 1.0f);
     {
-        static std::chrono::steady_clock::time_point s_lastFadeTick{};
-        const auto nowTick = std::chrono::steady_clock::now();
-        float dt = (s_lastFadeTick.time_since_epoch().count() != 0)
-            ? std::chrono::duration<float>(nowTick - s_lastFadeTick).count()
-            : 0.016f;
-        s_lastFadeTick = nowTick;
-        dt = std::clamp(dt, 0.0f, 0.1f);
-
-        const float dur = (std::max)(0.1f, settings->hvFadeDuration);
+        constexpr float kCardFadeIn = 0.2f;
+        const float fadeOut = (std::max)(0.1f, settings->hvFadeDuration);
         for (int n = 0; n < needCount; ++n) {
             const auto& need = needs[n];
-            float& a = s_cardAlpha[need.key];
-            if (CardHidden(need))
-                a = (std::max)(a - dt / dur, 0.0f);
-            else
-                a = (std::min)(a + dt * 5.0f, 1.0f);
-            cardAlpha[n] = a;
+            cardAlpha[n] = UIAnimation::Step(std::string("surv_card_") + need.key, !CardHidden(need), kCardFadeIn, fadeOut);
         }
     }
     {
@@ -1113,9 +1099,7 @@ static void RenderWindow(bool allowDrag)
 
     const bool hasAlarmBorder = settings->phSurvivalShowBorder && (settings->phSurvivalBorderColor >> 24) != 0;
     const int alarmTarget = hasAlarmBorder ? 0 : indStyle != 2 ? 1 : 2;  // Border, Indicator, Icon
-    static const auto alarmStart = std::chrono::steady_clock::now();
-    const float alarmTime = std::chrono::duration<float>(std::chrono::steady_clock::now() - alarmStart).count();
-    const float alarmWave = std::sin(std::fmod(alarmTime, 3.0f) * (2.0f * 3.14159265358979323846f / 3.0f)) * 0.5f + 0.5f;
+    const float alarmWave = UIAnimation::Pulse(2.0f * 3.14159265f / 3.0f, 0.0f, 1.0f);
     auto PulseAlarmRange = [&](int v0, int v1, int stage, int maxStage, int target) {
         if (!settings->phSurvivalAlarmPulse || alarmTarget != target || maxStage <= 0 || stage < maxStage) return;
         // Keep opacity and critical hue steady; only a small brightness change marks urgency.

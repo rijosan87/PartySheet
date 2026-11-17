@@ -517,7 +517,7 @@ namespace InspectCard {
             DrawSectionRule(cardContentWidth);
 
         ImGui::SetWindowFontScale(scale * settings->icBodyFontScale);
-            float damage = targetStats.weaponDamage > 0.0f ? targetStats.weaponDamage : targetStats.unarmedDamage;
+            float damage = targetStats.totalDamage > 0.0f ? targetStats.totalDamage : targetStats.unarmedDamage;
             DrawCombatStatCards(cardContentWidth, scale, settings->icBodyFontScale, playerAlt >= TIER_STATS, damage, targetStats.armorRating);
                 }
 

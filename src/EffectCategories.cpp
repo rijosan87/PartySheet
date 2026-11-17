@@ -171,9 +171,8 @@ namespace EffectCategories {
         using AV = RE::ActorValue;
         auto L = [](const char* key, const char* eng) {
             for (const char* sec : { "Stats.", "Skills.", "Resistances." }) {
-                const std::string full = std::string(sec) + key;
-                std::string v = LocalizationManager::Get(full);
-                if (!v.empty() && v != full) return v;
+                std::string v = LocalizationManager::GetSingleton()->FindLabel(std::string(sec) + key);
+                if (!v.empty()) return v;
             }
             return std::string(eng);
         };
@@ -273,9 +272,13 @@ namespace EffectCategories {
         constexpr int kSkill1 = static_cast<int>(RE::ActorValue::kEnchanting);
         constexpr int kMod0   = static_cast<int>(RE::ActorValue::kOneHandedModifier);
         constexpr int kMod1   = static_cast<int>(RE::ActorValue::kEnchantingModifier);
+        constexpr int kPow0   = static_cast<int>(RE::ActorValue::kOneHandedPowerModifier);
+        constexpr int kPow1   = static_cast<int>(RE::ActorValue::kEnchantingPowerModifier);
         static_assert(kSkill1 - kSkill0 == kMod1 - kMod0);
+        static_assert(kSkill1 - kSkill0 == kPow1 - kPow0);
         if (v >= kSkill0 && v <= kSkill1) return av;
         if (v >= kMod0 && v <= kMod1) return static_cast<RE::ActorValue>(kSkill0 + (v - kMod0));
+        if (v >= kPow0 && v <= kPow1) return static_cast<RE::ActorValue>(kSkill0 + (v - kPow0));
         return RE::ActorValue::kNone;
     }
 
@@ -294,6 +297,14 @@ namespace EffectCategories {
             if (ep->entryData.function == F::kAddValue && v < 0.0f) return true;
         }
         return false;
+    }
+
+    bool IsDebuff(const RE::EffectSetting* base) {
+        return base && (base->IsHostile() || base->IsDetrimental());
+    }
+
+    bool IsDebuff(const RE::EffectSetting* base, float liveMagnitude) {
+        return IsDebuff(base) || liveMagnitude < 0.0f;
     }
 
     bool IsNegativeArchetype(RE::EffectArchetypes::ArchetypeID archetype) {

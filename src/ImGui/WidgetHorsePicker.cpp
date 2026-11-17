@@ -19,30 +19,15 @@ namespace WidgetHorsePicker {
 
     static bool g_Visible = false;
 
-    static void DisablePlayerInput() {
-        if (auto* pc = RE::PlayerControls::GetSingleton()) {
-            if (pc->lookHandler)        pc->lookHandler->SetInputEventHandlingEnabled(false);
-            if (pc->movementHandler)    pc->movementHandler->SetInputEventHandlingEnabled(false);
-            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(false);
-        }
-    }
-    static void EnablePlayerInput() {
-        if (auto* pc = RE::PlayerControls::GetSingleton()) {
-            if (pc->lookHandler)        pc->lookHandler->SetInputEventHandlingEnabled(true);
-            if (pc->movementHandler)    pc->movementHandler->SetInputEventHandlingEnabled(true);
-            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(true);
-        }
-    }
-
     void Show() {
         if (g_Visible) return;
         g_Visible = true;
-        DisablePlayerInput();
+        MenuUtils::DisablePlayerInput();
     }
     void Hide() {
         if (!g_Visible) return;
         g_Visible = false;
-        EnablePlayerInput();
+        MenuUtils::EnablePlayerInput();
     }
     bool IsVisible() { return g_Visible; }
 

@@ -297,7 +297,34 @@ namespace MenuUtils {
         }
         return true;
     }
-    
+
+    inline void SetHUDMenusHidden(bool hidden) {
+        auto* ui = RE::UI::GetSingleton();
+        if (!ui) return;
+        for (std::string_view name : { RE::HUDMenu::MENU_NAME, std::string_view{ "TrueHUD" },
+                                       std::string_view{ "BTPS Menu" }, std::string_view{ "LootMenu" } }) {
+            auto menu = ui->GetMenu(name);
+            if (menu && menu->uiMovie) menu->uiMovie->SetVisible(!hidden);
+        }
+    }
+
+    inline void DisablePlayerInput() {
+        if (auto* pc = RE::PlayerControls::GetSingleton()) {
+            if (pc->lookHandler)        pc->lookHandler->SetInputEventHandlingEnabled(false);
+            if (pc->movementHandler)    pc->movementHandler->SetInputEventHandlingEnabled(false);
+            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(false);
+            logger::debug("Player input disabled (look, movement, attack handlers)");
+        }
+    }
+
+    inline void EnablePlayerInput() {
+        if (auto* pc = RE::PlayerControls::GetSingleton()) {
+            if (pc->lookHandler)        pc->lookHandler->SetInputEventHandlingEnabled(true);
+            if (pc->movementHandler)    pc->movementHandler->SetInputEventHandlingEnabled(true);
+            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(true);
+            logger::debug("Player input enabled (look, movement, attack handlers)");
+        }
+    }
     
     inline bool ShouldBlockOverlay() {
         auto ui = RE::UI::GetSingleton();

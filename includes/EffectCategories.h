@@ -79,6 +79,9 @@ namespace EffectCategories {
     bool PerkLowersAttackDamage(const RE::BGSPerk* perk);
     
     bool IsNegativeArchetype(RE::EffectArchetypes::ArchetypeID archetype);
+
+    bool IsDebuff(const RE::EffectSetting* base, float liveMagnitude);
+    bool IsDebuff(const RE::EffectSetting* base);
     const char* GetStandaloneIconId(RE::EffectArchetypes::ArchetypeID archetype);
     const char* GetActorValueIconId(RE::ActorValue av);
     bool IsPercentageMagnitude(RE::ActorValue av);

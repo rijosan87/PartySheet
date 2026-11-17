@@ -13,6 +13,7 @@
 #include "../../includes/SpellIconManager.h"
 #include "../../includes/ActorStats.h"
 #include "../../includes/Utils/EquipmentStatResolver.h"
+#include "../../includes/Utils/SpellDamageResolver.h"
 #include "../../includes/Utils/WornGearStatResolver.h"
 #include "../../includes/BadgeStyle.h"
 #include "../../includes/LocalizationManager.h"
@@ -21,6 +22,8 @@
 #include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/Utils/SkillRowTint.h"
 #include "../../includes/Utils/EffectAttribution.h"
+#include "../../includes/Utils/GearSwitcher.h"
+#include "../../includes/UIAnimation.h"
 
 #include <imgui.h>
 #include <cstring>
@@ -267,22 +270,6 @@ namespace PartySheetV2 {
         dl->AddQuad(top, right, bottom, left, color, thickness);
     }
 
-    static void DisablePlayerInput() {
-        if (auto* pc = RE::PlayerControls::GetSingleton()) {
-            if (pc->lookHandler)        pc->lookHandler->SetInputEventHandlingEnabled(false);
-            if (pc->movementHandler)    pc->movementHandler->SetInputEventHandlingEnabled(false);
-            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(false);
-        }
-    }
-
-    static void EnablePlayerInput() {
-        if (auto* pc = RE::PlayerControls::GetSingleton()) {
-            if (pc->lookHandler)        pc->lookHandler->SetInputEventHandlingEnabled(true);
-            if (pc->movementHandler)    pc->movementHandler->SetInputEventHandlingEnabled(true);
-            if (pc->attackBlockHandler) pc->attackBlockHandler->SetInputEventHandlingEnabled(true);
-        }
-    }
-
     bool IsVisible() {
         return s_Visible;
     }
@@ -328,7 +315,7 @@ namespace PartySheetV2 {
         s_Visible = !s_Visible;
 
         if (s_Visible && !wasVisible) {
-            DisablePlayerInput();
+            MenuUtils::DisablePlayerInput();
             PartySheetV2Camera::Enter();
         } else if (!s_Visible && wasVisible) {
             ApplyPause(false);
@@ -337,7 +324,7 @@ namespace PartySheetV2 {
             CloseInventoryModal();
             CloseStatusModal();
             if (!ImGuiRenderer::IsVisible())
-                EnablePlayerInput();
+                MenuUtils::EnablePlayerInput();
         }
     }
 
@@ -439,6 +426,20 @@ namespace PartySheetV2 {
             DrawDiamondBorder(dl, cx, cy, half, borderColor, isActive ? 1.5f : 1.0f);
 
             {
+                ActorStats stats = GetActorStats(actor);
+                float hp = stats.health.GetPercent();
+                if (hp < 0.8f) {
+                    bool crit = hp < 0.25f;
+                    float speed = crit ? 5.0f : 2.5f;
+                    float alpha = UIAnimation::Pulse(speed, 0.08f, 0.43f);
+                    ImU32 pulseCol = IM_COL32(220, 20, 20, static_cast<int>(alpha * 255));
+                    dl->AddQuadFilled(top, right, bottom, left, pulseCol);
+                    if (crit)
+                        DrawDiamondBorder(dl, cx, cy, half, IM_COL32(255, 60, 60, 180), 1.5f * sc);
+                }
+            }
+
+            {
                 int level = actor->GetLevel();
                 char lvlBuf[8];
                 snprintf(lvlBuf, sizeof(lvlBuf), "%d", level);
@@ -480,21 +481,6 @@ namespace PartySheetV2 {
                     ImVec2 iTl(iMin.x + 1, iMin.y + 1), iBr(iMax.x - 1, iMax.y - 1);
                     HUDDraw::DrawIconStyled(dl, iTl, ImVec2(iBr.x - iTl.x, iBr.y - iTl.y),
                         reinterpret_cast<ImTextureID>(stateTex), 0xFFFFFFFF, IconFxDefault());
-                }
-            }
-
-            {
-                ActorStats stats = GetActorStats(actor);
-                float hp = stats.health.GetPercent();
-                if (hp < 0.8f) {
-                    bool crit = hp < 0.25f;
-                    float speed = crit ? 5.0f : 2.5f;
-                    float alpha = (sinf(static_cast<float>(ImGui::GetTime()) * speed) * 0.5f + 0.5f)
-                                  * 0.35f + 0.08f;
-                    ImU32 pulseCol = IM_COL32(220, 20, 20, static_cast<int>(alpha * 255));
-                    dl->AddQuadFilled(top, right, bottom, left, pulseCol);
-                    if (crit)
-                        DrawDiamondBorder(dl, cx, cy, half, IM_COL32(255, 60, 60, 180), 1.5f * sc);
                 }
             }
 
@@ -542,6 +528,24 @@ namespace PartySheetV2 {
             ImVec2(origin.x, rowY), kTheme.textMain, nameBuf);
         ImGui::SetWindowFontScale(1.0f);
         ImGui::PopFont();
+
+        {
+            constexpr float kFadeIn = 0.2f, kHold = 3.0f, kFadeOut = 0.6f;
+            const auto now = std::chrono::steady_clock::now();
+            float msgY = origin.y;
+            ImGui::SetWindowFontScale(FontBody());
+            for (const auto& m : GearSwitcher::RecentMessages()) {
+                const float age = std::chrono::duration<float>(now - m.at).count();
+                const float alpha = UIAnimation::AgeFade(age, kFadeIn, kHold, kFadeOut);
+                const ImVec2 textSz = ImGui::CalcTextSize(m.text.c_str());
+                const ImVec2 pos(origin.x + (size.x - textSz.x) * 0.5f, msgY);
+                dl->AddText(ImVec2(pos.x + 1.0f, pos.y + 1.0f), IM_COL32(0, 0, 0, static_cast<int>(200 * alpha)), m.text.c_str());
+                dl->AddText(pos, IM_COL32(255, 255, 255, static_cast<int>(255 * alpha)), m.text.c_str());
+                const float slot = UIAnimation::SmoothStep(alpha);
+                msgY += (textSz.y + 2.0f * sc) * slot;
+            }
+            ImGui::SetWindowFontScale(1.0f);
+        }
 
         float lineB_Y = rowY + nameSz.y + 4.0f * sc;
         float penX    = origin.x;
@@ -1104,7 +1108,7 @@ namespace PartySheetV2 {
             if (ImGui::IsMouseHoveringRect(rMin, rMax))
                 dl->AddRectFilled(rMin, rMax, kTheme.hoverFill, 3.0f * sc);
 
-            const auto tint = SkillRowTint::Get(actor, s.av, s_WornGearData);
+            auto tint = SkillRowTint::Get(actor, s.av, s_WornGearData);
             if (tint.on)
                 dl->AddRectFilled(rMin, rMax, tint.bg);
 
@@ -1158,11 +1162,7 @@ namespace PartySheetV2 {
         static ID3D11ShaderResourceView* s_TexShock      = nullptr;
         static ID3D11ShaderResourceView* s_TexPoison     = nullptr;
         static ID3D11ShaderResourceView* s_TexDisease    = nullptr;
-        static ID3D11ShaderResourceView* s_TexWeapon     = nullptr;
         static ID3D11ShaderResourceView* s_TexMoveSpeed  = nullptr;
-        static ID3D11ShaderResourceView* s_TexAtkSpeed   = nullptr;
-        static ID3D11ShaderResourceView* s_TexStagger    = nullptr;
-        static ID3D11ShaderResourceView* s_TexReach      = nullptr;
         if (!s_TexArmor)     s_TexArmor     = TextureManager::GetPartyIcon("armor");
         if (!s_TexDmgRes)    s_TexDmgRes    = TextureManager::GetPartyIcon("damage_resist");
         if (!s_TexMagic)     s_TexMagic     = TextureManager::GetPartyIcon("magic_resist");
@@ -1171,221 +1171,114 @@ namespace PartySheetV2 {
         if (!s_TexShock)     s_TexShock     = TextureManager::GetPartyIcon("shock_resist");
         if (!s_TexPoison)    s_TexPoison    = TextureManager::GetPartyIcon("poison_resist");
         if (!s_TexDisease)   s_TexDisease   = TextureManager::GetPartyIcon("disease_resist");
-        if (!s_TexWeapon)    s_TexWeapon    = TextureManager::GetPartyIcon("weapon");
         if (!s_TexMoveSpeed) s_TexMoveSpeed = TextureManager::GetPartyIcon("movespeed");
-        if (!s_TexAtkSpeed)  s_TexAtkSpeed  = TextureManager::GetPartyIcon("attackspeed");
-        if (!s_TexStagger)   s_TexStagger   = TextureManager::GetPartyIcon("bowstagger");
-        if (!s_TexReach)     s_TexReach     = TextureManager::GetPartyIcon("reach");
 
-        auto* avo_combat    = actor->AsActorValueOwner();
-        float combatMass    = avo_combat->GetActorValue(RE::ActorValue::kMass);
-        float combatMoveSpd = stats.speedMult;
-
-        float combatWpnSpd = 0.0f;
-        float combatReach  = 0.0f;
-        {
-            RE::TESForm* wpnForm = actor->GetEquippedObject(false);
-            if (!wpnForm || !wpnForm->As<RE::TESObjectWEAP>())
-                wpnForm = actor->GetEquippedObject(true);
-            if (auto* weap = wpnForm ? wpnForm->As<RE::TESObjectWEAP>() : nullptr) {
-                combatWpnSpd = weap->GetSpeed();
-                combatReach  = weap->GetReach();
-            }
-        }
-
-        float combatDamage = stats.weaponDamage;
-        if (actor->IsPlayerRef()) {
-            auto* player = RE::PlayerCharacter::GetSingleton();
-            auto* rh = player->GetEquippedObject(false);
-            auto* lh = player->GetEquippedObject(true);
-            RE::TESForm* weaponForm = nullptr;
-            bool         isLeftHand = false;
-            if (rh && rh->As<RE::TESObjectWEAP>()) {
-                weaponForm = rh;
-                isLeftHand = false;
-            } else if (lh && lh->As<RE::TESObjectWEAP>()) {
-                weaponForm = lh;
-                isLeftHand = true;
-            }
-            if (weaponForm) {
-                auto resolved = EquipmentStatResolver::ResolveHandWeaponStats(player, weaponForm, isLeftHand);
-                if (resolved.totalDamage >= 0.0f)
-                    combatDamage = resolved.totalDamage;
-            }
-        }
-
-        ImVec2 dcOrigin = ImGui::GetCursorScreenPos();
-
-        const float dcColGap = 8.0f * sc;
-        const float dcColW   = (size.x - dcColGap) * 0.5f;
-
-        const float dIconSz = Settings::GetSingleton()->psV2IconStat * sc;
-        const float dPadX   =  5.0f * sc;
-        const float dPadY   =  3.0f * sc;
-        const float dGapY   =  4.0f * sc;
-        const float dValW   = 44.0f * sc;
-
-        ImGui::SetWindowFontScale(FontBody());
-        float dTextH = ImGui::GetTextLineHeight();
-        ImGui::SetWindowFontScale(1.0f);
-        const float dRowH = std::max(dIconSz, dTextH) + dPadY * 2.0f;
-
-        const int   kPips  = 6;
-        const float pipR   = 3.5f * sc;
-        const float pipGap = 2.0f * sc;
-        const float pipsW  = kPips * pipR * 2.0f + (kPips - 1) * pipGap;
-
-        ImU32 pipFill   = IM_COL32(212, 175,  55, 200);
-        ImU32 pipBorder = IM_COL32(255, 255, 255, 25);
-        ImU32 pipEmpty  = IM_COL32(255, 255, 255, 15);
-
-        auto DrawStatRow = [&](float ox, float ry, float colW,
-                               const char* label, float value,
-                               float rangeMax, bool isPercent, bool isMult,
-                               ID3D11ShaderResourceView* tex,
-                               uint8_t resistBit = 0) {
-            if (ImGui::IsMouseHoveringRect(ImVec2(ox, ry), ImVec2(ox + colW, ry + dRowH)))
-                dl->AddRectFilled(ImVec2(ox, ry), ImVec2(ox + colW, ry + dRowH), kTheme.hoverFill);
-
-            bool resistHighlighted = false;
-            {
-                if (resistBit && (s_WornGearData.resistHighlightMask & resistBit)) {
-                    resistHighlighted = true;
-                    dl->AddRectFilled(
-                        ImVec2(ox, ry), ImVec2(ox + colW, ry + dRowH),
-                        BadgeStyle::Theme::ResistPurple().fill);
-                }
-            }
-
-            float midY  = ry + (dRowH - dIconSz) * 0.5f;
-            float textY = ry + (dRowH - dTextH)  * 0.5f;
-
-            float iconX = ox + dPadX;
-            if (tex)
-                HUDDraw::DrawIconStyled(dl, ImVec2(iconX, midY), dIconSz,
-                    reinterpret_cast<ImTextureID>(tex),
-                    HUDDraw::PackedToArgb(IM_COL32(255,255,255,200)), IconFxDefault());
-
-            float labelX = iconX + dIconSz + dPadX;
-            ImGui::SetWindowFontScale(FontBody());
-            AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(labelX, textY), resistHighlighted ? IM_COL32(255,255,255,255) : kTheme.textMuted, label);
-            ImGui::SetWindowFontScale(1.0f);
-
-            float pct = (rangeMax > 0.0f)
-                ? std::clamp(value / rangeMax, 0.0f, 1.0f)
-                : 0.0f;
-            int filledPips = static_cast<int>(std::round(pct * kPips));
-
-            float valueFarRight = ox + colW - dPadX;
-            float valColLeft    = valueFarRight - dValW;
-            float pipsRight     = valColLeft - dPadX;
-            float pipsLeft      = pipsRight - pipsW;
-            float pipCY         = ry + dRowH * 0.5f;
-
-            for (int p = 0; p < kPips; ++p) {
-                float cx    = pipsLeft + pipR + p * (pipR * 2.0f + pipGap);
-                bool filled = (p < filledPips);
-                dl->AddCircleFilled(ImVec2(cx, pipCY), pipR, filled ? pipFill : pipEmpty, 0);
-                dl->AddCircle(ImVec2(cx, pipCY), pipR, pipBorder, 0, 1.0f);
-            }
-
-            char valBuf[12];
-            if (isPercent)       snprintf(valBuf, sizeof(valBuf), "%.0f%%", value);
-            else if (isMult)     snprintf(valBuf, sizeof(valBuf), "%.2f",   value);
-            else                 snprintf(valBuf, sizeof(valBuf), "%.0f",   value);
-
-            bool isNegative = value < -0.5f;
-            ImGui::SetWindowFontScale(FontBody());
-            ImVec2 valSz = ImGui::CalcTextSize(valBuf);
-            ImU32  valCol = isNegative ? IM_COL32(220, 80, 80, 255) : (resistHighlighted ? IM_COL32(255,255,255,255) : kTheme.textMain);
-            AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(valueFarRight - valSz.x, textY), valCol, valBuf);
-            ImGui::SetWindowFontScale(1.0f);
-        };
-
-        auto DrawSubTitle = [&](float ox, float y, const char* title) -> float {
-            ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
-            ImGui::SetWindowFontScale(FontHeading());
-            ImVec2 titleSz = ImGui::CalcTextSize(title);
-            AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(ox, y), kTheme.accent, title);
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::PopFont();
-
-            float sepY = y + titleSz.y + 4.0f * sc;
-            HUDDraw::DrawFadeRule(dl, ox, ox + dcColW, sepY, IM_COL32(212,175,55,100));
-            return sepY + 8.0f * sc;
-        };
-
-        std::string defTitle = LocalizationManager::Get("Stats.Defense");
-        for (char& c : defTitle) c = static_cast<char>(toupper(c));
-        float defStartY = DrawSubTitle(dcOrigin.x, dcOrigin.y, defTitle.c_str());
-
-        struct StatRowDef {
+        struct ResistTile {
             std::string               label;
             float                     value;
             float                     rangeMax;
-            bool                      isPercent;
-            bool                      isMult;
+            const char*               fmt;
             ID3D11ShaderResourceView* tex;
             uint8_t                   resistBit = 0;
             RE::ActorValue            av = RE::ActorValue::kNone;
         };
-
-        const StatRowDef defRows[] = {
-            { LocalizationManager::Get("Stats.Armor"),         stats.armorRating,    500.0f, false, false, s_TexArmor,   0, RE::ActorValue::kDamageResist },
-            { LocalizationManager::Get("Stats.DamageResist"),   stats.damageResistPct, 80.0f, true,  false, s_TexDmgRes,  0 },
-            { LocalizationManager::Get("Stats.Magic"),         stats.resistMagic,     85.0f, true,  false, s_TexMagic,   WornGearStatResolver::kResistMagic, RE::ActorValue::kResistMagic },
-            { LocalizationManager::Get("Resistances.Fire"),    stats.resistFire,     100.0f, true,  false, s_TexFire,    WornGearStatResolver::kResistFire, RE::ActorValue::kResistFire },
-            { LocalizationManager::Get("Resistances.Frost"),   stats.resistFrost,    100.0f, true,  false, s_TexFrost,   WornGearStatResolver::kResistFrost, RE::ActorValue::kResistFrost },
-            { LocalizationManager::Get("Resistances.Shock"),   stats.resistShock,    100.0f, true,  false, s_TexShock,   WornGearStatResolver::kResistShock, RE::ActorValue::kResistShock },
-            { LocalizationManager::Get("Resistances.Poison"),  stats.resistPoison,   100.0f, true,  false, s_TexPoison,  WornGearStatResolver::kResistPoison, RE::ActorValue::kPoisonResist },
-            { LocalizationManager::Get("Resistances.Disease"), stats.resistDisease,  100.0f, true,  false, s_TexDisease, 0, RE::ActorValue::kResistDisease },
+        const ResistTile tiles[] = {
+            { LocalizationManager::Get("Stats.Armor"),         stats.armorRating,     500.0f, "%.0f",   s_TexArmor,   0, RE::ActorValue::kDamageResist },
+            { LocalizationManager::Get("Stats.DamageResist"),  stats.damageResistPct,  80.0f, "%.0f%%", s_TexDmgRes,  0 },
+            { LocalizationManager::Get("Stats.Magic"),         stats.resistMagic,      85.0f, "%.0f%%", s_TexMagic,   WornGearStatResolver::kResistMagic,  RE::ActorValue::kResistMagic },
+            { LocalizationManager::Get("Resistances.Fire"),    stats.resistFire,      100.0f, "%.0f%%", s_TexFire,    WornGearStatResolver::kResistFire,   RE::ActorValue::kResistFire },
+            { LocalizationManager::Get("Resistances.Frost"),   stats.resistFrost,     100.0f, "%.0f%%", s_TexFrost,   WornGearStatResolver::kResistFrost,  RE::ActorValue::kResistFrost },
+            { LocalizationManager::Get("Resistances.Shock"),   stats.resistShock,     100.0f, "%.0f%%", s_TexShock,   WornGearStatResolver::kResistShock,  RE::ActorValue::kResistShock },
+            { LocalizationManager::Get("Resistances.Poison"),  stats.resistPoison,    100.0f, "%.0f%%", s_TexPoison,  WornGearStatResolver::kResistPoison, RE::ActorValue::kPoisonResist },
+            { LocalizationManager::Get("Resistances.Disease"), stats.resistDisease,   100.0f, "%.0f%%", s_TexDisease, WornGearStatResolver::kResistDisease, RE::ActorValue::kResistDisease },
+            { LocalizationManager::Get("Stats.Move"),          stats.speedMult,       150.0f, "%.0f%%", s_TexMoveSpeed },
         };
+
+        {
+            ImVec2 tp = ImGui::GetCursorScreenPos();
+            ImGui::PushFont(nullptr, ImGuiRenderer::GetHeadingFontSize());
+            ImGui::SetWindowFontScale(FontHeading());
+            std::string defTitle = LocalizationManager::Get("Stats.Defense");
+            for (char& c : defTitle) c = static_cast<char>(toupper(c));
+            const ImVec2 dSz = ImGui::CalcTextSize(defTitle.c_str());
+            AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(), tp, kTheme.accent, defTitle.c_str());
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PopFont();
+            const float dSepY = tp.y + dSz.y + 4.0f * sc;
+            HUDDraw::DrawFadeRule(dl, tp.x, tp.x + size.x, dSepY, IM_COL32(212,175,55,100));
+            ImGui::Dummy(ImVec2(size.x, dSepY - tp.y + 8.0f * sc));
+        }
+        ImVec2 dcOrigin = ImGui::GetCursorScreenPos();
+        const float tGapX   = 8.0f * sc;
+        const float tGapY   = 4.0f * sc;
+        const float tColW   = (size.x - tGapX) * 0.5f;
+        const float tIconSz = Settings::GetSingleton()->psV2IconStat * sc;
+        const float tPadX   = 5.0f * sc;
+        const float tValW   = 44.0f * sc;
+        ImGui::SetWindowFontScale(FontBody());
+        const float tTextH  = ImGui::GetTextLineHeight();
+        ImGui::SetWindowFontScale(1.0f);
+        const float tRowH   = std::max(tIconSz, tTextH) + 6.0f * sc;
+
+        constexpr int kPips = 6;
+        const float pipR   = 3.5f * sc;
+        const float pipGap = 2.0f * sc;
+        const float pipsW  = kPips * pipR * 2.0f + (kPips - 1) * pipGap;
+        const ImU32 pipFill   = IM_COL32(212, 175,  55, 200);
+        const ImU32 pipBorder = IM_COL32(255, 255, 255, 25);
+        const ImU32 pipEmpty  = IM_COL32(255, 255, 255, 15);
 
         const bool defModalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
-        const StatRowDef* hoveredDef = nullptr;
-        float dY = defStartY;
-        for (const auto& row : defRows) {
-            DrawStatRow(dcOrigin.x, dY, dcColW,
-                row.label.c_str(), row.value, row.rangeMax, row.isPercent, row.isMult, row.tex, row.resistBit);
-            if (row.av != RE::ActorValue::kNone && !defModalOpen && ImGui::IsWindowHovered() &&
-                ImGui::IsMouseHoveringRect(ImVec2(dcOrigin.x, dY), ImVec2(dcOrigin.x + dcColW, dY + dRowH)))
-                hoveredDef = &row;
-            dY += dRowH + dGapY;
-        }
-        if (hoveredDef)
-            DrawStatTooltip(actor, hoveredDef->label, hoveredDef->av, sc);
+        const ResistTile* hoveredTile = nullptr;
+        constexpr int kTileCount = static_cast<int>(std::size(tiles));
+        for (int i = 0; i < kTileCount; ++i) {
+            const auto& t = tiles[i];
+            const ImVec2 tMin(dcOrigin.x + (i % 2) * (tColW + tGapX), dcOrigin.y + (i / 2) * (tRowH + tGapY));
+            const ImVec2 tMax(tMin.x + tColW, tMin.y + tRowH);
 
-        float combatOriginX = dcOrigin.x + dcColW + dcColGap;
-        std::string combatTitle = LocalizationManager::Get("Stats.Combat");
-        for (char& c : combatTitle) c = static_cast<char>(toupper(c));
-        float combatStartY  = DrawSubTitle(combatOriginX, dcOrigin.y, combatTitle.c_str());
+            const bool hovered = ImGui::IsMouseHoveringRect(tMin, tMax);
+            if (hovered) dl->AddRectFilled(tMin, tMax, kTheme.hoverFill);
+            const bool fromGear = t.resistBit && (s_WornGearData.resistHighlightMask & t.resistBit);
+            const bool debuffed = t.av != RE::ActorValue::kNone && EffectAttribution::HasStatDebuff(actor, t.av);
+            const bool potion   = !debuffed && !fromGear && t.av != RE::ActorValue::kNone && EffectAttribution::HasPotionBuff(actor, t.av);
+            if (debuffed)      dl->AddRectFilled(tMin, tMax, IM_COL32(100, 38, 38, 200));
+            else if (fromGear) dl->AddRectFilled(tMin, tMax, BadgeStyle::Theme::ResistPurple().fill);
+            else if (potion)   dl->AddRectFilled(tMin, tMax, IM_COL32(35, 85, 45, 210));
 
-        const StatRowDef combatRows[] = {
-            { LocalizationManager::Get("Stats.Damage"), combatDamage,  150.0f, false, false, s_TexWeapon    },
-            { LocalizationManager::Get("Stats.Move"),   combatMoveSpd, 150.0f, true,  false, s_TexMoveSpeed },
-            { LocalizationManager::Get("Stats.Speed"),  combatWpnSpd,   2.0f,  false, true,  s_TexAtkSpeed  },
-            { LocalizationManager::Get("Stats.Stagger"),               combatMass,     10.0f,  false, true,  s_TexStagger   },
-            { LocalizationManager::Get("Stats.Reach"),  combatReach,    2.0f,   false, true,  s_TexReach     },
-        };
+            const float iconX = tMin.x + tPadX;
+            const float textY = tMin.y + (tRowH - tTextH) * 0.5f;
+            if (t.tex)
+                HUDDraw::DrawIconStyled(dl, ImVec2(iconX, tMin.y + (tRowH - tIconSz) * 0.5f), tIconSz,
+                    reinterpret_cast<ImTextureID>(t.tex), HUDDraw::PackedToArgb(IM_COL32(255,255,255,200)), IconFxDefault());
 
-        float cY = combatStartY;
-        bool  damageHovered = false;
-        for (const auto& row : combatRows) {
-            DrawStatRow(combatOriginX, cY, dcColW,
-                row.label.c_str(), row.value, row.rangeMax, row.isPercent, row.isMult, row.tex);
-            if (&row == &combatRows[0] && !defModalOpen && ImGui::IsWindowHovered() &&
-                ImGui::IsMouseHoveringRect(ImVec2(combatOriginX, cY), ImVec2(combatOriginX + dcColW, cY + dRowH)))
-                damageHovered = true;
-            cY += dRowH + dGapY;
+            ImGui::SetWindowFontScale(FontBody());
+            AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(),
+                ImVec2(iconX + tIconSz + tPadX, textY), (fromGear || potion || debuffed) ? IM_COL32(255,255,255,255) : kTheme.textMuted, t.label.c_str());
+
+            const float valueRight = tMax.x - tPadX;
+            const float pipsLeft   = valueRight - tValW - tPadX - pipsW;
+            const int   filled     = static_cast<int>(std::round(std::clamp(t.value / t.rangeMax, 0.0f, 1.0f) * kPips));
+            for (int p = 0; p < kPips; ++p) {
+                const ImVec2 c(pipsLeft + pipR + p * (pipR * 2.0f + pipGap), tMin.y + tRowH * 0.5f);
+                dl->AddCircleFilled(c, pipR, p < filled ? pipFill : pipEmpty, 0);
+                dl->AddCircle(c, pipR, pipBorder, 0, 1.0f);
         }
 
-        if (damageHovered && !actor->IsPlayerRef())
-            Tip::DrawDamageTooltip(combatRows[0].label, stats.damageBreakdown, sc);
+            char valBuf[16];
+            snprintf(valBuf, sizeof(valBuf), t.fmt, t.value);
+            const ImVec2 valSz = ImGui::CalcTextSize(valBuf);
+            const ImU32 valCol = t.value < -0.5f ? IM_COL32(220, 80, 80, 255) : (fromGear ? IM_COL32(255,255,255,255) : kTheme.textMain);
+            AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(valueRight - valSz.x, textY), valCol, valBuf);
+            ImGui::SetWindowFontScale(1.0f);
 
-        float dcUsedH = std::max(dY, cY) - dcOrigin.y;
+            if (hovered && t.av != RE::ActorValue::kNone && !defModalOpen && ImGui::IsWindowHovered())
+                hoveredTile = &t;
+        }
+        if (hoveredTile)
+            DrawStatTooltip(actor, hoveredTile->label, hoveredTile->av, sc);
+
+        const int   tileRows = (kTileCount + 1) / 2;
+        const float dcUsedH  = tileRows * tRowH + (tileRows - 1) * tGapY;
         ImGui::Dummy(ImVec2(size.x, dcUsedH));
 
         bool anyModalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
@@ -1394,17 +1287,14 @@ namespace PartySheetV2 {
         float tabH = ImGui::GetTextLineHeight() + 2.0f * 5.0f * sc;
         ImGui::SetWindowFontScale(1.0f);
 
-        static float s_fxHover = 0.0f, s_invHover = 0.0f, s_statusHover = 0.0f;
-
         auto DrawTab = [&](const char* id, ImVec2 size, const char* label,
-                            ID3D11ShaderResourceView* icon, float& hoverFrac) -> bool {
+                            ID3D11ShaderResourceView* icon) -> bool {
             ImGui::InvisibleButton(id, size);
             bool hovered = ImGui::IsItemHovered() && !anyModalOpen;
             bool active  = ImGui::IsItemActive()  && !anyModalOpen;
             bool clicked = ImGui::IsItemClicked() && !anyModalOpen;
 
-            float target = hovered ? 1.0f : 0.0f;
-            hoverFrac += (target - hoverFrac) * std::min(1.0f, ImGui::GetIO().DeltaTime * 8.0f);
+            const float hoverFrac = UIAnimation::Follow(id, hovered ? 1.0f : 0.0f, 8.0f, 8.0f);
 
             ImVec2 bMin = ImGui::GetItemRectMin();
             ImVec2 bMax = ImGui::GetItemRectMax();
@@ -1492,21 +1382,21 @@ namespace PartySheetV2 {
         if (!s_TexStatusTab) s_TexStatusTab = TextureManager::GetPartyIcon("blessing");
 
         ImGui::BeginDisabled(anyModalOpen);
-        if (DrawTab("##psv2_fx_btn", ImVec2(TabWidth(fxBtnLabel.c_str()), tabH), fxBtnLabel.c_str(), s_TexFxTab, s_fxHover))
+        if (DrawTab("##psv2_fx_btn", ImVec2(TabWidth(fxBtnLabel.c_str()), tabH), fxBtnLabel.c_str(), s_TexFxTab))
             OpenEffectsModal();
         ImGui::EndDisabled();
 
         ImGui::SameLine(0.0f, 6.0f * sc);
 
         ImGui::BeginDisabled(anyModalOpen);
-        if (DrawTab("##psv2_inv_btn", ImVec2(TabWidth(invBtnLabel.c_str()), tabH), invBtnLabel.c_str(), s_TexInvTab, s_invHover))
+        if (DrawTab("##psv2_inv_btn", ImVec2(TabWidth(invBtnLabel.c_str()), tabH), invBtnLabel.c_str(), s_TexInvTab))
             OpenInventoryModal();
         ImGui::EndDisabled();
 
         if (actor && actor->IsPlayerRef()) {
             ImGui::SameLine(0.0f, 6.0f * sc);
             ImGui::BeginDisabled(anyModalOpen);
-            if (DrawTab("##psv2_status_btn", ImVec2(TabWidth(statusBtnLabel.c_str()), tabH), statusBtnLabel.c_str(), s_TexStatusTab, s_statusHover))
+            if (DrawTab("##psv2_status_btn", ImVec2(TabWidth(statusBtnLabel.c_str()), tabH), statusBtnLabel.c_str(), s_TexStatusTab))
                 OpenStatusModal();
             ImGui::EndDisabled();
         }
@@ -1528,82 +1418,6 @@ namespace PartySheetV2 {
 
         ActorStats stats = GetActorStats(actor);
 
-        static ID3D11ShaderResourceView* s_TexWeaponC = nullptr;
-        static ID3D11ShaderResourceView* s_TexArmorC  = nullptr;
-        if (!s_TexWeaponC) s_TexWeaponC = TextureManager::GetPartyIcon("weapon");
-        if (!s_TexArmorC)  s_TexArmorC  = TextureManager::GetPartyIcon("armor");
-
-        struct StatCard { const char* labelKey; float value; ID3D11ShaderResourceView* tex; };
-
-        RE::TESForm* rhForm = actor->GetEquippedObject(false);
-        RE::TESForm* lhForm = actor->GetEquippedObject(true);
-        bool hasWeapon = (rhForm && rhForm->As<RE::TESObjectWEAP>()) ||
-                         (lhForm && lhForm->As<RE::TESObjectWEAP>());
-        bool hasSpell  = !hasWeapon &&
-                         ((rhForm && rhForm->As<RE::SpellItem>()) ||
-                          (lhForm && lhForm->As<RE::SpellItem>()));
-
-        float displayDamage = stats.weaponDamage;
-        float weaponSpeed   = 0.0f;
-        float spellDamage   = 0.0f;
-
-        if (hasWeapon) {
-            RE::TESForm* wpnForm = (rhForm && rhForm->As<RE::TESObjectWEAP>()) ? rhForm : lhForm;
-            if (auto* weap = wpnForm->As<RE::TESObjectWEAP>())
-                weaponSpeed = weap->GetSpeed();
-            if (actor->IsPlayerRef()) {
-                auto* player = RE::PlayerCharacter::GetSingleton();
-                bool isLeft = !(rhForm && rhForm->As<RE::TESObjectWEAP>());
-                auto resolved = EquipmentStatResolver::ResolveHandWeaponStats(player, wpnForm, isLeft);
-                if (resolved.totalDamage >= 0.0f)
-                    displayDamage = resolved.totalDamage;
-            }
-        } else if (hasSpell) {
-            RE::SpellItem* spell = rhForm ? rhForm->As<RE::SpellItem>() : lhForm->As<RE::SpellItem>();
-            if (spell) {
-                auto* avEffect = spell->GetAVEffect();
-                if (avEffect && avEffect->IsHostile()) {
-                    for (auto* effect : spell->effects) {
-                        if (effect && effect->baseEffect == avEffect) {
-                            float base = effect->effectItem.magnitude;
-                            float mod = 0.0f;
-                            if (avEffect->data.associatedSkill == RE::ActorValue::kDestruction)
-                                mod = actor->AsActorValueOwner()->GetActorValue(RE::ActorValue::kDestructionModifier);
-                            spellDamage = base * (1.0f + mod / 100.0f);
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        float displayDPS = (weaponSpeed > 0.0f) ? displayDamage * weaponSpeed : displayDamage;
-        const char* dmgLabelKey = hasSpell ? "Stats.Damage" : "Stats.DPS";
-        float       dmgValue    = hasSpell ? spellDamage : displayDPS;
-
-        static ID3D11ShaderResourceView* s_TexSpellC = nullptr;
-        if (!s_TexSpellC) s_TexSpellC = TextureManager::GetPartyIcon("destruction");
-
-        const StatCard kCards[2] = {
-            { dmgLabelKey,   dmgValue,           hasSpell ? s_TexSpellC : s_TexWeaponC },
-            { "Stats.Armor", stats.armorRating,   s_TexArmorC  },
-        };
-
-        const float cardIconSz  = Settings::GetSingleton()->psV2IconCard * sc;
-        const float cardPad     = 14.0f * sc;
-        const float cardGap     = 16.0f * sc;
-        const float cardHorizPad = 16.0f * sc;
-
-        ImGui::SetWindowFontScale(FontDisplay());
-        const float valH = ImGui::GetTextLineHeight();
-        ImGui::SetWindowFontScale(FontSmall());
-        const float lblH = ImGui::GetTextLineHeight();
-        ImGui::SetWindowFontScale(1.0f);
-
-        const float cardContentH = cardIconSz + 6.0f * sc + valH + 6.0f * sc + lblH;
-        const float cardH        = cardContentH + cardPad * 2.0f;
-        const float cardW        = (size.x - cardHorizPad * 2.0f - cardGap) * 0.5f;
-
         constexpr int   kMaxTraits  = 4;
         const float     iconSz      = Settings::GetSingleton()->psV2IconTrait * sc;
 
@@ -1612,8 +1426,7 @@ namespace PartySheetV2 {
         ImGui::SetWindowFontScale(1.0f);
         const float pipSzPre    = 7.0f * sc;
         const float traitBlockH = iconSz + 4.0f * sc + traitLabelH + 4.0f * sc + pipSzPre;
-
-        const float cardY = origin.y + size.y - traitBlockH - 64.0f * sc - cardH;
+        [[maybe_unused]] const float portraitBottom = origin.y + size.y - traitBlockH - 64.0f * sc;
 
 #if 0
         if (auto* portrait = TextureManager::GetPortrait(actor)) {
@@ -1632,60 +1445,16 @@ namespace PartySheetV2 {
                 res->Release();
             }
             const float areaTop = origin.y + 8.0f * sc;
-            const float areaH   = cardY - 8.0f * sc - areaTop;
-            const float areaW   = size.x - cardHorizPad * 2.0f;
+            const float areaH   = portraitBottom - 8.0f * sc - areaTop;
+            const float areaW   = size.x - 16.0f * sc * 2.0f;
             if (areaH > 0.0f && areaW > 0.0f) {
                 const float fit = (std::min)(areaW / texW, areaH / texH);
                 const float w = texW * fit, h = texH * fit;
-                const ImVec2 pMin(origin.x + (size.x - w) * 0.5f, cardY - 8.0f * sc - h);
+                const ImVec2 pMin(origin.x + (size.x - w) * 0.5f, portraitBottom - 8.0f * sc - h);
                 dl->AddImage(reinterpret_cast<ImTextureID>(portrait), pMin, ImVec2(pMin.x + w, pMin.y + h));
             }
         }
 #endif
-
-        for (int i = 0; i < 2; ++i) {
-            const auto& card = kCards[i];
-            float cardX = origin.x + cardHorizPad + i * (cardW + cardGap);
-
-            const float inset = cardW * 0.08f;
-            ImVec2 topL = ImVec2(cardX + inset,        cardY);
-            ImVec2 topR = ImVec2(cardX + cardW - inset, cardY);
-            ImVec2 botR = ImVec2(cardX + cardW,         cardY + cardH);
-            ImVec2 botL = ImVec2(cardX,                 cardY + cardH);
-
-            dl->AddQuadFilled(topL, topR, botR, botL, IM_COL32(0, 0, 0, 128));
-
-            HUDDraw::DrawRuleH(dl, topL.x, topR.x, topL.y, V2Theme::AccentA(38));
-            dl->AddLine(topL, botL, V2Theme::AccentA(38), 1.0f);
-            dl->AddLine(topR, botR, V2Theme::AccentA(38), 1.0f);
-            HUDDraw::DrawRuleH(dl, botL.x, botR.x, botL.y - 1.0f, V2Theme::AccentA(51), 2.0f);
-
-            float cx   = cardX + cardW * 0.5f;
-            float curY = cardY + cardPad;
-
-            if (card.tex) {
-                float ix = cx - cardIconSz * 0.5f;
-                HUDDraw::DrawIconStyled(dl, ImVec2(ix, curY), cardIconSz,
-                    reinterpret_cast<ImTextureID>(card.tex),
-                    0xFFFFFFFF,
-                    IconFxDefault());
-            }
-            curY += cardIconSz + 6.0f * sc;
-
-            char valBuf[16];
-            snprintf(valBuf, sizeof(valBuf), "%.0f", card.value);
-            ImGui::SetWindowFontScale(FontDisplay());
-            ImVec2 valSz = ImGui::CalcTextSize(valBuf);
-            dl->AddText(ImVec2(cx - valSz.x * 0.5f, curY),
-                        V2Theme::AccentA(255), valBuf);
-            curY += valH + 6.0f * sc;
-
-            std::string lbl = LocalizationManager::Get(card.labelKey);
-            ImGui::SetWindowFontScale(FontBody());
-            ImVec2 lblSz = ImGui::CalcTextSize(lbl.c_str());
-            dl->AddText(ImVec2(cx - lblSz.x * 0.5f, curY),
-                        IM_COL32(255, 255, 255, 180), lbl.c_str());
-        }
         ImGui::SetWindowFontScale(1.0f);
 
         auto TierPips = [](const std::string& tierKey) -> int {
@@ -1736,6 +1505,35 @@ namespace PartySheetV2 {
         const float blockH   = iconSz + 4.0f * sc + labelH + 4.0f * sc + pipSz;
         const float resStripH = 22.0f * sc + 18.0f * sc;
         const float blockY   = origin.y + size.y - resStripH - blockH;
+
+        {
+            struct StatCard { const char* iconName; const char* labelKey; float value; };
+            const StatCard cards[2] = {
+                {"weapon", "Stats.Damage", stats.totalDamage > 0.0f ? stats.totalDamage : stats.unarmedDamage},
+                {"armor",  "Stats.Armor",  stats.armorRating},
+            };
+            ImFont* font = ImGui::GetFont();
+            const float labelSize = ImGui::GetFontSize() * FontSmall();
+            const float valueSize = ImGui::GetFontSize() * FontHeading() * 1.4f;
+            const float cardIcon  = labelSize + valueSize;
+            const float pad   = 8.0f * sc;
+            const float cardW = size.x * 0.5f;
+            const float cardY = blockY - cardIcon - pad * 2.0f - 12.0f * sc;
+            for (int i = 0; i < 2; ++i) {
+                const auto& card = cards[i];
+                ImVec2 iconMin(origin.x + i * cardW + pad, cardY + pad);
+                if (auto icon = TextureManager::GetPartyIcon(card.iconName))
+                    dl->AddImage((ImTextureID)icon, iconMin, ImVec2(iconMin.x + cardIcon, iconMin.y + cardIcon));
+                std::string label = LocalizationManager::Get(card.labelKey);
+                for (auto& c : label) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+                char valueText[32];
+                snprintf(valueText, sizeof(valueText), "%.0f", (std::max)(card.value, 0.0f));
+                const float textX = iconMin.x + cardIcon + pad;
+                dl->AddText(font, labelSize, ImVec2(textX, iconMin.y), IM_COL32(200, 200, 200, 200), label.c_str());
+                dl->AddText(font, valueSize, ImVec2(textX + 1.0f, iconMin.y + labelSize + 1.0f), IM_COL32(0, 0, 0, 180), valueText);
+                dl->AddText(font, valueSize, ImVec2(textX, iconMin.y + labelSize), IM_COL32(240, 240, 240, 255), valueText);
+            }
+        }
 
         ImGui::SetWindowFontScale(FontBody());
 
@@ -1847,8 +1645,15 @@ namespace PartySheetV2 {
         ImGui::Dummy(ImVec2(size.x, 1.0f));
     }
 
+    struct ItemTooltipCopy {
+        const char*          name = nullptr;
+        RE::EnchantmentItem* enchant = nullptr;
+        bool                 isCopy = false;
+    };
+
     static void DrawItemTooltip(RE::Actor* actor, RE::TESForm* form, const char* slotLabel,
-                                ID3D11ShaderResourceView* icon, bool bodySlot, float sc) {
+                                ID3D11ShaderResourceView* icon, bool bodySlot, float sc,
+                                const ItemTooltipCopy& copy = {}) {
         using namespace Tip;
         if (!actor || !form) return;
         using AV = RE::ActorValue;
@@ -1856,7 +1661,7 @@ namespace PartySheetV2 {
 
         TipRow item;
         item.icon = icon;
-        item.name = form->GetName() ? form->GetName() : "";
+        item.name = copy.name ? copy.name : (form->GetName() ? form->GetName() : "");
         auto* spell = form->As<RE::SpellItem>();
         auto* weap  = form->As<RE::TESObjectWEAP>();
         if (auto* arm = form->As<RE::TESObjectARMO>()) {
@@ -1876,7 +1681,7 @@ namespace PartySheetV2 {
                 row.lines.push_back({ std::move(t), col });
         };
         auto IsBad = [](const RE::EffectSetting* b, float mag) {
-            return b->IsHostile() || b->IsDetrimental() || mag < 0.0f;
+            return EffectCategories::IsDebuff(b, mag);
         };
 
         const auto& records = EffectAttribution::Get(actor);
@@ -1888,7 +1693,7 @@ namespace PartySheetV2 {
                             static_cast<float>(eff->effectItem.duration), kTextMuted);
         } else {
             bool fromLive = false;
-            if (!weap) {
+            if (!weap && !copy.isCopy) {
                 for (const auto& rec : records) {
                     if (rec.item != form) continue;
                     AddLine(item, rec.mgef, rec.rawMagnitude, 0.0f, rec.hostile ? kDebuff : kBuff);
@@ -1896,11 +1701,13 @@ namespace PartySheetV2 {
                 }
             }
             if (!fromLive) {
-                RE::EnchantmentItem* ench = nullptr;
+                RE::EnchantmentItem* ench = copy.enchant;
+                if (!copy.isCopy) {
                 auto inv = actor->GetInventory([form](const RE::TESBoundObject& o) { return &o == form; });
                 for (auto& [obj, data] : inv) {
                     auto& entry = data.second;
                     if (entry && entry->IsWorn()) { ench = entry->GetEnchantment(); break; }
+                    }
                 }
                 if (!ench)
                     if (auto* ef = form->As<RE::TESEnchantableForm>()) ench = ef->formEnchanting;
@@ -1911,6 +1718,15 @@ namespace PartySheetV2 {
                                     static_cast<float>(eff->effectItem.duration),
                                     (!weap && IsBad(eff->baseEffect, eff->effectItem.magnitude)) ? kDebuff : kBuff);
             }
+        }
+
+        if (copy.isCopy) {
+            if (auto* magic = form->As<RE::MagicItem>(); magic && !spell)
+                for (auto* eff : magic->effects)
+                    if (eff && eff->baseEffect)
+                        AddLine(item, eff->baseEffect, eff->effectItem.magnitude,
+                                static_cast<float>(eff->effectItem.duration),
+                                IsBad(eff->baseEffect, eff->effectItem.magnitude) ? kDebuff : kBuff);
         }
 
         std::vector<TipRow> rows;
@@ -1938,10 +1754,19 @@ namespace PartySheetV2 {
                 [](const TipRow& r) { return r.lines.empty(); }), rows.end());
         }
 
-        if (rows.size() == 1 && rows[0].lines.empty()) return;
+        if (!copy.isCopy && rows.size() == 1 && rows[0].lines.empty()) return;
         std::string title = slotLabel ? slotLabel : "";
         for (char& c : title) c = static_cast<char>(toupper(c));
         DrawCompactTooltip(title, rows, {}, sc);
+    }
+
+    void DrawInventoryItemTooltip(RE::Actor* actor, RE::TESForm* form, const char* name,
+                                  RE::EnchantmentItem* enchant, const char* typeLabel, void* icon, float sc) {
+        ItemTooltipCopy copy;
+        copy.name = name;
+        copy.enchant = enchant;
+        copy.isCopy = true;
+        DrawItemTooltip(actor, form, typeLabel, static_cast<ID3D11ShaderResourceView*>(icon), false, sc, copy);
     }
 
     static void RenderRightPanel(ImVec2 size) {
@@ -1957,15 +1782,39 @@ namespace PartySheetV2 {
         float  curY     = origin.y;
 
         auto HoverZoomUV = [&](const char* key, const ImVec2& tl, const ImVec2& br) -> float {
-            static std::unordered_map<std::string, float> s_zoom;
             const float kMaxInset = 0.06f;
             const float kSpeed    = 12.0f;
-            bool  hovered = ImGui::IsMouseHoveringRect(tl, br);
-            float target  = hovered ? 1.0f : 0.0f;
-            float& cur    = s_zoom[key];
-            float  dt     = ImGui::GetIO().DeltaTime;
-            cur += (target - cur) * std::min(1.0f, dt * kSpeed);
+            const bool  hovered   = ImGui::IsMouseHoveringRect(tl, br);
+            const float cur = UIAnimation::Follow(std::string("psv2_zoom_") + key, hovered ? 1.0f : 0.0f, kSpeed, kSpeed);
             return cur * kMaxInset;
+        };
+
+        struct RolledStat { float shown; ImU32 tint; float sinceOpen; };
+        auto RollStat = [&](const char* slotKey, float value, bool settled) -> RolledStat {
+            if (!settled) return { value, IM_COL32(255, 255, 255, 220), 0.0f };
+            char key[96];
+            snprintf(key, sizeof(key), "psv2_stat_%08X_%s", actor ? actor->GetFormID() : 0u, slotKey);
+            constexpr float kRollSpeed = 10.0f;
+            RolledStat r;
+            r.shown     = UIAnimation::Follow(key, value, kRollSpeed, kRollSpeed);
+            r.sinceOpen = UIAnimation::SinceShown(key, value);
+            r.tint      = IM_COL32(255, 255, 255, 220);
+            if (std::fabs(r.shown - value) >= 0.5f)
+                r.tint = r.shown < value ? IM_COL32(125, 220, 122, 255) : IM_COL32(232, 103, 106, 255);
+            return r;
+        };
+        auto DrawChangeChip = [&](ImVec2 edge, float sinceOpen) {
+            if (std::fabs(sinceOpen) < 0.5f) return;
+            char chipBuf[16];
+            snprintf(chipBuf, sizeof(chipBuf), "%+.0f", sinceOpen);
+            const bool   up  = sinceOpen > 0.0f;
+            const ImVec2 csz = ImGui::CalcTextSize(chipBuf);
+            const float  cp  = 3.0f * sc;
+            const ImVec2 cTL(edge.x + 4.0f * sc, edge.y - csz.y * 0.5f - cp * 0.5f);
+            const ImVec2 cBR(cTL.x + csz.x + cp * 2.0f, cTL.y + csz.y + cp);
+            dl->AddRectFilled(cTL, cBR, up ? IM_COL32(125, 220, 122, 45) : IM_COL32(232, 103, 106, 45), 8.0f * sc);
+            dl->AddText(ImVec2(cTL.x + cp, cTL.y + cp * 0.5f),
+                up ? IM_COL32(125, 220, 122, 255) : IM_COL32(232, 103, 106, 255), chipBuf);
         };
 
         auto ResolveEquipIcon = [&](RE::TESForm* form, const char* hint) -> ID3D11ShaderResourceView* {
@@ -1980,6 +1829,13 @@ namespace PartySheetV2 {
         };
 
         const bool anyModalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
+
+        auto OpenCardOnClick = [&](GearCatalog::Card card, ImVec2 tl, ImVec2 br) {
+            if (!ImGui::IsWindowHovered() || !ImGui::IsMouseHoveringRect(tl, br) || !ImGui::IsMouseClicked(0)) return;
+            const auto gear = GearCatalog::Get(actor);
+            if (gear && !gear->cards[static_cast<std::size_t>(card)].interactive) return;
+            OpenInventoryModal(card);
+        };
 
         static ID3D11ShaderResourceView* s_TexWeapon = nullptr;
         static ID3D11ShaderResourceView* s_TexArmor  = nullptr;
@@ -2003,16 +1859,19 @@ namespace PartySheetV2 {
         const float iconH       = iconW * (300.0f / 216.0f);
         const float rowGap      =  6.0f * sc;
 
+        struct EnchBadge { ID3D11ShaderResourceView* tex; float value; std::string type; };
+
         auto DrawEquipRow = [&](float rowY, RE::TESForm* form, const char* hint,
                                 const char* subLabel,
                                 float dmgOrArmor,
                                 ID3D11ShaderResourceView* statTex,
-                                ID3D11ShaderResourceView* enchantTex,
-                                float enchantDmg,
-                                const std::string& enchantType = {},
+                                const std::vector<EnchBadge>& enchBadges,
                                 float colX = -1.0f,
                                 float colW = -1.0f,
-                                bool alignLeft = true) -> float
+                                bool alignLeft = true,
+                                const std::vector<std::string>& chips = {},
+                                float dmgSeconds = 0.0f,
+                                bool statSettled = true) -> float
         {
             if (colX < 0.0f) colX = origin.x;
             if (colW < 0.0f) colW = size.x;
@@ -2046,7 +1905,8 @@ namespace PartySheetV2 {
                 const float gap   = 2.0f * sc;
                 float badgeY = iTL.y + 4.0f * sc;
 
-                auto DrawStatBadge = [&](ID3D11ShaderResourceView* iconTex, const char* text, ImU32, BadgeStyle::BadgeColors bgColors) {
+                auto DrawStatBadge = [&](ID3D11ShaderResourceView* iconTex, const char* text, ImU32, BadgeStyle::BadgeColors bgColors,
+                                         ImU32 textTint = IM_COL32(255, 255, 255, 220)) -> ImVec2 {
                     ImVec2 tsz    = ImGui::CalcTextSize(text);
                     float  iconSz = std::max(tsz.y, Settings::GetSingleton()->psV2IconBadge * sc);
                     float  badgeW = iconSz + gap + tsz.x + bp * 2.0f;
@@ -2062,17 +1922,24 @@ namespace PartySheetV2 {
                     float textOffY = (badgeH - tsz.y) * 0.5f;
                     dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                         ImVec2(bgTL.x + bp + iconSz + gap, bgTL.y + textOffY),
-                        IM_COL32(255, 255, 255, 220), text);
+                        textTint, text);
                     badgeY += badgeH;
+                    return ImVec2(bgBR.x, bgTL.y + badgeH * 0.5f);
                 };
 
                 if (dmgOrArmor >= 0.0f) {
-                    char buf[16];
-                    snprintf(buf, sizeof(buf), "%.0f", dmgOrArmor);
-                    DrawStatBadge(statTex, buf, BadgeStyle::TextColor::Neutral(), BadgeStyle::Theme::NeutralGrey());
+                    char slotKey[48];
+                    snprintf(slotKey, sizeof(slotKey), "hand_%d_%s", alignLeft ? 0 : 1, subLabel ? subLabel : "");
+                    const RolledStat stat = RollStat(slotKey, dmgOrArmor, statSettled);
+                    char buf[24];
+                    if (dmgSeconds > 1.0f) snprintf(buf, sizeof(buf), "%.0f / %.0fs", stat.shown, dmgSeconds);
+                    else                   snprintf(buf, sizeof(buf), "%.0f", stat.shown);
+                    const ImVec2 edge = DrawStatBadge(statTex, buf, BadgeStyle::TextColor::Neutral(), BadgeStyle::Theme::NeutralGrey(), stat.tint);
+                    DrawChangeChip(edge, stat.sinceOpen);
                 }
 
-                if (enchantTex && enchantDmg > 0.0f) {
+                for (const auto& [enchantTex, enchantDmg, enchantType] : enchBadges) {
+                    if (!enchantTex || enchantDmg <= 0.0f) continue;
                     char ebuf[16];
                     auto enchCat = BadgeStyle::ClassifyEnchant(enchantType);
                     switch (enchCat) {
@@ -2126,11 +1993,48 @@ namespace PartySheetV2 {
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                 ImVec2(slotX, textY), kTheme.textMuted, slotLabelBuf);
             textY += ImGui::GetTextLineHeight() + 2.0f * sc;
+
+            if (!chips.empty()) {
+                const float cp = 4.0f * sc, cg = 4.0f * sc;
+                const float chipH = ImGui::GetTextLineHeight() + 2.0f * sc;
+                float cx = colX;
+                textY += 2.0f * sc;
+                for (const auto& chip : chips) {
+                    const ImVec2 tsz = ImGui::CalcTextSize(chip.c_str());
+                    const float  w   = tsz.x + cp * 2.0f;
+                    if (cx > colX && cx + w > colX + colW) { cx = colX; textY += chipH + cg; }
+                    dl->AddRectFilled(ImVec2(cx, textY), ImVec2(cx + w, textY + chipH), IM_COL32(255, 255, 255, 14), 2.0f * sc);
+                    dl->AddRect(ImVec2(cx, textY), ImVec2(cx + w, textY + chipH), IM_COL32(255, 255, 255, 30), 2.0f * sc);
+                    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(cx + cp, textY + 1.0f * sc), kTheme.textMain, chip.c_str());
+                    cx += w + cg;
+                }
+                textY += chipH + 2.0f * sc;
+            }
             ImGui::SetWindowFontScale(1.0f);
 
-            if (form && !anyModalOpen && ImGui::IsWindowHovered() &&
-                ImGui::IsMouseHoveringRect(ImVec2(colX, rowY), ImVec2(colX + colW, textY)))
+            if (form && !anyModalOpen && ImGui::IsWindowHovered()) {
+                if (ImGui::IsMouseHoveringRect(ImVec2(colX, rowY), ImVec2(colX + colW, textY))) {
+                    if (auto* spellForm = form->As<RE::SpellItem>()) {
+                        const auto sd = SpellDamageResolver::ResolveSpellDamage(actor, spellForm);
+                        if (sd.HasDamage()) Tip::DrawSpellTooltip(subLabel, spellForm, sd, sc);
+                        else if (auto d = Tip::SpellDescriptions(spellForm); !d.empty()) {
+                            std::vector<Tip::SumLine> school;
+                            if (const auto av = spellForm->GetAssociatedSkill(); av != RE::ActorValue::kNone)
+                                school.push_back({ EffectCategories::LocalizedAVName(av), {}, {}, Tip::kTextMuted });
+                            Tip::DrawSumTooltip(subLabel, school, sc, d);
+                        }
+                    } else {
+                        const auto wd = form->As<RE::TESObjectWEAP>()
+                            ? EquipmentStatResolver::ResolveWeaponDamage(actor, form, !alignLeft)
+                            : EquipmentStatResolver::WeaponDamage{};
+                        if (wd.valid) {
+                            Tip::DrawWeaponTooltip(subLabel, wd, sc);
+                        } else {
                 DrawItemTooltip(actor, form, subLabel, tex, false, sc);
+                        }
+                    }
+                }
+            }
 
             return textY + rowGap;
         };
@@ -2185,24 +2089,33 @@ namespace PartySheetV2 {
                 if (t == "shock_resist"  || t == "resist_shock")  return TextureManager::GetPartyIcon("shock_resist");
                 if (t == "poison_resist" || t == "resist_poison") return TextureManager::GetPartyIcon("poison_resist");
                 if (t == "magic_resist"  || t == "resist_magic")  return TextureManager::GetPartyIcon("magic_resist");
+                if (t == "stamina")                               return TextureManager::GetPartyIcon("stamina");
+                if (t == "magicka")                               return TextureManager::GetPartyIcon("magicka");
                 return nullptr;
             };
 
+            auto WeaponEnchBadges = [&](const EquipmentStatResolver::WeaponDamage& wd) {
+                std::vector<EnchBadge> out;
+                for (const auto& e : wd.enchants) out.push_back({ EnchantTex(e.type), e.magnitude, e.type });
+                return out;
+            };
+
             float rhDmg      = -1.0f;
-            float rhEnchDmg  = 0.0f;
-            std::string rhEnchType;
+            std::vector<EnchBadge> rhEnch;
+            std::string rhStatType;
+            float       rhDmgSeconds = 0.0f;
             const char* rhHint = "weapon";
             if (rh && rh->As<RE::TESObjectWEAP>()) {
-                if (actor->IsPlayerRef()) {
-                    if (auto* p = RE::PlayerCharacter::GetSingleton()) {
-                        auto res = EquipmentStatResolver::ResolveHandWeaponStats(p, rh, false);
-                        rhDmg     = res.totalDamage >= 0.0f ? res.totalDamage : rhDmg;
-                        rhEnchType = res.enchantType;
-                        rhEnchDmg  = res.enchantDamage;
-                    }
-                } else {
-                    ActorStats as = GetActorStats(actor);
-                    rhDmg = as.weaponDamage >= 0.0f ? as.weaponDamage : rhDmg;
+                const auto wd = EquipmentStatResolver::ResolveWeaponDamage(actor, rh, false);
+                if (wd.valid) rhDmg = wd.physical;
+                rhEnch = WeaponEnchBadges(wd);
+            } else if (rh && rh->As<RE::SpellItem>()) {
+                const auto sd = SpellDamageResolver::ResolveSpellDamage(actor, rh);
+                const auto* p = sd.HasDamage() ? sd.Primary() : sd.Drain();
+                if (p) {
+                    rhDmg = sd.HasDamage() ? sd.Headline() : p->Total(sd.isConcentration);
+                    rhStatType = p->type;
+                    if (!sd.isConcentration) rhDmgSeconds = p->duration;
                 }
             }
 
@@ -2216,11 +2129,15 @@ namespace PartySheetV2 {
 
             RE::TESForm* lhForm    = nullptr;
             float        lhDmg     = -1.0f;
+            bool         lhDmgSettled = true;
             float        lhEnchDmg = 0.0f;
             const char*  lhHint    = "weapon";
             std::string  lhLabelStr = LocalizationManager::Get("CharacterSheet.slot_left_hand");
             const char*  lhLabel    = lhLabelStr.c_str();
             std::string  lhEnchType;
+            std::vector<EnchBadge> lhEnch;
+            std::string  lhStatType;
+            float        lhDmgSeconds = 0.0f;
             static char  s_ammoLabel[32];
 
             if (rhIsBow) {
@@ -2261,49 +2178,20 @@ namespace PartySheetV2 {
                 lhForm = lh;
                 if (lh) {
                     if (auto* lw = lh->As<RE::TESObjectWEAP>()) {
-                        if (actor->IsPlayerRef()) {
-                            if (auto* p = RE::PlayerCharacter::GetSingleton()) {
-                                auto res = EquipmentStatResolver::ResolveHandWeaponStats(p, lh, true);
-                                lhDmg     = res.totalDamage >= 0.0f ? res.totalDamage : lhDmg;
-                                lhEnchType = res.enchantType;
-                                lhEnchDmg  = res.enchantDamage;
-                            }
-                        } else {
-                            auto* avo = actor->AsActorValueOwner();
-                            if (avo) {
-                                float baseDmg = static_cast<float>(lw->GetAttackDamage());
-                                float skillLevel = 0.0f;
-                                float fortifyMod = 0.0f;
-                                auto wt = lw->GetWeaponType();
-                                if (wt == RE::WEAPON_TYPE::kOneHandSword || wt == RE::WEAPON_TYPE::kOneHandDagger ||
-                                    wt == RE::WEAPON_TYPE::kOneHandAxe   || wt == RE::WEAPON_TYPE::kOneHandMace) {
-                                    skillLevel = avo->GetActorValue(RE::ActorValue::kOneHanded);
-                                    fortifyMod = avo->GetActorValue(RE::ActorValue::kOneHandedModifier);
-                                } else if (wt == RE::WEAPON_TYPE::kTwoHandSword || wt == RE::WEAPON_TYPE::kTwoHandAxe) {
-                                    skillLevel = avo->GetActorValue(RE::ActorValue::kTwoHanded);
-                                    fortifyMod = avo->GetActorValue(RE::ActorValue::kTwoHandedModifier);
-                                }
-                                lhDmg = baseDmg * (1.0f + skillLevel / 200.0f) * (1.0f + fortifyMod / 100.0f);
-                            }
+                        const auto wd = EquipmentStatResolver::ResolveWeaponDamage(actor, lw, true);
+                        if (wd.valid) lhDmg = wd.physical;
+                        lhEnch = WeaponEnchBadges(wd);
+                    } else if (lh->As<RE::SpellItem>()) {
+                        const auto sd = SpellDamageResolver::ResolveSpellDamage(actor, lh);
+                        const auto* p = sd.HasDamage() ? sd.Primary() : sd.Drain();
+                        if (p) {
+                            lhDmg = sd.HasDamage() ? sd.Headline() : p->Total(sd.isConcentration);
+                            lhStatType = p->type;
+                            if (!sd.isConcentration) lhDmgSeconds = p->duration;
                         }
                     } else if (auto* shield = lh->As<RE::TESObjectARMO>()) {
                         lhHint = "shield";
-                        if (actor->IsPlayerRef()) {
-                            if (auto* p = RE::PlayerCharacter::GetSingleton()) {
-                                float displayedAR = 0.0f;
-                                auto inv = p->GetInventory([](const RE::TESBoundObject& o) { return o.IsArmor(); });
-                                for (auto& [item, data] : inv) {
-                                    auto& [count, entry] = data;
-                                    if (count > 0 && entry && entry->IsWorn() && item == shield) {
-                                        displayedAR = p->GetArmorValue(entry.get());
-                                        break;
-                                    }
-                                }
-                                lhDmg = displayedAR > 0.0f ? displayedAR : static_cast<float>(shield->GetArmorRating());
-                            }
-                        } else {
-                            lhDmg = static_cast<float>(shield->GetArmorRating());
-                        }
+                        lhDmg = WornGearStatResolver::ShownArmorValue(actor, shield, &lhDmgSettled);
                         if (auto* enchantable = shield->As<RE::TESEnchantableForm>()) {
                             if (auto* enchant = enchantable->formEnchanting) {
                                 for (auto* effect : enchant->effects) {
@@ -2322,12 +2210,36 @@ namespace PartySheetV2 {
                     }
                 }
             }
+            if (!lhEnchType.empty()) lhEnch.push_back({ EnchantTex(lhEnchType), lhEnchDmg, lhEnchType });
             ID3D11ShaderResourceView* lhStatTex = s_TexWeapon;
             if (lhForm && lhForm->As<RE::TESObjectARMO>()) lhStatTex = s_TexArmor;
+            if (auto* t = lhStatType.empty() ? nullptr : EnchantTex(lhStatType)) lhStatTex = t;
+            ID3D11ShaderResourceView* rhStatTex = s_TexWeapon;
+            if (auto* t = rhStatType.empty() ? nullptr : EnchantTex(rhStatType)) rhStatTex = t;
+
+            auto WeaponChips = [](RE::TESForm* form) {
+                std::vector<std::string> chips;
+                auto* w = form ? form->As<RE::TESObjectWEAP>() : nullptr;
+                if (!w) return chips;
+                char buf[48];
+                snprintf(buf, sizeof(buf), "%s %.2f", LocalizationManager::Get("Stats.Speed").c_str(), w->GetSpeed());
+                chips.emplace_back(buf);
+                if (w->IsMelee()) {
+                    snprintf(buf, sizeof(buf), "%s %.2f", LocalizationManager::Get("Stats.Reach").c_str(), w->GetReach());
+                    chips.emplace_back(buf);
+                }
+                snprintf(buf, sizeof(buf), "%s %.2f", LocalizationManager::Get("Stats.Stagger").c_str(), w->GetStagger());
+                chips.emplace_back(buf);
+                return chips;
+            };
 
             std::string rhLabelStr = LocalizationManager::Get("CharacterSheet.slot_right_hand");
-            float rhBot = DrawEquipRow(curY, rh,     rhHint, rhLabelStr.c_str(), rhDmg,  s_TexWeapon, EnchantTex(rhEnchType), rhEnchDmg, rhEnchType, rhX, colW, true);
-            float lhBot = DrawEquipRow(curY, lhForm, lhHint, lhLabel,            lhDmg,  lhStatTex,   EnchantTex(lhEnchType), lhEnchDmg, lhEnchType, lhX, colW, false);
+            float rhBot = DrawEquipRow(curY, rh,     rhHint, rhLabelStr.c_str(), rhDmg,  rhStatTex,   rhEnch, rhX, colW, true,
+                                       WeaponChips(rh), rhDmgSeconds);
+            float lhBot = DrawEquipRow(curY, lhForm, lhHint, lhLabel,            lhDmg,  lhStatTex,   lhEnch, lhX, colW, false,
+                                       WeaponChips(lhForm), lhDmgSeconds, lhDmgSettled);
+            OpenCardOnClick(GearCatalog::Card::RightHand, ImVec2(rhX, curY), ImVec2(rhX + colW, rhBot));
+            OpenCardOnClick(GearCatalog::Card::LeftHand,  ImVec2(lhX, curY), ImVec2(lhX + colW, lhBot));
             curY = std::max(rhBot, lhBot);
         }
 
@@ -2402,7 +2314,8 @@ namespace PartySheetV2 {
                 const float gap  = 2.0f * sc;
                 float badgeY = fTL.y + 2.0f * sc;
 
-                auto DrawStatBadgeCell = [&](ID3D11ShaderResourceView* iconTex, const char* text, ImU32, BadgeStyle::BadgeColors bgColors) {
+                auto DrawStatBadgeCell = [&](ID3D11ShaderResourceView* iconTex, const char* text, ImU32, BadgeStyle::BadgeColors bgColors,
+                                             ImU32 textTint = IM_COL32(255, 255, 255, 220)) -> ImVec2 {
                     ImVec2 tsz    = ImGui::CalcTextSize(text);
                     float  iconSz = Settings::GetSingleton()->psV2IconBadge * sc;
                     float  badgeW = (iconTex ? iconSz + gap : 0.0f) + tsz.x + bp * 2.0f;
@@ -2420,14 +2333,19 @@ namespace PartySheetV2 {
                         textX += iconSz + gap;
                     }
                     dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                        ImVec2(textX, bgTL.y + textOffY), IM_COL32(255, 255, 255, 220), text);
+                        ImVec2(textX, bgTL.y + textOffY), textTint, text);
                     badgeY += badgeH;
+                    return ImVec2(bgBR.x, bgTL.y + badgeH * 0.5f);
                 };
 
                 if (armorVal >= 0.0f) {
+                    char slotKey[48];
+                    snprintf(slotKey, sizeof(slotKey), "armor_%s", label ? label : "");
+                    const RolledStat stat = RollStat(slotKey, armorVal, slotData.armorValueSettled);
                     char buf[16];
-                    snprintf(buf, sizeof(buf), "%.0f", armorVal);
-                    DrawStatBadgeCell(s_TexArmor, buf, BadgeStyle::TextColor::Neutral(), BadgeStyle::Theme::NeutralGrey());
+                    snprintf(buf, sizeof(buf), "%.0f", stat.shown);
+                    const ImVec2 edge = DrawStatBadgeCell(s_TexArmor, buf, BadgeStyle::TextColor::Neutral(), BadgeStyle::Theme::NeutralGrey(), stat.tint);
+                    DrawChangeChip(edge, stat.sinceOpen);
                 }
 
                 for (std::size_t badgeIndex = 0; badgeIndex < slotData.enchantBadgeCount; ++badgeIndex) {
@@ -2482,6 +2400,7 @@ namespace PartySheetV2 {
                 s.label.c_str(),
                 slotData.armorValue,
                 slotData);
+            OpenCardOnClick(static_cast<GearCatalog::Card>(2 + i), ImVec2(cellX, rowStartY), ImVec2(cellX + armorColW, cellBot));
             rowMaxY = std::max(rowMaxY, cellBot);
             if (rowMaxY > origin.y + size.y) break;
         }
@@ -2735,7 +2654,7 @@ namespace PartySheetV2 {
             CloseInventoryModal();
             CloseStatusModal();
             if (!ImGuiRenderer::IsVisible())
-                EnablePlayerInput();
+                MenuUtils::EnablePlayerInput();
             logger::debug("PartySheetV2: Auto-closed (incompatible menu)");
             return;
         }
@@ -2842,17 +2761,14 @@ namespace PartySheetV2 {
                         float nx = inside ? std::clamp((mp.x - c.x) / halfW, -1.0f, 1.0f) : 0.0f;
                         float ny = inside ? std::clamp((mp.y - c.y) / halfH, -1.0f, 1.0f) : 0.0f;
 
-                        static float s_tx = 0.0f, s_ty = 0.0f;
-                        float dt = ImGui::GetIO().DeltaTime;
-                        float k  = std::min(1.0f, dt * 4.0f);
-                        s_tx += (nx - s_tx) * k;
-                        s_ty += (ny - s_ty) * k;
+                        const float tiltX = UIAnimation::Follow("psv2_parallax_x", nx, 4.0f, 4.0f);
+                        const float tiltY = UIAnimation::Follow("psv2_parallax_y", ny, 4.0f, 4.0f);
 
                         const float kShift = halfW * 0.012f;
                         const float over   = kShift + 2.0f;
 
-                        float dx = s_tx * kShift;
-                        float dy = s_ty * kShift;
+                        float dx = tiltX * kShift;
+                        float dy = tiltY * kShift;
                         ImVec2 tl(canvasMin.x - over + dx, canvasMin.y - over + dy);
                         ImVec2 tr(canvasMax.x + over + dx, canvasMin.y - over + dy);
                         ImVec2 br(canvasMax.x + over + dx, canvasMax.y + over + dy);

@@ -2,6 +2,7 @@
 #define SMOOTHCAM_API_COMMONLIB
 #include "../../includes/SmoothCamAPI.h"
 #include "../../includes/ImGui/PartySheetV2Camera.h"
+#include "../../includes/MenuUtils.h"
 #include "../../includes/Settings.h"
 #include "../../includes/TrueDirectionalMovementAPI.h"
 
@@ -75,16 +76,6 @@ namespace PartySheetV2Camera {
         }
         void SetIni(std::size_t i, float v) {
             if (auto* s = Ini(i)) s->data.f = v;
-        }
-
-        void SetHUDMenusHidden(bool hidden) {
-            auto* ui = RE::UI::GetSingleton();
-            if (!ui) return;
-            for (std::string_view name : { RE::HUDMenu::MENU_NAME, std::string_view{ "TrueHUD" },
-                                           std::string_view{ "BTPS Menu" } }) {
-                auto menu = ui->GetMenu(name);
-                if (menu && menu->uiMovie) menu->uiMovie->SetVisible(!hidden);
-            }
         }
 
         void SetActivateEnabled(bool enabled) {
@@ -237,7 +228,7 @@ namespace PartySheetV2Camera {
 
         HoldTdm(player);
         ApplyFraming(camera, tps, player);
-        SetHUDMenusHidden(true);
+        MenuUtils::SetHUDMenusHidden(true);
         SetActivateEnabled(false);
         s_activateDisabled = true;
         logger::debug("PartySheetV2Camera: entered (firstPerson={}, smoothCam={})", s_wasFirstPerson, s_ownsSmoothCam);
@@ -314,7 +305,7 @@ namespace PartySheetV2Camera {
         }
         if (s_activateDisabled) {
             SetActivateEnabled(true);
-            SetHUDMenusHidden(false);
+            MenuUtils::SetHUDMenusHidden(false);
             s_activateDisabled = false;
         }
         auto* camera = RE::PlayerCamera::GetSingleton();

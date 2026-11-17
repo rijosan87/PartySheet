@@ -2,6 +2,7 @@
 
 #include "../BadgeStyle.h"
 #include "../SurvivalSymptoms.h"
+#include "EffectAttribution.h"
 #include "WornGearStatResolver.h"
 #include <imgui.h>
 
@@ -26,6 +27,8 @@ namespace SkillRowTint {
             t = { true, BadgeStyle::Theme::SkillBlue().fill, IM_COL32(255, 255, 255, 255), IM_COL32(255, 255, 255, 255) };
         } else if (gear.situationalHighlightMask & bit) {
             t = { true, IM_COL32(80, 65, 30, 220), IM_COL32(190, 165, 100, 255), IM_COL32(190, 165, 100, 255) };
+        } else if (EffectAttribution::HasPotionBuff(actor, skill)) {
+            t = { true, IM_COL32(35, 85, 45, 210), IM_COL32(150, 235, 150, 255), IM_COL32(170, 245, 170, 255) };
         }
         return t;
     }
