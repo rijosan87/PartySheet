@@ -212,7 +212,19 @@ namespace {
         return (v.empty() || v == key) ? fallback : v;
     }
 
-    std::string FormatPenalty(RE::SpellItem* form) {
+    RE::ActiveEffect* FindLiveEffect(RE::Actor* actor, const RE::SpellItem* form, const RE::EffectSetting* base) {
+        auto* target = actor ? actor->AsMagicTarget() : nullptr;
+        auto* list   = target ? target->GetActiveEffectList() : nullptr;
+        if (!list) return nullptr;
+        for (auto* eff : *list) {
+            if (!eff || eff->spell != form || eff->GetBaseObject() != base) continue;
+            if (eff->flags.any(RE::ActiveEffect::Flag::kDispelled) || eff->flags.any(RE::ActiveEffect::Flag::kInactive)) continue;
+            return eff;
+        }
+        return nullptr;
+    }
+
+    std::string FormatPenalty(RE::Actor* actor, RE::SpellItem* form) {
         if (!form) return "";
         RE::EffectSetting* base = form->GetAVEffect();
         if (!base) {
@@ -228,12 +240,14 @@ namespace {
         RE::Effect* ce = form->GetCostliestEffectItem(RE::MagicSystem::Delivery::kTouch, false);
         if (!ce && !form->effects.empty()) ce = form->effects[0];
         if (ce) mag = ce->GetMagnitude();
+        if (const auto* live = FindLiveEffect(actor, form, base)) mag = std::fabs(live->magnitude);
         if (mag <= 0.0f) return "";
 
         std::string label = EffectCategories::LocalizedAVName(av);
         if (label.empty()) return "";
 
         const bool isPct = EffectCategories::IsPercentageMagnitude(av);
+        if (isPct && mag < 1.0f) mag *= 100.0f;
 
         char buf[96];
         if (isPct)
@@ -365,7 +379,7 @@ std::vector<ActiveDisease> GetActiveDiseases()
         ad.maxStage = maxStage;
         ad.icon     = r.icon;
         ad.key      = r.def->key;
-        ad.penalty  = FormatPenalty(matchedForm ? matchedForm : r.base);
+        ad.penalty  = FormatPenalty(player, matchedForm ? matchedForm : r.base);
         out.push_back(std::move(ad));
     }
 

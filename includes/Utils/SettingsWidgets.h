@@ -59,6 +59,21 @@ namespace SettingsWidgets {
         return changed;
     }
 
+    inline bool FlowLayoutRows(const char* id, int* axis, int* corner, int* maxItems, int* wrapAfter,
+                               int maxLimit = 20)
+    {
+        bool changed = false;
+        ImGui::PushID(id);
+        const char* layouts[] = { "Vertical", "Horizontal" };
+        changed |= SegmentedPicker("Layout##flowLayout", axis, layouts, 2);
+        const char* corners[] = { "Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right" };
+        changed |= SegmentedPicker("Anchor##flowAnchor", corner, corners, 4);
+        changed |= ImGui::SliderInt("Max Items##flowMax", maxItems, 0, maxLimit, *maxItems == 0 ? "All" : "%d");
+        changed |= ImGui::SliderInt("Wrap After##flowWrap", wrapAfter, 0, maxLimit, *wrapAfter == 0 ? "Never" : "%d");
+        ImGui::PopID();
+        return changed;
+    }
+
     inline void DimSwatchIfDisabled()
     {
         const float a = ImGui::GetStyle().Alpha;

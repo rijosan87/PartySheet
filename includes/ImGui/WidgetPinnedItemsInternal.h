@@ -3,7 +3,6 @@
 // STATUS: Working
 // Helper code for pinned items widget.
 
-
 #include <string>
 #include <vector>
 #include <RE/Skyrim.h>

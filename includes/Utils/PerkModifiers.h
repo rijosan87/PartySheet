@@ -40,4 +40,6 @@ namespace PerkModifiers {
     SkillPerks GetSkillPerks(RE::Actor* actor, RE::ActorValue skill);
 
     SkillPerks GetOtherPerks(RE::Actor* actor);
+
+    SkillPerks GetArmorPerks(RE::Actor* actor, RE::TESObjectARMO* armor);
 }

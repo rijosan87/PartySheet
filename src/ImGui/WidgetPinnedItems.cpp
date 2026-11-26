@@ -15,9 +15,11 @@
 #include "../../includes/HUDVisibility.h"
 #include "../../includes/InputHandler.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/Utils/HUDFlow.h"
 #include "../../includes/PotionAnimationBridge.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
 #include <Windows.h>
@@ -391,15 +393,22 @@ namespace WidgetPinnedItems {
         // =====================================================================
         static bool GetEntryHotkey(const std::string& id, const Settings* s, int& key, int& mod)
         {
-            if (id == "health_potion")  { key = s->potionHealthKey;  mod = s->potionHealthModifier;  return true; }
-            if (id == "magicka_potion") { key = s->potionMagickaKey; mod = s->potionMagickaModifier; return true; }
-            if (id == "stamina_potion") { key = s->potionStaminaKey; mod = s->potionStaminaModifier; return true; }
-            return false;
+            if (id == "health_potion")       { key = s->potionHealthKey;  mod = s->potionHealthModifier; }
+            else if (id == "magicka_potion") { key = s->potionMagickaKey; mod = s->potionMagickaModifier; }
+            else if (id == "stamina_potion") { key = s->potionStaminaKey; mod = s->potionStaminaModifier; }
+            else return false;
+            return key >= 1;
+        }
+
+        static int PlainModifier(int mod)
+        {
+            if (mod >= 4 && mod <= 9) return 1 + (mod - 4) / 2;
+            return mod;
         }
 
         static std::string GetModifierWord(int mod)
         {
-            switch (mod) {
+            switch (PlainModifier(mod)) {
                 case 1: return LocalizationManager::Get("Hotkeys.ModAlt");
                 case 2: return LocalizationManager::Get("Hotkeys.ModCtrl");
                 case 3: return LocalizationManager::Get("Hotkeys.ModShift");
@@ -407,39 +416,85 @@ namespace WidgetPinnedItems {
             }
         }
 
-        static HUDDraw::BadgeStyle MakeBadgeStyle(std::uint32_t bgArgb, std::uint32_t textArgb,
-                                                  ImFont* font, float fontScale)
+        static HUDDraw::BadgeStyle MakeBadgeStyle(int preset, std::uint32_t tint, float fontScale)
         {
-            HUDDraw::BadgeStyle bs;
-            bs.font      = font;
-            bs.fontScale = fontScale;
-            bs.padX      = ScalePx(4.0f);
-            bs.padY      = ScalePx(2.5f);
-            const std::uint8_t a = (bgArgb >> 24) & 0xFF, r = (bgArgb >> 16) & 0xFF,
-                               g = (bgArgb >> 8) & 0xFF,  b =  bgArgb        & 0xFF;
-            auto lift = [](std::uint8_t c) { return static_cast<std::uint32_t>((std::min)(255.0f, c * 1.20f + 14.0f)); };
-            auto sink = [](std::uint8_t c) { return static_cast<std::uint32_t>(c * 0.55f); };
-            bs.bgTop    = (static_cast<std::uint32_t>(a) << 24) | (lift(r) << 16) | (lift(g) << 8) | lift(b);
-            bs.bgBottom = 0xFF000000u | (sink(r) << 16) | (sink(g) << 8) | sink(b);
-            bs.textColor = textArgb;
+            HUDDraw::BadgeStyle bs = HUDDraw::BadgePresetStyle(preset);
+            HUDDraw::TintBadge(bs, tint);
+            bs.fontScale = ScalePx(fontScale);
             return bs;
         }
 
-        static void DrawHotkeyBadge(float screenX, float screenY,
-                                    int key, int mod, float scale, std::uint32_t bgArgb)
+        static std::string HotkeyLabel(int key, int mod)
         {
-            if (key < 1) return;
 
             std::string label = GetModifierWord(mod);
             if (!label.empty()) label += " + ";
             label += ImGuiRenderer::DIKToKeyName(key);
+            return label;
+        }
 
-            auto bs = MakeBadgeStyle(bgArgb, 0xFFFFFFFF, nullptr, scale);
-            bs.rounding = 0.0f;
-            bs.padX = ScalePx(5.0f); bs.padY = ScalePx(3.0f);
+        static ImTextureID ModifierIcon(int mod)
+        {
+            mod = PlainModifier(mod);
+            const char* name = mod == 1 ? "alt" : mod == 2 ? "ctrl" : mod == 3 ? "shift" : nullptr;
+            if (!name) return 0;
+            return reinterpret_cast<ImTextureID>(TextureManager::GetPartyIcon(name));
+        }
+
+        static std::string CountText(int count, int goal)
+        {
+            char buf[32];
+            if (goal > 0) snprintf(buf, sizeof(buf), "%d / %d", count, goal);
+            else          snprintf(buf, sizeof(buf), "%d", count);
+            return buf;
+        }
+
+        static void DrawHotkeyBadge(float screenX, float screenY,
+                                    int key, int mod, float scale, int preset, std::uint32_t tint)
+        {
+            if (key < 1) return;
+
+            auto bs = MakeBadgeStyle(preset, tint, scale);
+            const ImTextureID modIcon = ModifierIcon(mod);
+            const std::string label = modIcon ? ImGuiRenderer::DIKToKeyName(key) : HotkeyLabel(key, mod);
+            if (modIcon) {
+                bs.icon     = modIcon;
+                bs.iconTint = bs.textColor;
+            }
             HUDDraw::DrawBadge(ImGui::GetForegroundDrawList(),
                                ImVec2(screenX, screenY), 0, label.c_str(), bs);
         }
+
+        static void DrawCardIcon(ImDrawList* dl, const PinnedEntry& e, ImVec2 at, float iconSz,
+                                 const IconRenderer::Style& look, const std::string& drinkingId)
+        {
+            IconRenderer::Style icon = look;
+            icon.texture = e.icon;
+            icon.bounceOffsetY = ScalePx(UIAnimation::GetBounceOffsetY("pt_bounce_" + e.id))
+                               + DeclineOffsetY(e.id, iconSz);
+            const bool drinking = (!drinkingId.empty() && drinkingId == e.id) || InVanillaCooldown(e.id);
+            const ImU32 fxTint  = drinking ? DrinkFxTint(e.id) : 0;
+            const ImVec2 bounced(at.x, at.y + icon.bounceOffsetY);
+            if (drinking) DrawDrinkHalo(dl, bounced, iconSz, fxTint);
+            IconRenderer::Draw(dl, at, icon);
+            if (drinking) DrawDrinkBubbles(dl, bounced, iconSz, fxTint);
+            if (const float dt = DeclineProgress(e.id); dt > 0.0f) {
+                const float k = std::sin(dt * 3.14159265f);
+                dl->AddRectFilled(at, ImVec2(at.x + iconSz, at.y + iconSz),
+                                  IM_COL32(10, 12, 16, static_cast<int>(120.0f * k)), icon.borderRadius);
+            }
+        }
+
+        struct CardLayout {
+            std::size_t index = 0;
+            ImVec2      size, iconAt, labelAt, labelSize;
+            ImVec2      blockAt, blockSize;
+            std::string text;
+            std::string endText;
+            ImTextureID endIcon = 0;
+            std::string endKey;
+            float       endW = 0.0f;
+        };
 
         static void RenderPinnedWindow(bool allowDrag)
         {
@@ -447,25 +502,100 @@ namespace WidgetPinnedItems {
             if (!settings || !settings->enablePinnedWidget) return;
             if (MenuUtils::ShouldBlockOverlay()) return;
 
-            int visibleCount = 0;
-            for (const auto& e : g_PinnedItems) {
-                if (e.enabled) ++visibleCount;
-            }
-            if (visibleCount == 0) return;
+            ImFont*     font       = ImGui::GetFont();
+            const float labelPx    = font->LegacySize * ScalePx(settings->ptLabelScale);
+            const float countPx    = ImGuiRenderer::GetHeadingFontSize() * settings->ptCountScale;
+            const float iconSz     = ScalePx(static_cast<float>(settings->ptIconSize));
+            const float itemW      = ScalePx(static_cast<float>(settings->ptItemWidth));
+            const float cardGap    = ScalePx(static_cast<float>(settings->ptRowSpacing));
+            const float labelGap   = ScalePx(5.0f);
+            const auto  side       = static_cast<HUDFlow::Side>(std::clamp(settings->ptLabelPlacement, 0, 3));
+            const bool  stackLabel = side == HUDFlow::Side::Below || side == HUDFlow::Side::Above;
+            const bool  countBefore = settings->ptShowLabel && settings->ptCountPosition == 1;
+            const bool  countEnd    = settings->ptShowLabel && !stackLabel && settings->ptCountPosition == 2;
+            const bool  hotkeyEnd   = settings->ptShowLabel && !stackLabel && settings->ptHotkeyPosition == 1;
+            const bool  stripOn     = settings->ptShowLabel && !stackLabel && settings->ptStripStyle > 0;
+            const bool  rowLabel    = stripOn || countEnd || hotkeyEnd;
+            const float stripPad    = stripOn ? ScalePx(10.0f) : 0.0f;
+            const float endGap      = ScalePx(12.0f);
+            const float arrowTip    = settings->ptStripStyle == HUDDraw::StripStyle_Arrow && stripOn ? labelPx * 0.6f : 0.0f;
+            const float margin     = (std::max)(ScalePx(8.0f), ScalePx(countPx + 4.0f) * 0.5f);
 
-            ImVec2 targetPos(static_cast<float>(settings->ptPosX),
-                             static_cast<float>(settings->ptPosY));
-            if (g_ForcePinnedPos) {
-                ImGui::SetNextWindowPos(targetPos, ImGuiCond_Always);
-                g_ForcePinnedPos = false;
-            } else {
-                ImGui::SetNextWindowPos(targetPos, ImGuiCond_FirstUseEver);
+            std::vector<CardLayout> cards;
+            std::vector<ImVec2>     cardSizes;
+            for (std::size_t i = 0; i < g_PinnedItems.size(); ++i) {
+                const auto& e = g_PinnedItems[i];
+                if (!e.enabled) continue;
+                CardLayout c;
+                c.index = i;
+                const ImVec2 hostMin(0.0f, 0.0f), hostMax(iconSz, iconSz);
+                ImVec2 boxMin = hostMin, boxMax = hostMax;
+                if (settings->ptShowLabel) {
+                    const int count = (i < g_CachedCounts.size()) ? g_CachedCounts[i] : 0;
+                    const std::string countStr = CountText(count, e.goal);
+                    c.text = countBefore ? countStr + "  " + e.label : e.label;
+                    if (countEnd) c.endText = countStr;
+                    int hkKey, hkMod;
+                    if (hotkeyEnd && GetEntryHotkey(e.id, settings, hkKey, hkMod)) {
+                        c.endText += c.endText.empty() ? "[" : "  [";
+                        c.endIcon  = ModifierIcon(hkMod);
+                        c.endKey   = (c.endIcon ? ImGuiRenderer::DIKToKeyName(hkKey) : HotkeyLabel(hkKey, hkMod)) + "]";
             }
+                    if (!c.endText.empty())
+                        c.endW = font->CalcTextSizeA(labelPx, FLT_MAX, 0.0f, c.endText.c_str()).x
+                               + (c.endIcon ? labelPx : 0.0f)
+                               + font->CalcTextSizeA(labelPx, FLT_MAX, 0.0f, c.endKey.c_str()).x;
+
+                    c.labelSize = font->CalcTextSizeA(labelPx, FLT_MAX, rowLabel ? 0.0f : itemW, c.text.c_str());
+                    ImVec2 block;
+                    if (stackLabel) {
+                        block = ImVec2((std::max)(c.labelSize.x, itemW), c.labelSize.y);
+                    } else {
+                        const float content = c.labelSize.x + (c.endW > 0.0f ? endGap + c.endW : 0.0f) + stripPad * 2.0f + arrowTip;
+                        block = ImVec2((std::max)(content, ScalePx(static_cast<float>(settings->ptStripWidth))),
+                                       c.labelSize.y + (stripOn ? ScalePx(6.0f) : 0.0f));
+                    }
+                    const ImVec2 blockAt = HUDFlow::PlaceLabel(hostMin, hostMax, block, side, HUDFlow::Align::Center, labelGap);
+                    c.blockAt   = blockAt;
+                    c.blockSize = block;
+                    const float textY = blockAt.y + (block.y - c.labelSize.y) * 0.5f;
+                    if (stackLabel)
+                        c.labelAt = ImVec2(blockAt.x + (block.x - c.labelSize.x) * 0.5f, textY);
+                    else if (side == HUDFlow::Side::Right)
+                        c.labelAt = ImVec2(blockAt.x + stripPad, textY);
+                    else
+                        c.labelAt = ImVec2(blockAt.x + block.x - stripPad - c.labelSize.x, textY);
+                    boxMin = ImVec2((std::min)(boxMin.x, blockAt.x), (std::min)(boxMin.y, blockAt.y));
+                    boxMax = ImVec2((std::max)(boxMax.x, blockAt.x + block.x), (std::max)(boxMax.y, blockAt.y + block.y));
+                }
+                const ImVec2 shift(margin - boxMin.x, margin - boxMin.y);
+                c.iconAt  = shift;
+                c.labelAt = ImVec2(c.labelAt.x + shift.x, c.labelAt.y + shift.y);
+                c.blockAt = ImVec2(c.blockAt.x + shift.x, c.blockAt.y + shift.y);
+                c.size    = ImVec2(boxMax.x - boxMin.x + margin * 2.0f, boxMax.y - boxMin.y + margin * 2.0f);
+                cards.push_back(c);
+                cardSizes.push_back(c.size);
+            }
+            if (cards.empty()) return;
+
+            HUDFlow::Options flow;
+            flow.corner = static_cast<HUDFlow::Corner>(std::clamp(settings->ptAnchor, 0, 3));
+            flow.axis   = settings->ptDirection == 1 ? HUDFlow::Axis::Horizontal : HUDFlow::Axis::Vertical;
+            flow.gapX   = cardGap;
+            flow.gapY   = cardGap;
+            const HUDFlow::Result layout = HUDFlow::Arrange(cardSizes, flow);
+            const ImVec2 anchorPt(static_cast<float>(settings->ptPosX), static_cast<float>(settings->ptPosY));
+            const ImVec2 topLeft = HUDFlow::TopLeftFromAnchor(anchorPt, layout.size, flow.corner);
+
+            ImGuiWindow* self   = ImGui::FindWindowByName("##pinneditems");
+            const bool dragging = allowDrag && self && GImGui->MovingWindow == self && !g_ForcePinnedPos;
+            if (!dragging) ImGui::SetNextWindowPos(topLeft, ImGuiCond_Always);
+                g_ForcePinnedPos = false;
+            ImGui::SetNextWindowSize(layout.size, ImGuiCond_Always);
 
             ImGuiWindowFlags flags =
                 ImGuiWindowFlags_NoTitleBar      |
                 ImGuiWindowFlags_NoResize        |
-                ImGuiWindowFlags_AlwaysAutoResize|
                 ImGuiWindowFlags_NoScrollbar     |
                 ImGuiWindowFlags_NoSavedSettings;
             if (!allowDrag) flags |= ImGuiWindowFlags_NoMove;
@@ -473,330 +603,120 @@ namespace WidgetPinnedItems {
             ImGui::SetNextWindowBgAlpha(0.0f);
             ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
 
             if (ImGui::Begin("##pinneditems", nullptr, flags)) {
+                ImDrawList* dl     = ImGui::GetWindowDrawList();
+                ImDrawList* fg     = ImGui::GetForegroundDrawList();
+                const ImVec2 winPos = ImGui::GetWindowPos();
 
-                ImGui::SetWindowFontScale(settings->ptLabelScale);
+                IconRenderer::Style look;
+                IconRenderer::SetZoom(look, settings->ptIconZoom, settings->ptIconFocusU, settings->ptIconFocusV);
+                look.size         = iconSz;
+                look.bgColor      = ImGui::ColorConvertFloat4ToU32(ColorUtils::ArgbToVec4(settings->ptIconBgColor));
+                look.chip         = true;
+                look.glowEnabled  = settings->ptIconGlowEnabled;
+                look.borderColor  = ImGui::ColorConvertFloat4ToU32(ColorUtils::ArgbToVec4(settings->ptIconBorderColor));
+                look.borderWidth  = ScalePxInt0(settings->ptIconBorderWidth);
+                look.borderRadius = iconSz * settings->ptIconBorderRadius * 0.01f;
 
-                bool    kBadgeCountStyle = (settings->ptCountStyle >= 1);
-                const float countPx   = ImGuiRenderer::GetHeadingFontSize() * settings->ptCountScale;
-                float       badgeNumH = countPx + ScalePx(4.0f);
-
-                // padY must be large enough that a badge overlapping the top of the icon isn't clipped
-                float padY = ScalePx(8.0f);
-                if (kBadgeCountStyle) {
-                    float badgeOverhang = badgeNumH * 0.4f;
-                    if (badgeOverhang > padY) padY = badgeOverhang;
-                }
-
-                IconRenderer::Style iconTemplate;
-                IconRenderer::SetZoom(iconTemplate, settings->ptIconZoom, settings->ptIconFocusU, settings->ptIconFocusV);
-
-                float  gap        = ScalePx(static_cast<float>(settings->ptRowSpacing));
-                float  padX       = ScalePx(8.0f);
-                float  padBottom  = ScalePx(static_cast<float>(settings->ptPaddingBottom));
-                float  padRight   = ScalePx(10.0f);
-                float  itemGap    = ScalePx(5.0f);
-                float  iconSz     = ScalePx(static_cast<float>(settings->ptIconSize));
-                float  lineH      = ImGui::GetTextLineHeightWithSpacing();
-                float  itemW      = ScalePx(static_cast<float>(settings->ptItemWidth));
-                bool   rowFlow    = (settings->ptDirection == 1);
-                bool   vertical   = (settings->ptCardStyle == 1) || rowFlow;
-                float  curCardX   = 0.0f;
-                ImDrawList* dl    = ImGui::GetWindowDrawList();
-                ImVec2 winPos     = ImGui::GetWindowPos();
-                ImVec4 iconBgVec4 = ColorUtils::ArgbToVec4(settings->ptIconBgColor);
-                ImU32  iconBgCol  = ImGui::ColorConvertFloat4ToU32(iconBgVec4);
-                ImVec4 iconBdrVec4 = ColorUtils::ArgbToVec4(settings->ptIconBorderColor);
-                ImU32  iconBdrCol  = ImGui::ColorConvertFloat4ToU32(iconBdrVec4);
                 const HUDDraw::BadgeStyle countBadgeStyle = MakeBadgeStyle(
-                    settings->ptBadgeBgColor, 0xFFFFFFFF, nullptr, countPx / ImGui::GetFont()->LegacySize);
+                    settings->ptCountStyle, settings->ptBadgeTint, countPx / font->LegacySize);
+                const auto spot = static_cast<HUDFlow::Spot>(std::clamp(settings->ptCountAnchor, 0, 8));
+                const ImVec2 countOverhang(0.3f, 0.4f);
 
                 const std::string drinkingId = PotionAnimationBridge::ActiveEntryId();
 
-                bool firstVisible = true;
-                float maxCardHeight = 0.0f;
-                for (size_t i = 0; i < g_PinnedItems.size(); ++i) {
-                    auto& e = g_PinnedItems[i];
-                    if (!e.enabled) continue;
+                for (std::size_t k = 0; k < cards.size(); ++k) {
+                    const CardLayout& c = cards[k];
+                    const auto& e = g_PinnedItems[c.index];
+                    const ImVec2 origin(winPos.x + layout.offsets[k].x, winPos.y + layout.offsets[k].y);
+                    const ImVec2 iconMin(origin.x + c.iconAt.x, origin.y + c.iconAt.y);
+                    const ImVec2 iconMax(iconMin.x + iconSz, iconMin.y + iconSz);
 
-                    int  count    = (i < g_CachedCounts.size()) ? g_CachedCounts[i] : 0;
-                    bool hasGoal  = (e.goal > 0);
-                    bool goalMet  = hasGoal && (count >= e.goal);
+                    const int  count   = (c.index < g_CachedCounts.size()) ? g_CachedCounts[c.index] : 0;
+                    const bool hasGoal = e.goal > 0;
+                    const bool goalMet = hasGoal && count >= e.goal;
+                    const std::uint32_t textRgb = goalMet ? settings->ptGoalMetColor : settings->ptTextColor;
 
-                    ID3D11ShaderResourceView* dispIcon = e.icon;
-                    ImVec4 textCol = ColorUtils::RgbToVec4(goalMet ? settings->ptGoalMetColor : settings->ptTextColor);
+                    const bool toRight = side == HUDFlow::Side::Right;
+                    const ImVec2 blockMin(origin.x + c.blockAt.x, origin.y + c.blockAt.y);
+                    const ImVec2 blockMax(blockMin.x + c.blockSize.x, blockMin.y + c.blockSize.y);
+                    if (stripOn) {
+                        const float iconMidX = (iconMin.x + iconMax.x) * 0.5f;
+                        HUDDraw::DrawStrip(dl,
+                            ImVec2(toRight ? iconMidX : blockMin.x, blockMin.y),
+                            ImVec2(toRight ? blockMax.x : iconMidX, blockMax.y),
+                            settings->ptStripStyle, settings->ptStripTint, toRight);
+                }
 
-                    // Badge style: all items show count in heading font (or base font when heading is null, e.g. CJK)
-                    bool useBadge = kBadgeCountStyle;
+                    if (e.icon) DrawCardIcon(dl, e, iconMin, iconSz, look, drinkingId);
+
+                    if (settings->ptShowLabel) {
+                        const ImVec2 at(origin.x + c.labelAt.x, origin.y + c.labelAt.y);
+                        const ImU32  col  = ImGui::ColorConvertFloat4ToU32(ColorUtils::RgbToVec4(textRgb));
+                        const float  wrap = rowLabel ? 0.0f : itemW;
+                        dl->AddText(font, labelPx, ImVec2(at.x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 255),
+                                    c.text.c_str(), nullptr, wrap);
+                        dl->AddText(font, labelPx, at, col, c.text.c_str(), nullptr, wrap);
+
+                        if (!c.endText.empty()) {
+                            const float endX = toRight ? blockMax.x - stripPad - arrowTip - c.endW
+                                                       : blockMin.x + stripPad + arrowTip;
+                            const ImU32 endCol = (col & 0x00FFFFFFu) | IM_COL32(0, 0, 0, 220);
+                            float x = endX;
+                            auto endText = [&](const std::string& t) {
+                                dl->AddText(font, labelPx, ImVec2(x + 1.0f, at.y + 1.0f), IM_COL32(0, 0, 0, 255), t.c_str());
+                                dl->AddText(font, labelPx, ImVec2(x, at.y), endCol, t.c_str());
+                                x += font->CalcTextSizeA(labelPx, FLT_MAX, 0.0f, t.c_str()).x;
+                            };
+                            endText(c.endText);
+                            if (c.endIcon) {
+                                const float inset = labelPx * 0.1f;
+                                dl->AddImage(c.endIcon, ImVec2(x + inset, at.y + inset),
+                                             ImVec2(x + labelPx - inset, at.y + labelPx - inset), ImVec2(0, 0), ImVec2(1, 1), endCol);
+                                x += labelPx;
+                            }
+                            endText(c.endKey);
+                        }
+                    }
+
+                    if (!countBefore && !countEnd) {
+                        HUDDraw::BadgeStyle countStyle = countBadgeStyle;
+                        if (goalMet || settings->ptCountStyle == HUDDraw::BadgePreset_Text)
+                            countStyle.textColor = 0xFF000000u | textRgb;
 
                     char countBuf[32];
-                    if (hasGoal && !kBadgeCountStyle)
+                        if (hasGoal && settings->ptCountStyle == HUDDraw::BadgePreset_Text)
                         snprintf(countBuf, sizeof(countBuf), "%d / %d", count, e.goal);
                     else
                         snprintf(countBuf, sizeof(countBuf), "%d", count);
-
-                    if (rowFlow) {
-                        if (!firstVisible) curCardX += gap;
-                        ImGui::SetCursorPos(ImVec2(curCardX, 0.0f));
-                    } else {
-                        if (!firstVisible) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + gap);
+                        const ImVec2 pill = HUDDraw::MeasureBadge(countBuf, countStyle);
+                        const ImVec2 at   = HUDFlow::PlaceBadge(iconMin, iconMax, pill, spot, countOverhang);
+                        HUDDraw::DrawBadge(fg, ImVec2(at.x + ScalePxSigned(settings->ptBadgeOffsetX),
+                                                      at.y + ScalePxSigned(settings->ptBadgeOffsetY)),
+                                           0, countBuf, countStyle);
                     }
-                    firstVisible = false;
 
-                    float cardStartY = rowFlow ? 0.0f : ImGui::GetCursorPosY();
-
-                    if (vertical) {
-                        float contentW  = std::max(iconSz, itemW);
-                        float cardWidth = contentW + padX + padRight;
-
-                        float labelH = 0.0f;
-                        if (settings->ptShowLabel) {
-                            ImVec2 wrappedSz = ImGui::CalcTextSize(e.label.c_str(), nullptr, false, itemW);
-                            labelH = wrappedSz.y + itemGap;
-                        }
-                        float countRowH = useBadge && e.icon ? 0.0f : (useBadge ? badgeNumH : lineH);
-                        bool iconNeedsGap = e.icon && (settings->ptShowLabel || countRowH > 0.0f);
-                        float cardHeight = padY
-                            + (e.icon ? iconSz + (iconNeedsGap ? itemGap : 0.0f) : 0.0f)
-                            + labelH + countRowH + padBottom;
-
-                        ImGui::Dummy(ImVec2(rowFlow ? curCardX + cardWidth : cardWidth, 0.0f));
-
-                        ImVec2 cMin = ImVec2(winPos.x + curCardX, winPos.y + cardStartY);
-                        ImVec2 cMax = ImVec2(cMin.x + cardWidth, cMin.y + cardHeight);
-
-                        float curY    = cardStartY + padY;
-                        float centerX = curCardX + (cardWidth - iconSz) * 0.5f;
-
-                        bool hasContentAfterIcon = settings->ptShowLabel || (!useBadge || !e.icon);
-                        if (e.icon) {
-                            float screenIconX = winPos.x + centerX;
-                            float screenIconY = winPos.y + curY;
-                            IconRenderer::Style icon;
-                            icon.texture      = dispIcon;
-                            icon.size         = iconSz;
-                            icon.bgColor      = iconBgCol;
-                            icon.chip         = true;
-                            icon.glowEnabled  = settings->ptIconGlowEnabled;
-                            icon.borderColor  = iconBdrCol;
-                            icon.borderWidth  = ScalePxInt0(settings->ptIconBorderWidth);
-                            icon.borderRadius = iconSz * settings->ptIconBorderRadius * 0.01f;
-                            icon.uv0          = iconTemplate.uv0;
-                            icon.uv1          = iconTemplate.uv1;
-                            // Pickup bounce plus the decline dip, SUMMED: a pickup landing
-                            icon.bounceOffsetY = ScalePx(UIAnimation::GetBounceOffsetY("pt_bounce_" + e.id))
-                                               + DeclineOffsetY(e.id, iconSz);
-                            const bool drinking = (!drinkingId.empty() && drinkingId == e.id) ||
-                                                   InVanillaCooldown(e.id);
-                            const ImU32 fxTint  = drinking ? DrinkFxTint(e.id) : 0;
-                            ImVec2 iconAt(screenIconX, screenIconY + icon.bounceOffsetY);
-                            if (drinking) DrawDrinkHalo(dl, iconAt, iconSz, fxTint);
-                            ImGui::SetCursorScreenPos(ImVec2(screenIconX, screenIconY));
-                            IconRenderer::Draw(dl, ImVec2(screenIconX, screenIconY), icon);
-                            if (drinking) DrawDrinkBubbles(dl, iconAt, iconSz, fxTint);
-                            if (const float dt = DeclineProgress(e.id); dt > 0.0f) {
-                                const float k = std::sin(dt * 3.14159265f);
-                                dl->AddRectFilled(ImVec2(screenIconX, screenIconY),
-                                                  ImVec2(screenIconX + iconSz, screenIconY + iconSz),
-                                                  IM_COL32(10, 12, 16, static_cast<int>(120.0f * k)),
-                                                  icon.borderRadius);
-                            }
-                            curY += iconSz + (hasContentAfterIcon ? itemGap : 0.0f);
+                    int hkKey, hkMod;
+                    if (!hotkeyEnd && settings->ptHotkeyBadgeStyle >= 0 && GetEntryHotkey(e.id, settings, hkKey, hkMod))
+                        DrawHotkeyBadge(iconMin.x + ScalePxSigned(settings->ptHotkeyBadgeOffsetX),
+                                        iconMin.y + ScalePxSigned(settings->ptHotkeyBadgeOffsetY),
+                                        hkKey, hkMod, settings->ptHotkeyBadgeScale,
+                                        settings->ptHotkeyBadgeStyle, settings->ptHotkeyBadgeTint);
                         }
 
-                        // Row: push text 10px down from bg top stripe
-                        if (rowFlow) curY += ScalePx(10.0f);
+                ImGui::Dummy(layout.size);
 
-                        if (settings->ptShowLabel) {
-                            float labelX = curCardX + (cardWidth - itemW) * 0.5f;
-                            ImVec2 lblSz = ImGui::CalcTextSize(e.label.c_str(), nullptr, false, itemW);
-                            float centeredX = labelX + (itemW - std::min(lblSz.x, itemW)) * 0.5f;
-                            ImVec2 labelPos = ImVec2(winPos.x + centeredX, winPos.y + curY);
-                            ImU32 labelCol = ImGui::ColorConvertFloat4ToU32(textCol);
-                            dl->AddText(ImVec2(labelPos.x + 1.0f, labelPos.y + 1.0f), IM_COL32(0, 0, 0, 255), e.label.c_str());
-                            dl->AddText(labelPos, labelCol, e.label.c_str());
-                            ImGui::SetCursorPos(ImVec2(centeredX, curY));
-                            ImGui::Dummy(ImVec2(lblSz.x, lblSz.y));
-                            curY += labelH;
-                        }
-
-                        if (useBadge && e.icon) {
-                            ImVec2 pill = HUDDraw::MeasureBadge(countBuf, countBadgeStyle);
-                            float  iconScreenX = winPos.x + centerX;
-                            float  iconScreenY = winPos.y + (cardStartY + padY);
-                            // Position pill so it overlaps top-left of icon
-                            float  badgeX = iconScreenX - pill.x * 0.3f + ScalePxSigned(settings->ptBadgeOffsetX);
-                            float  badgeY = iconScreenY - pill.y * 0.4f + ScalePxSigned(settings->ptBadgeOffsetY);
-                            HUDDraw::DrawBadge(ImGui::GetForegroundDrawList(),
-                                               ImVec2(badgeX, badgeY), 0, countBuf, countBadgeStyle);
-                        } else if (useBadge) {
-                            ImVec2 pill = HUDDraw::MeasureBadge(countBuf, countBadgeStyle);
-                            float  badgeX  = winPos.x + curCardX + (cardWidth - pill.x) * 0.5f + ScalePxSigned(settings->ptBadgeOffsetX);
-                            float  badgeY  = winPos.y + curY + ScalePxSigned(settings->ptBadgeOffsetY);
-                            HUDDraw::DrawBadge(ImGui::GetForegroundDrawList(),
-                                               ImVec2(badgeX, badgeY), 0, countBuf, countBadgeStyle);
-                            ImGui::Dummy(ImVec2(pill.x, pill.y));
-                        } else {
-                            ImGui::SetWindowFontScale(settings->ptCountScale);
-                            float textW = ImGui::CalcTextSize(countBuf).x;
-                            float textH = ImGui::GetTextLineHeight();
-                            ImVec2 countPos = ImVec2(winPos.x + curCardX + (cardWidth - textW) * 0.5f, winPos.y + curY);
-                            ImU32 countCol = ImGui::ColorConvertFloat4ToU32(textCol);
-                            dl->AddText(ImVec2(countPos.x + 1.0f, countPos.y + 1.0f), IM_COL32(0, 0, 0, 255), countBuf);
-                            dl->AddText(countPos, countCol, countBuf);
-                            ImGui::SetCursorPos(ImVec2(curCardX + (cardWidth - textW) * 0.5f, curY));
-                            ImGui::Dummy(ImVec2(textW, textH));
-                            ImGui::SetWindowFontScale(settings->ptLabelScale);
-                        }
-
-                        if (settings->ptShowHotkeyBadge) {
-                            int hkKey, hkMod;
-                            if (GetEntryHotkey(e.id, settings, hkKey, hkMod))
-                                DrawHotkeyBadge(
-                                    winPos.x + curCardX + ScalePxSigned(settings->ptHotkeyBadgeOffsetX),
-                                    winPos.y + cardStartY + ScalePxSigned(settings->ptHotkeyBadgeOffsetY),
-                                    hkKey, hkMod, settings->ptHotkeyBadgeScale,
-                                    settings->ptHotkeyBadgeBgColor);
-                        }
-
-                        if (rowFlow) { curCardX += cardWidth; maxCardHeight = std::max(maxCardHeight, cardHeight); }
-                        else ImGui::SetCursorPosY(cardStartY + cardHeight);
-
-                    } else {
-                        // ---- HORIZONTAL layout ----
-                        float textX      = e.icon ? (padX + iconSz + ScalePx(8.0f)) : padX;
-                        float hBarW      = itemW;
-                        float cardWidth  = textX + hBarW + padRight;
-
-                        float labelH = 0.0f;
-                        if (settings->ptShowLabel) {
-                            ImVec2 wrappedSz = ImGui::CalcTextSize(e.label.c_str(), nullptr, false, hBarW);
-                            labelH = wrappedSz.y + itemGap;
-                        }
-                        float countRowH  = useBadge && e.icon ? 0.0f : (useBadge ? badgeNumH : lineH);
-                        float textRows   = labelH + countRowH;
-                        float cardHeight = std::max(iconSz, textRows) + padY + padBottom;
-
-                        ImGui::Dummy(ImVec2(rowFlow ? curCardX + cardWidth : cardWidth, 0.0f));
-
-                        ImVec2 cMin = ImVec2(winPos.x + curCardX, winPos.y + cardStartY);
-                        ImVec2 cMax = ImVec2(cMin.x + cardWidth, cMin.y + cardHeight);
-
-                        float rowStartY = cardStartY + padY;
-
-                        if (e.icon) {
-                            float screenIconX = winPos.x + curCardX + padX;
-                            float screenIconY = winPos.y + rowStartY;
-                            IconRenderer::Style icon;
-                            icon.texture      = dispIcon;
-                            icon.size         = iconSz;
-                            icon.bgColor      = iconBgCol;
-                            icon.chip         = true;
-                            icon.glowEnabled  = settings->ptIconGlowEnabled;
-                            icon.borderColor  = iconBdrCol;
-                            icon.borderWidth  = ScalePxInt0(settings->ptIconBorderWidth);
-                            icon.borderRadius = iconSz * settings->ptIconBorderRadius * 0.01f;
-                            icon.uv0          = iconTemplate.uv0;
-                            icon.uv1          = iconTemplate.uv1;
-                            // Pickup bounce plus the decline dip, SUMMED: a pickup landing
-                            icon.bounceOffsetY = ScalePx(UIAnimation::GetBounceOffsetY("pt_bounce_" + e.id))
-                                               + DeclineOffsetY(e.id, iconSz);
-                            const bool drinking = (!drinkingId.empty() && drinkingId == e.id) ||
-                                                  InVanillaCooldown(e.id);
-                            const ImU32 fxTint  = drinking ? DrinkFxTint(e.id) : 0;
-                            ImVec2 iconAt(screenIconX, screenIconY + icon.bounceOffsetY);
-                            if (drinking) DrawDrinkHalo(dl, iconAt, iconSz, fxTint);
-                            ImGui::SetCursorScreenPos(ImVec2(screenIconX, screenIconY));
-                            IconRenderer::Draw(dl, ImVec2(screenIconX, screenIconY), icon);
-                            if (drinking) DrawDrinkBubbles(dl, iconAt, iconSz, fxTint);
-                            if (const float dt = DeclineProgress(e.id); dt > 0.0f) {
-                                const float k = std::sin(dt * 3.14159265f);
-                                dl->AddRectFilled(ImVec2(screenIconX, screenIconY),
-                                                  ImVec2(screenIconX + iconSz, screenIconY + iconSz),
-                                                  IM_COL32(10, 12, 16, static_cast<int>(120.0f * k)),
-                                                  icon.borderRadius);
-                            }
-                        }
-
-                        float adjustedTextX = curCardX + textX;
-                        float textBaseY     = rowStartY;
-                        float textCurY = textBaseY;
-                        if (settings->ptShowLabel) {
-                            float offsetY = e.icon ? (iconSz - textRows) * 0.5f : 0.0f;
-                            textCurY = textBaseY + (offsetY > 0.0f ? offsetY : 0.0f);
-                            ImVec2 labelPos = ImVec2(winPos.x + adjustedTextX, winPos.y + textCurY);
-                            ImU32 labelCol = ImGui::ColorConvertFloat4ToU32(textCol);
-                            ImVec2 lblSz = ImGui::CalcTextSize(e.label.c_str(), nullptr, false, hBarW);
-                            dl->AddText(ImVec2(labelPos.x + 1.0f, labelPos.y + 1.0f), IM_COL32(0, 0, 0, 255), e.label.c_str());
-                            dl->AddText(labelPos, labelCol, e.label.c_str());
-                            ImGui::SetCursorPos(ImVec2(adjustedTextX, textCurY));
-                            ImGui::Dummy(ImVec2(lblSz.x, lblSz.y));
-                            textCurY += labelH;
-                        } else if (e.icon) {
-                            float offsetY = (iconSz - countRowH) * 0.5f;
-                            textCurY = textBaseY + (offsetY > 0.0f ? offsetY : 0.0f);
-                        }
-
-                        if (useBadge && e.icon) {
-                            ImVec2 pill = HUDDraw::MeasureBadge(countBuf, countBadgeStyle);
-                            float  iconScreenX = winPos.x + curCardX + padX;
-                            float  iconScreenY = winPos.y + rowStartY;
-                            float  badgeX = iconScreenX - pill.x * 0.3f + ScalePxSigned(settings->ptBadgeOffsetX);
-                            float  badgeY = iconScreenY - pill.y * 0.4f + ScalePxSigned(settings->ptBadgeOffsetY);
-                            HUDDraw::DrawBadge(ImGui::GetForegroundDrawList(),
-                                               ImVec2(badgeX, badgeY), 0, countBuf, countBadgeStyle);
-                        } else if (useBadge) {
-                            ImVec2 pill = HUDDraw::MeasureBadge(countBuf, countBadgeStyle);
-                            HUDDraw::DrawBadge(ImGui::GetForegroundDrawList(),
-                                               ImVec2(winPos.x + adjustedTextX + ScalePxSigned(settings->ptBadgeOffsetX),
-                                                      winPos.y + textCurY + ScalePxSigned(settings->ptBadgeOffsetY)),
-                                               0, countBuf, countBadgeStyle);
-                            ImGui::Dummy(ImVec2(pill.x, pill.y));
-                        } else {
-                            ImGui::SetWindowFontScale(settings->ptCountScale);
-                            float textW = ImGui::CalcTextSize(countBuf).x;
-                            float textH = ImGui::GetTextLineHeight();
-                            ImVec2 countPos = ImVec2(winPos.x + adjustedTextX, winPos.y + textCurY);
-                            ImU32 countCol = ImGui::ColorConvertFloat4ToU32(textCol);
-                            dl->AddText(ImVec2(countPos.x + 1.0f, countPos.y + 1.0f), IM_COL32(0, 0, 0, 255), countBuf);
-                            dl->AddText(countPos, countCol, countBuf);
-                            ImGui::SetCursorPos(ImVec2(adjustedTextX, textCurY));
-                            ImGui::Dummy(ImVec2(textW, textH));
-                            ImGui::SetWindowFontScale(settings->ptLabelScale);
-                        }
-
-                        if (settings->ptShowHotkeyBadge) {
-                            int hkKey, hkMod;
-                            if (GetEntryHotkey(e.id, settings, hkKey, hkMod))
-                                DrawHotkeyBadge(
-                                    winPos.x + curCardX + ScalePxSigned(settings->ptHotkeyBadgeOffsetX),
-                                    winPos.y + cardStartY + ScalePxSigned(settings->ptHotkeyBadgeOffsetY),
-                                    hkKey, hkMod, settings->ptHotkeyBadgeScale,
-                                    settings->ptHotkeyBadgeBgColor);
-                        }
-
-                        if (rowFlow) { curCardX += cardWidth; maxCardHeight = std::max(maxCardHeight, cardHeight); }
-                        else ImGui::SetCursorPosY(cardStartY + cardHeight);
-                    }
-                }
-
-                if (rowFlow && maxCardHeight > 0.0f)
-                    ImGui::SetCursorPosY(maxCardHeight);
-
-                ImGui::Dummy(ImVec2(0.0f, 0.0f));
-
-                ImGui::SetWindowFontScale(1.0f);
-
-                if (allowDrag) {
-                    ImVec2 pos = ImGui::GetWindowPos();
-                    settings->ptPosX = static_cast<int>(pos.x);
-                    settings->ptPosY = static_cast<int>(pos.y);
+                if (dragging) {
+                    const ImVec2 a = HUDFlow::AnchorFromTopLeft(ImGui::GetWindowPos(), layout.size, flow.corner);
+                    settings->ptPosX = static_cast<int>(a.x);
+                    settings->ptPosY = static_cast<int>(a.y);
                 }
             }
             ImGui::End();
 
-            ImGui::PopStyleVar();
+            ImGui::PopStyleVar(2);
             ImGui::PopStyleColor();
         }
 
@@ -926,7 +846,10 @@ namespace WidgetPinnedItems {
                 logger::debug("[PotionPress] slot='{}' mgef=0x{:05X} pick={} deficit={:.1f}",
                               entryId, mgef, (nm && *nm) ? nm : "<none owned>", SlotDeficit(mgef));
             }
-            if (!alch) return ConsumeResult::kNone;
+            if (!alch) {
+                StartDecline(entryId);
+                return ConsumeResult::kNone;
+            }
 
             if (SlotDeficit(mgef) < 1.0f) {
                 StartDecline(entryId);
@@ -967,6 +890,7 @@ namespace WidgetPinnedItems {
                 StartVanillaCooldown(entryId);
                 return ConsumeResult::kDrankVanilla;
             }
+            StartDecline(entryId);
             return ConsumeResult::kNone;
         }
         return ConsumeResult::kNone;

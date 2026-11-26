@@ -3,7 +3,6 @@
 // STATUS: Working
 // Tracks owned horses and their stats.
 
-
 #include <string>
 #include <vector>
 #include <mutex>
@@ -36,6 +35,7 @@ namespace PartyHorses {
         void Purge();
         std::vector<HorseRecord> GetAll();
         void Summon(RE::FormID runtimeFormID);
+        static bool IsNearPlayer(RE::Actor* horse);
         void SummonAll(const std::vector<HorseEntry>& entries);
         void SummonAllFromRegistry();
         bool HasAny() const;

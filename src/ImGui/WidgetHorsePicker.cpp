@@ -73,7 +73,7 @@ namespace WidgetHorsePicker {
         }
         if (!owned) return Unavailable::NotOwned;
 
-        if (rec.is3DLoaded) return Unavailable::Near;
+        if (PartyHorses::HorseRegistry::IsNearPlayer(horse)) return Unavailable::Near;
 
         return Unavailable::None;
     }
@@ -112,7 +112,9 @@ namespace WidgetHorsePicker {
         }
 
         auto horses = PartyHorses::HorseRegistry::GetSingleton()->GetAll();
-        if (horses.empty()) {
+        const bool anyOwned = std::any_of(horses.begin(), horses.end(),
+            [](const auto& rec) { return GetUnavailableReason(rec) != Unavailable::NotOwned; });
+        if (!anyOwned) {
             ImGui::TextDisabled("%s", LocalizationManager::Get("HorsePicker.NoHorses").c_str());
             ImGui::TextDisabled("%s", LocalizationManager::Get("HorsePicker.NoHorsesHint").c_str());
             ImGui::End();
@@ -132,6 +134,8 @@ namespace WidgetHorsePicker {
         for (const auto& rec : horses) {
             const char* name = rec.entry.lastKnownName.empty()
                 ? unknownName.c_str() : rec.entry.lastKnownName.c_str();
+
+            if (GetUnavailableReason(rec) == Unavailable::NotOwned) continue;
 
             const Unavailable reason = blocked ? Unavailable::None : GetUnavailableReason(rec);
             const bool rowDisabled = blocked || reason != Unavailable::None;

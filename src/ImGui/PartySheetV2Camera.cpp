@@ -2,6 +2,7 @@
 #define SMOOTHCAM_API_COMMONLIB
 #include "../../includes/SmoothCamAPI.h"
 #include "../../includes/ImGui/PartySheetV2Camera.h"
+#include "../../includes/ImGui/PartySheetV2Light.h"
 #include "../../includes/MenuUtils.h"
 #include "../../includes/Settings.h"
 #include "../../includes/TrueDirectionalMovementAPI.h"
@@ -36,6 +37,8 @@ namespace PartySheetV2Camera {
             std::array<float, 10> ini{};
         };
         Saved s_saved{};
+        RE::BSTSmartPointer<RE::TESCameraState> s_framedState;
+        int s_loggedStateId = -1;
         bool  s_active = false;
         bool  s_ownsSmoothCam = false;
         bool  s_wasFirstPerson = false;
@@ -70,6 +73,27 @@ namespace PartySheetV2Camera {
             s_tdmYaw = s_tdmDirMove = false;
         }
 
+        int StateId(const RE::PlayerCamera* camera) {
+            return camera && camera->currentState ? static_cast<int>(camera->currentState->id) : -1;
+        }
+
+        void LogCamera(const char* when, RE::PlayerCamera* camera, const RE::ThirdPersonState* tps) {
+            if (!camera || !tps) {
+                logger::debug("[V2Cam] {}: state={} no third person state", when, StateId(camera));
+                return;
+            }
+            auto* player = RE::PlayerCharacter::GetSingleton();
+            auto target = camera->cameraTarget.get();
+            logger::debug("[V2Cam] {}: state={} target={:08X} freeRot=({:.3f}, {:.3f}) freeOn={} animCam={} "
+                          "pitchZoom={:.3f} zoom={:.3f}/{:.3f} offset=({:.1f}, {:.1f}, {:.1f}) fov={:.1f} pitch={:.3f} heading={:.3f}",
+                          when, StateId(camera), target ? target->GetFormID() : 0,
+                          tps->freeRotation.x, tps->freeRotation.y, tps->freeRotationEnabled, tps->toggleAnimCam,
+                          tps->pitchZoomOffset, tps->currentZoomOffset, tps->targetZoomOffset,
+                          tps->posOffsetExpected.x, tps->posOffsetExpected.y, tps->posOffsetExpected.z,
+                          camera->GetRuntimeData2().worldFOV,
+                          player ? player->data.angle.x : 0.0f, player ? player->data.angle.z : 0.0f);
+        }
+
         RE::Setting* Ini(std::size_t i) {
             auto* c = RE::INISettingCollection::GetSingleton();
             return c ? c->GetSetting(kIni[i]) : nullptr;
@@ -85,10 +109,16 @@ namespace PartySheetV2Camera {
 
         float s_yawNudge = 0.0f;
         float s_zNudge   = 0.0f;
+        float s_distNudge = 0.0f;
         float s_baseZ    = 0.0f;
+        float s_baseDist  = 0.0f;
         int   s_pendingFrames = 0;
         bool  s_inRetry = false;
-        bool  s_keyA = false, s_keyD = false, s_keyQ = false, s_keyE = false;
+        bool  s_keyA = false, s_keyD = false, s_keyQ = false, s_keyE = false, s_keyW = false, s_keyS = false;
+        bool  s_savePending = false;
+        bool  s_liveSetting = false;
+
+        int s_appliedCamX = 0, s_appliedCamZ = 0, s_appliedCamDist = 0, s_appliedCamYaw = 0;
 
         constexpr float kMaxDist = 1500.0f;
         RE::ActorHandle s_target;
@@ -106,6 +136,14 @@ namespace PartySheetV2Camera {
             return pc->IsInteriorCell() ? ac == pc : !ac->IsInteriorCell();
         }
 
+        int ActiveCamX(const Settings* set) {
+            return set->psV2CharacterRight ? set->psV2LiveCamXRight : set->psV2LiveCamX;
+        }
+
+        int ActiveCamYaw(const Settings* set) {
+            return set->psV2CharacterRight ? set->psV2LiveCamYawRight : 0;
+        }
+
         void ApplyFraming(RE::PlayerCamera* camera, RE::ThirdPersonState* tps, RE::Actor* actor) {
             auto* state = actor->AsActorState();
             const bool  drawn  = state && state->IsWeaponDrawn();
@@ -114,17 +152,23 @@ namespace PartySheetV2Camera {
                                  sit <= RE::SIT_SLEEP_STATE::kWantToStand;
             const float h = actor->GetHeight();
             const auto* set = Settings::GetSingleton();
+            s_appliedCamX    = ActiveCamX(set);
+            s_appliedCamZ    = set->psV2LiveCamZ;
+            s_appliedCamDist = set->psV2LiveCamDist;
             const float extraDist = static_cast<float>(set->psV2LiveCamDist);
-            float x = static_cast<float>(set->psV2LiveCamX), z = -22.0f + (h - 128.0f), dist = 155.0f + extraDist;
+            float x = static_cast<float>(s_appliedCamX), z = -22.0f + (h - 128.0f), dist = 155.0f + extraDist;
             if (seated)     { z = -53.0f + (h - 130.0f); }
             else if (drawn) { z = -32.0f + (h - 128.0f); dist = 165.0f + extraDist; x -= 5.0f; }
             z += static_cast<float>(set->psV2LiveCamZ);
             s_baseZ = z;
-            s_yawNudge = s_zNudge = 0.0f;
+            s_baseDist = dist;
+            s_appliedCamYaw = ActiveCamYaw(set);
+            s_yawNudge = static_cast<float>(s_appliedCamYaw) * kPi / 180.0f;
+            s_zNudge = s_distNudge = 0.0f;
 
             tps->toggleAnimCam       = true;
             tps->freeRotationEnabled = true;
-            tps->freeRotation        = { kPi, 0.0f };
+            tps->freeRotation        = { kPi + s_yawNudge, 0.0f };
             tps->pitchZoomOffset     = 0.1f;
             actor->data.angle.x      = 0.1f;
 
@@ -180,7 +224,8 @@ namespace PartySheetV2Camera {
 
     bool Enter() {
         if (s_active) return true;
-        if (!Settings::GetSingleton()->psV2LiveCharacter) return false;
+        s_liveSetting = Settings::GetSingleton()->psV2LiveCharacter;
+        if (!s_liveSetting) return false;
         auto* camera = RE::PlayerCamera::GetSingleton();
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!camera || !player || player->IsOnMount()) return false;
@@ -224,7 +269,10 @@ namespace PartySheetV2Camera {
             auto* s = Ini(i);
             s_saved.ini[i] = s ? s->GetFloat() : 0.0f;
         }
+        s_framedState   = camera->currentState;
+        s_loggedStateId = StateId(camera);
         s_active = true;
+        LogCamera("enter", camera, tps);
 
         HoldTdm(player);
         ApplyFraming(camera, tps, player);
@@ -241,6 +289,10 @@ namespace PartySheetV2Camera {
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!camera || !player) return false;
         auto* tps = skyrim_cast<RE::ThirdPersonState*>(camera->currentState.get());
+        if (const int id = StateId(camera); id != s_loggedStateId) {
+            logger::debug("[V2Cam] camera mode changed while open: {} -> {}", s_loggedStateId, id);
+            s_loggedStateId = id;
+        }
         if (!tps) return false;
 
         RE::Actor* want = subject->IsPlayerRef() ? player
@@ -255,6 +307,11 @@ namespace PartySheetV2Camera {
         if (want != cur) {
             Retarget(camera, tps, player, want);
         }
+        else if (const auto* set = Settings::GetSingleton();
+                 ActiveCamX(set) != s_appliedCamX || ActiveCamYaw(set) != s_appliedCamYaw || set->psV2LiveCamZ != s_appliedCamZ ||
+                 set->psV2LiveCamDist != s_appliedCamDist) {
+            ApplyFraming(camera, tps, want);
+        }
         return true;
     }
 
@@ -266,20 +323,65 @@ namespace PartySheetV2Camera {
         s_inRetry = false;
     }
 
+    void FollowLiveSetting() {
+        const bool want = Settings::GetSingleton()->psV2LiveCharacter;
+        if (want == s_liveSetting) return;
+        s_liveSetting = want;
+        if (want) {
+            Enter();
+        } else {
+            s_pendingFrames = 0;
+            Exit();
+        }
+    }
+
     void SetNudgeKey(std::uint32_t scancode, bool down) {
+        bool* key = nullptr;
+        bool  savesSetting = false;
         switch (scancode) {
-            case 0x1E: s_keyA = down; break;
-            case 0x20: s_keyD = down; break;
-            case 0x10: s_keyQ = down; break;
-            case 0x12: s_keyE = down; break;
-            default: break;
+            case 0x1E: key = &s_keyA; savesSetting = Settings::GetSingleton()->psV2CharacterRight; break;
+            case 0x20: key = &s_keyD; savesSetting = Settings::GetSingleton()->psV2CharacterRight; break;
+            case 0x10: key = &s_keyQ; savesSetting = true; break;
+            case 0x12: key = &s_keyE; savesSetting = true; break;
+            case 0x11: key = &s_keyW; savesSetting = true; break;
+            case 0x1F: key = &s_keyS; savesSetting = true; break;
+            default: return;
+        }
+        if (savesSetting && *key && !down) s_savePending = true;
+        *key = down;
+    }
+
+    namespace {
+        void SaveNudge() {
+            auto* set = Settings::GetSingleton();
+            const int z    = std::clamp(static_cast<int>(std::lround(s_appliedCamZ + s_zNudge)), -60, 60);
+            const int dist = std::clamp(static_cast<int>(std::lround(s_appliedCamDist + s_distNudge)), -120, 400);
+            const int yaw  = set->psV2CharacterRight
+                ? std::clamp(static_cast<int>(std::lround(s_yawNudge * 180.0f / kPi)), -45, 45)
+                : set->psV2LiveCamYawRight;
+            if (z == set->psV2LiveCamZ && dist == set->psV2LiveCamDist && yaw == set->psV2LiveCamYawRight) return;
+            set->psV2LiveCamYawRight = yaw;
+            if (set->psV2CharacterRight) s_appliedCamYaw = yaw;
+            const float dz = static_cast<float>(z - s_appliedCamZ);
+            const float dd = static_cast<float>(dist - s_appliedCamDist);
+            s_baseZ += dz;    s_zNudge -= dz;
+            s_baseDist += dd; s_distNudge -= dd;
+            set->psV2LiveCamZ = s_appliedCamZ = z;
+            set->psV2LiveCamDist = s_appliedCamDist = dist;
+            set->Save();
+            logger::debug("PartySheetV2Camera: saved nudge height={} distance={} turn={}", z, dist, yaw);
         }
     }
 
     void Nudge(float dt) {
         const int yawDir = (s_keyD ? 1 : 0) - (s_keyA ? 1 : 0);
         const int zDir   = (s_keyQ ? 1 : 0) - (s_keyE ? 1 : 0);
-        if (!s_active || (!yawDir && !zDir)) return;
+        const int distDir = (s_keyS ? 1 : 0) - (s_keyW ? 1 : 0);
+        if (s_active && s_savePending && !s_keyQ && !s_keyE && !s_keyW && !s_keyS && !s_keyA && !s_keyD) {
+            s_savePending = false;
+            SaveNudge();
+        }
+        if (!s_active || (!yawDir && !zDir && !distDir)) return;
         auto* camera = RE::PlayerCamera::GetSingleton();
         auto* tps = camera ? skyrim_cast<RE::ThirdPersonState*>(camera->currentState.get()) : nullptr;
         if (!tps) return;
@@ -290,15 +392,23 @@ namespace PartySheetV2Camera {
             tps->freeRotation.x = kPi + s_yawNudge;
         }
         if (zDir) {
-            s_zNudge = std::clamp(s_zNudge + zDir * 60.0f * dt, -80.0f, 80.0f);
+            s_zNudge = std::clamp(s_zNudge + zDir * 60.0f * dt,
+                                  -60.0f - s_appliedCamZ, 60.0f - s_appliedCamZ);
             const float z = s_baseZ + s_zNudge;
             SetIni(2, z); SetIni(4, z);
             tps->posOffsetExpected.z = tps->posOffsetActual.z = z;
+        }
+        if (distDir) {
+            s_distNudge = std::clamp(s_distNudge + distDir * 150.0f * dt,
+                                     -120.0f - s_appliedCamDist, 400.0f - s_appliedCamDist);
+            const float dist = s_baseDist + s_distNudge;
+            SetIni(5, dist); SetIni(6, dist);
         }
         camera->Update();
     }
 
     void Exit() {
+        PartySheetV2Light::Off();
         if (s_active) {
             for (std::size_t i = 0; i < kIni.size(); ++i)
                 if (i != 8) SetIni(i, s_saved.ini[i]);
@@ -309,6 +419,8 @@ namespace PartySheetV2Camera {
             s_activateDisabled = false;
         }
         auto* camera = RE::PlayerCamera::GetSingleton();
+        auto* framed = skyrim_cast<RE::ThirdPersonState*>(s_framedState.get());
+        if (s_active) LogCamera("exit before restore", camera, framed);
         if (s_active) {
             ReleaseTarget();
             if (camera)
@@ -319,7 +431,7 @@ namespace PartySheetV2Camera {
             if (auto* player = RE::PlayerCharacter::GetSingleton())
                 player->data.angle.x = s_saved.pitch;
             if (camera) {
-                if (auto* tps = skyrim_cast<RE::ThirdPersonState*>(camera->currentState.get())) {
+                if (auto* tps = framed) {
                     tps->toggleAnimCam       = s_saved.toggleAnimCam;
                     tps->freeRotationEnabled = s_saved.freeRotationEnabled;
                     tps->freeRotation        = s_saved.freeRotation;
@@ -338,7 +450,11 @@ namespace PartySheetV2Camera {
             const auto r = g_smoothCam->ReleaseCameraControl(SKSE::GetPluginHandle());
             logger::debug("PartySheetV2Camera: SmoothCam release result {}", static_cast<int>(r));
         }
-        if (s_active) logger::debug("PartySheetV2Camera: exited");
+        if (s_active) {
+            LogCamera("exit after restore", camera, framed);
+            logger::debug("PartySheetV2Camera: exited");
+        }
+        s_framedState.reset();
         s_active = s_ownsSmoothCam = s_wasFirstPerson = false;
         s_keyA = s_keyD = s_keyQ = s_keyE = false;
         s_pendingFrames = 0;

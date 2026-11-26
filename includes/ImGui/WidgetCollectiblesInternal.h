@@ -3,7 +3,6 @@
 // STATUS: Working
 // Helper code for collectibles widget.
 
-
 #include <string>
 #include <vector>
 #include <RE/Skyrim.h>

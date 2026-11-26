@@ -4,6 +4,7 @@
 #include "../../includes/Utils/WornGearStatResolver.h"
 #include "../../includes/Utils/EffectAttribution.h"
 #include "../../includes/Utils/GearCatalog.h"
+#include "../../includes/EffectCategories.h"
 
 #include <cstdio>
 
@@ -118,19 +119,19 @@ namespace WornGearStatResolver {
                 if (magnitude > 0.0f) {
                     if (av == RE::ActorValue::kResistFire) {
                         data.resistHighlightMask |= kResistFire;
-                        InsertEnchantBadge(slotData, 2, "fire_resist", "resist_fire", "%.0f%%", magnitude);
+                    InsertEnchantBadge(slotData, 2, "fire", "resist_fire", "%.0f%%", magnitude);
                     } else if (av == RE::ActorValue::kResistFrost) {
                         data.resistHighlightMask |= kResistFrost;
-                        InsertEnchantBadge(slotData, 2, "frost_resist", "resist_frost", "%.0f%%", magnitude);
+                    InsertEnchantBadge(slotData, 2, "frost", "resist_frost", "%.0f%%", magnitude);
                     } else if (av == RE::ActorValue::kResistShock) {
                         data.resistHighlightMask |= kResistShock;
-                        InsertEnchantBadge(slotData, 2, "shock_resist", "resist_shock", "%.0f%%", magnitude);
+                    InsertEnchantBadge(slotData, 2, "shock", "resist_shock", "%.0f%%", magnitude);
                     } else if (av == RE::ActorValue::kPoisonResist) {
                         data.resistHighlightMask |= kResistPoison;
-                        InsertEnchantBadge(slotData, 2, "poison_resist", "resist_poison", "%.0f%%", magnitude);
+                    InsertEnchantBadge(slotData, 2, "poison", "resist_poison", "%.0f%%", magnitude);
                     } else if (av == RE::ActorValue::kResistMagic) {
                         data.resistHighlightMask |= kResistMagic;
-                        InsertEnchantBadge(slotData, 2, "magic_resist", "resist_magic", "%.0f%%", magnitude);
+                    InsertEnchantBadge(slotData, 2, "magic", "resist_magic", "%.0f%%", magnitude);
                 } else if (av == RE::ActorValue::kResistDisease) {
                     data.resistHighlightMask |= kResistDisease;
                     } else if (av == RE::ActorValue::kHealth) {
@@ -151,7 +152,8 @@ namespace WornGearStatResolver {
                 }
                 for (const auto& skill : kSkillBits) {
                     const bool isBaseSkill = av == skill.baseAV;
-                    const bool isModifier = av == skill.modifierAV;
+                const bool isModifier = av == skill.modifierAV ||
+                                        (av != skill.baseAV && EffectCategories::GetSkillTarget(av) == skill.baseAV);
                     if (!isBaseSkill && !isModifier) {
                         continue;
                     }

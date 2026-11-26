@@ -39,9 +39,11 @@ namespace IconRenderer {
                 0, style.borderColor, style.borderRadius);
         }
         if (style.texture) {
-            ImGui::SetCursorScreenPos(ImVec2(screenPos.x, screenPos.y + style.bounceOffsetY));
+            const float imgSz = sz * style.imageScale;
+            const float inset = (sz - imgSz) * 0.5f;
+            ImGui::SetCursorScreenPos(ImVec2(screenPos.x + inset, screenPos.y + inset + style.bounceOffsetY));
             ImGui::Image(reinterpret_cast<ImTextureID>(style.texture),
-                ImVec2(sz, sz), style.uv0, style.uv1);
+                ImVec2(imgSz, imgSz), style.uv0, style.uv1);
         }
         if (style.borderWidth > 0) {
             dl->AddRect(

@@ -19,6 +19,11 @@ namespace PartySheetV2 {
     bool HasBlessings(RE::Actor* actor);
     void DrawBlessingsTooltip(RE::Actor* actor, const std::string& title, float scale);
 
+    bool HasActiveEffects(RE::Actor* actor);
+    void DrawActiveEffectsTooltip(RE::Actor* actor, const std::string& title, float scale);
+
+    void DrawBehaviorTooltip(RE::Actor* actor, const std::string& title, float scale);
+
     bool HasStatPassives(RE::Actor* actor, RE::ActorValue pool);
     void DrawStatTooltip(RE::Actor* actor, const std::string& title, RE::ActorValue pool, float scale);
 

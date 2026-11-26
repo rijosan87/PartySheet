@@ -3,7 +3,6 @@
 // STATUS: Working
 // Manages widget custom theme backgrounds.
 
-
 #include <d3d11.h>
 #include <string>
 #include <vector>

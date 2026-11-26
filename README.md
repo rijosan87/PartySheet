@@ -75,10 +75,12 @@ Steps:
    git clone --depth 1 --branch v7.5.1 https://github.com/alandtse/CommonLibSSE-NG.git extern/CommonLibSSE-NG
    ```
    Alternatively point the `CommonLibSSEPath` environment variable at an existing checkout.
-2. Open the project folder in Visual Studio 2022 (File > Open > Folder).
-3. Select the `release` (or `debug`) configure preset and build. vcpkg installs the dependencies
+2. Clone [SmartSearch](https://github.com/rijosan87/SmartSearch) next to this folder, as `../SmartSearch`.
+   Spell tags compile its `shared/IntentModel`. Another location can be set with `-DSMARTSEARCH_SHARED=<path>/shared`.
+3. Open the project folder in Visual Studio 2022 (File > Open > Folder).
+4. Select the `release` (or `debug`) configure preset and build. vcpkg installs the dependencies
    listed in `vcpkg.json` on the first configure.
-4. The result is `SkyrimPartySheet.dll`. To copy it to a mod folder after each build, pass
+5. The result is `SkyrimPartySheet.dll`. To copy it to a mod folder after each build, pass
    `-DOUTPUT_FOLDER=<mod folder>` to CMake; the DLL goes to `<mod folder>/SKSE/Plugins`.
 
 ## License

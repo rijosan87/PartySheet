@@ -69,11 +69,12 @@ namespace PlayerHUDSurvivalPresets
         s.phSurvivalCardSpacing     = 6;
         s.phSurvivalShowLabel       = true;
         s.phSurvivalShowStage       = true;
-        s.phSurvivalLabelScale      = 0.75f;
+        s.phSurvivalLabelScale      = 0.85f;
         s.phSurvivalStageScale      = 0.80f;
         s.phSurvivalBgColor         = 0xB40A0C12;
         s.phSurvivalLabelColor      = 0xFF8C9BAF;
         s.phSurvivalColdColor       = 0xFF78C8FF;
+        s.phSurvivalFireColor       = 0xFFFFA23C;
         s.phSurvivalHungerColor     = 0xFFFF8C32;
         s.phSurvivalFatigueColor    = 0xFFB4A0D2;
         s.phSurvivalAlarmColor      = 0xFFDC2828;
@@ -93,7 +94,7 @@ namespace PlayerHUDSurvivalPresets
         s.phSurvivalIndicatorStyle  = 2;
         s.phSurvivalIconFill        = true;
         s.phSurvivalIconSize        = 24;
-        s.phSurvivalCardWidth       = 60;
+        s.phSurvivalCardWidth       = 80;
         s.phSurvivalCardSpacing     = 8;
         s.phSurvivalShowLabel       = true;
         s.phSurvivalShowStage       = true;
@@ -102,6 +103,7 @@ namespace PlayerHUDSurvivalPresets
         s.phSurvivalBgColor         = 0xA0080A10;
         s.phSurvivalLabelColor      = 0xFFAAAAAA;
         s.phSurvivalColdColor       = 0xFF78C8FF;
+        s.phSurvivalFireColor       = 0xFFFFA23C;
         s.phSurvivalHungerColor     = 0xFFFF8C32;
         s.phSurvivalFatigueColor    = 0xFFB4A0D2;
         s.phSurvivalAlarmColor      = 0xFFDC2828;
@@ -111,25 +113,26 @@ namespace PlayerHUDSurvivalPresets
     {
         ResetPlacement(s);
         ResetIndicatorDesign(s);
-        s.phSurvivalShowBorder = true;
+        s.phSurvivalShowBorder = false;
         s.phSurvivalBgTexture = true;
         s.phSurvivalBgDuotone = true;
         s.phSurvivalBorderWidth = 1.2f;
         s.phSurvivalBorderColor = 0xEB060608;
         s.phSurvivalStyle           = 1;
         s.phSurvivalDirection       = 1;
-        s.phSurvivalIndicatorStyle  = 2;
-        s.phSurvivalIconFill        = true;
+        s.phSurvivalIndicatorStyle  = 1;
+        s.phSurvivalIconFill        = false;
         s.phSurvivalIconSize        = 24;
-        s.phSurvivalCardWidth       = 75;
+        s.phSurvivalCardWidth       = 80;
         s.phSurvivalCardSpacing     = 8;
         s.phSurvivalShowLabel       = true;
         s.phSurvivalShowStage       = true;
         s.phSurvivalLabelScale      = 0.70f;
         s.phSurvivalStageScale      = 0.80f;
-        s.phSurvivalBgColor         = 0xB7000C3E;
+        s.phSurvivalBgColor         = 0x00000C3E;
         s.phSurvivalLabelColor      = 0xFFCCDDEE;
         s.phSurvivalColdColor       = 0xFF55AAFF;
+        s.phSurvivalFireColor       = 0xFFFFA23C;
         s.phSurvivalHungerColor     = 0xFFFF7722;
         s.phSurvivalFatigueColor    = 0xFFCC88FF;
         s.phSurvivalAlarmColor      = 0xFFFF2A2A;
@@ -147,17 +150,18 @@ namespace PlayerHUDSurvivalPresets
         s.phSurvivalStyle           = 0;
         s.phSurvivalDirection       = 0;
         s.phSurvivalIndicatorStyle  = 0;
-        s.phSurvivalIconFill        = true;
+        s.phSurvivalIconFill        = false;
         s.phSurvivalIconSize        = 36;
-        s.phSurvivalCardWidth       = 70;
+        s.phSurvivalCardWidth       = 80;
         s.phSurvivalCardSpacing     = 2;
         s.phSurvivalShowLabel       = false;
-        s.phSurvivalShowStage       = false;
+        s.phSurvivalShowStage       = true;
         s.phSurvivalLabelScale      = 0.75f;
         s.phSurvivalStageScale      = 0.80f;
         s.phSurvivalBgColor         = 0x00000000;
         s.phSurvivalLabelColor      = 0xFF8C9BAF;
         s.phSurvivalColdColor       = 0xFF78C8FF;
+        s.phSurvivalFireColor       = 0xFFFFA23C;
         s.phSurvivalHungerColor     = 0xFFFF8C32;
         s.phSurvivalFatigueColor    = 0xFFB4A0D2;
         s.phSurvivalAlarmColor      = 0xFFDC2828;
@@ -167,7 +171,6 @@ namespace PlayerHUDSurvivalPresets
     {
         ApplyMinimal(s);
         s.phSurvivalIndicatorStyle = 3;            // Arc
-        s.phSurvivalIconFill = false;
         s.phSurvivalIndicatorDuotone = false;
     }
 

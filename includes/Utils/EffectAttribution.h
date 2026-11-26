@@ -14,6 +14,13 @@ namespace EffectAttribution {
         Equipment, Blessing, Potion, Disease, Need, Race, Stone, Passive, Spell
     };
 
+    enum class EffectClass : std::uint8_t {
+        Timed,
+        Condition,
+        Gear,
+        Permanent
+    };
+
     struct Record {
         RE::ActiveEffect*   effect    = nullptr;
         RE::EffectSetting*  mgef      = nullptr;
@@ -34,9 +41,21 @@ namespace EffectAttribution {
         const char* effectName = "";
         const char* sourceName = "";
         RE::BGSPerk* grantedByPerk = nullptr;
+        EffectClass cls = EffectClass::Timed;
     };
 
     const std::vector<Record>& Get(RE::Actor* actor);
+
+    const Record* Find(RE::Actor* actor, const RE::ActiveEffect* effect);
+    EffectClass ClassOf(RE::Actor* actor, const RE::ActiveEffect* effect);
+    bool ShowsOnHud(EffectClass cls);
+
+    struct GroupKey {
+        const RE::EffectSetting* mgef   = nullptr;
+        const void*              source = nullptr;
+        bool operator==(const GroupKey&) const = default;
+    };
+    GroupKey GroupKeyOf(const RE::ActiveEffect* effect);
 
     std::string OwnerName(const Record& r);
     ID3D11ShaderResourceView* OwnerIcon(const Record& r);
@@ -50,6 +69,28 @@ namespace EffectAttribution {
     ID3D11ShaderResourceView* ResolveMagicIcon(RE::MagicItem* item);
     ID3D11ShaderResourceView* ResolveBlessingIcon(RE::SpellItem* spell);
 
-    bool HasPotionBuff(RE::Actor* actor, RE::ActorValue stat);
+    bool HasTimedBuff(RE::Actor* actor, RE::ActorValue stat);
     bool HasStatDebuff(RE::Actor* actor, RE::ActorValue stat);
+
+    struct StatChange {
+        RE::ActorValue av    = RE::ActorValue::kNone;
+        float          value = 0.0f;
+        bool           percent = false;
+    };
+
+    std::vector<StatChange> SpellStatChanges(RE::Actor* actor, const RE::MagicItem* spell, bool hiddenOnly = false);
+
+    struct NeedPoolCut {
+        const Record* record = nullptr;
+        StatChange    change;
+    };
+    std::vector<NeedPoolCut> NeedPoolCuts(RE::Actor* actor);
+
+    std::vector<const Record*> NeedStages(RE::Actor* actor);
+
+    struct StatLine {
+        std::string text;
+        bool        cut = false;
+    };
+    std::vector<StatLine> FormatStatChanges(const std::vector<StatChange>& changes);
 }

@@ -3,7 +3,6 @@
 // STATUS: Working
 // Monitors framerate and system load.
 
-
 #include <chrono>
 #include <unordered_map>
 #include "Settings.h"

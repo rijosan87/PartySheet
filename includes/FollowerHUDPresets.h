@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Settings.h"
+#include "BackgroundManager.h"
 
 #include <array>
 #include <cstddef>
@@ -12,12 +13,13 @@ namespace FollowerHUDPresets
         const char* name;
     };
 
-    inline constexpr std::array<Preset, 5> kPresets{ {
+    inline constexpr std::array<Preset, 6> kPresets{ {
         { "Default" },
         { "Inline" },
         { "Stacked" },
         { "Minimal" },
-        { "Ribbon Fill" }
+        { "Ribbon Fill" },
+        { "Framed" }
     } };
 
     inline void ApplyDefault(Settings& s)
@@ -530,9 +532,9 @@ namespace FollowerHUDPresets
         s.ribbonBorderColor = 0x4D4D66;
         s.ribbonPaddingTop = 12;
         s.ribbonPaddingRight = 12;
-        s.ribbonPaddingBottom = 8;
+        s.ribbonPaddingBottom = 0;
         s.ribbonPaddingLeft = 8;
-        s.ribbonMargin = -30;
+        s.ribbonMargin = -40;
         s.ribbonEffectClearance = 30;
     }
 
@@ -604,6 +606,31 @@ namespace FollowerHUDPresets
         s.ribbonEffectClearance = 30;
     }
 
+    inline void ApplyFramed(Settings& s)
+    {
+        ApplyStacked(s);
+        s.showName = false;
+        s.showMagicka = false;
+        s.portraitSize = 82;
+        s.portraitBottomMargin = 0;
+        s.portraitCornerRadius = 0.0f;
+        s.fhPortraitOuterBorderWidth = 2;
+        s.fhPortraitInnerBorderWidth = 1;
+        s.fhPortraitOuterBorderColor = 0x303032;
+        s.fhPortraitInnerBorderColor = 0x211F1C;
+
+        s.effectMagnitudeScale = 0.65f;
+        s.hudEffectIconShadow = false;
+        s.hudEffectIconOutlineWidth = 1;
+        s.effectTimerStyle = 2;
+        s.effectIconBgPadding = 1;
+        s.effectIconBorderRadius = 0;
+
+        const auto& filenames = BackgroundManager::GetBackgrounds(BackgroundManager::Type::BarStyle);
+        for (std::size_t i = 0; i < filenames.size(); ++i)
+            if (filenames[i] == "BarStyle_3.png") s.barStyleIndex = static_cast<int>(i + 1);
+    }
+
     inline void ApplyPreset(Settings& s, std::size_t index)
     {
         switch (index) {
@@ -621,6 +648,9 @@ namespace FollowerHUDPresets
             break;
         case 4:
             ApplyRibbonFill(s);
+            break;
+        case 5:
+            ApplyFramed(s);
             break;
         default:
             ApplyDefault(s);

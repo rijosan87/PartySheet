@@ -17,6 +17,11 @@ namespace GearCatalog {
 
     enum class Category : std::uint8_t { Swords, Daggers, Axes, Maces, Bows, Staves, OffHand, Armor, Ammo, None };
 
+    enum class SlotTag : std::uint8_t {
+        OneHanded, TwoHanded, Daggers, Bows, Crossbows, Staves, Shields, Torches, Arrows, Bolts,
+        Helmets, Hoods, Circlets, Heavy, Light, Clothing, None
+    };
+
     struct InstanceKey {
         RE::FormID  baseID = 0;
         float       health = 0.0f;
@@ -32,21 +37,26 @@ namespace GearCatalog {
         std::string  name;
         std::string  iconHint;
         Category     category = Category::None;
+        SlotTag      tag = SlotTag::None;
         int          count = 1;
         bool         equipped = false;
         bool         twoHanded = false;
         float        statValue = -1.0f;
+        int          poisonDoses = 0;
         std::vector<EquipmentStatResolver::EnchantDamage> enchants;
     };
 
     struct CardList {
         std::vector<GearItem> items;
         std::uint32_t         categoryMask = 0;
+        std::uint32_t         tagMask = 0;
         bool                  interactive = true;
     };
 
     enum class ItemTab : std::uint8_t { Weapon, Armor, Potion, Food, Ingredient, Book, Scroll, Misc };
     enum class ItemType : std::uint8_t { Weapon, Armor, Potion, Food, Ammo, Ingredient, SoulGem, Key, Book, Scroll, Misc };
+
+    enum class PotionTag : std::uint8_t { Health, Magicka, Stamina, Fortify, Resist, Cure, Poison, None };
 
     struct InventoryItem {
         InstanceKey  key;
@@ -54,10 +64,12 @@ namespace GearCatalog {
         std::string  iconHint;
         ItemTab      tab = ItemTab::Misc;
         ItemType     type = ItemType::Misc;
+        PotionTag    potionTag = PotionTag::None;
         float        weight = 0.0f;
         int          value = 0;
         int          count = 1;
         float        statValue = -1.0f;
+        int          poisonDoses = 0;
         bool         quest = false;
         bool         worn = false;
         bool         enchanted = false;
@@ -72,7 +84,13 @@ namespace GearCatalog {
 
     Category Classify(RE::TESForm* form);
 
+    PotionTag ClassifyPotion(RE::AlchemyItem* potion);
+
+    const char* PotionTagKey(PotionTag tag);
+
     const char* IconHint(RE::TESForm* form);
+
+    const char* SlotTagKey(SlotTag tag);
 
     const char* CategoryIcon(Category category);
 

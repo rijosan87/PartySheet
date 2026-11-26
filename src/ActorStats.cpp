@@ -1,5 +1,5 @@
 #include "../includes/ActorStats.h"
-#include "../includes/SurvivalSymptoms.h"
+#include "../includes/HUDSymptoms.h"
 #include "../includes/Utils/EquipmentStatResolver.h"
 #include <RE/P/PlayerCharacter.h>
 #include <RE/T/TESForm.h>
@@ -52,17 +52,12 @@ ActorStats GetActorStats(RE::Actor* actor) {
     RE::TESObjectWEAP* weapon = nullptr;
     auto rightHand = actor->GetEquippedObject(false);
     auto leftHand = actor->GetEquippedObject(true);
-    
-    if (rightHand) {
-        if (auto w = rightHand->As<RE::TESObjectWEAP>()) {
-            if (w->GetAttackDamage() > 0) {
-                weapon = w;
-            }
-        }
-    }
-    if (!weapon && leftHand) {
-        weapon = leftHand->As<RE::TESObjectWEAP>();
-    }
+
+    auto* rightWeap = rightHand ? rightHand->As<RE::TESObjectWEAP>() : nullptr;
+    auto* leftWeap  = leftHand ? leftHand->As<RE::TESObjectWEAP>() : nullptr;
+    if (rightWeap && rightWeap->GetAttackDamage() > 0)     weapon = rightWeap;
+    else if (leftWeap && leftWeap->GetAttackDamage() > 0)  weapon = leftWeap;
+    else                                                   weapon = rightWeap ? rightWeap : leftWeap;
 
     if (weapon) {
         float baseDamage = static_cast<float>(weapon->GetAttackDamage());
@@ -389,8 +384,8 @@ VitalReadout GetVital(RE::Actor* actor, const ActorStats& stats, RE::ActorValue 
     VitalReadout v;
     const RichStat* stat = nullptr;
     float regenPct = 0.0f;
-    const SurvivalSymptoms::Bar* bar = nullptr;
-    const auto& bars = SurvivalSymptoms::GetBars(actor);
+    const HUDSymptoms::Bar* bar = nullptr;
+    const auto& bars = HUDSymptoms::GetBars(actor);
     switch (pool) {
         case RE::ActorValue::kHealth:  stat = &stats.health;  regenPct = stats.healthRegen;  bar = &bars.health;  break;
         case RE::ActorValue::kStamina: stat = &stats.stamina; regenPct = stats.staminaRegen; bar = &bars.stamina; break;
@@ -407,7 +402,7 @@ VitalReadout GetVital(RE::Actor* actor, const ActorStats& stats, RE::ActorValue 
     v.regenPerSec   = v.max * (regenPct / 100.0f);
 
     auto regen = bar->regen;
-    if (regen == SurvivalSymptoms::Regen::kSlowed && regenPct <= 0.001f) regen = SurvivalSymptoms::Regen::kStopped;
+    if (regen == HUDSymptoms::Regen::kSlowed && regenPct <= 0.001f) regen = HUDSymptoms::Regen::kStopped;
     v.regenState = static_cast<std::uint8_t>(regen);
     return v;
 }

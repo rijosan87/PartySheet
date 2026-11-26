@@ -1,9 +1,12 @@
 #include "../../includes/ImGui/PlayerHUDEffects.h"
 #include "../../includes/ImGui/Renderer.h"
 #include "../../includes/Settings.h"
+#include "../../includes/ImGui/PlayerHUD.h"
+#include "../../includes/ImGui/PlayerHUDEquipment.h"
 #include "../../includes/MenuUtils.h"
 #include "../../includes/Utils/EffectIconRenderer.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/Utils/HUDFlow.h"
 #include "../../includes/Utils/ColorUtils.h"
 #include "../../includes/HUDVisibility.h"
 #include "../../includes/PlayerStatus.h"
@@ -48,6 +51,23 @@ namespace PlayerHUDEffects {
         return static_cast<int>(std::lround(ScalePx(static_cast<float>(value))));
     }
 
+    static std::function<bool(const EffectAttribution::GroupKey&)> BadgedOnEquipment() {
+        const auto* s = Settings::GetSingleton();
+        if (!s->peShowEffectBadges || !s->peEffectBadgeHideInList) return {};
+        return [](const EffectAttribution::GroupKey& key) {
+            return PlayerHUDEquipment::ShowsAsBadge(key) || EffectCategories::ChangesEquipment(key.mgef);
+        };
+    }
+
+    static std::function<bool(const EffectAttribution::GroupKey&)> ShownElsewhere() {
+        const auto* s = Settings::GetSingleton();
+        std::vector<EffectAttribution::GroupKey> onBars;
+        if (s->phEffectBadgeHideInList) onBars = PlayerHUD::BarBadgeGroups();
+        return [onBars, onEquipment = BadgedOnEquipment()](const EffectAttribution::GroupKey& key) {
+            return std::find(onBars.begin(), onBars.end(), key) != onBars.end() || (onEquipment && onEquipment(key));
+        };
+    }
+
     static void RenderWindow(bool allowDrag) {
         auto* settings = Settings::GetSingleton();
         if (!settings->enablePlayerHud || !settings->enablePlayerEffectWidget) return;
@@ -61,7 +81,8 @@ namespace PlayerHUDEffects {
 
         auto effects = EffectIconRenderer::GetActiveEffectsInfo(
             player, settings->phEffectMaxIcons,
-            settings->phEffectMinDuration, settings->phEffectMaxDuration, settings->hudHideManagedSummonEffects);
+            settings->phEffectMinDuration, settings->phEffectMaxDuration, settings->hudHideManagedSummonEffects,
+            ShownElsewhere());
         if (effects.empty() && !allowDrag) return;
 
         int effectCount = static_cast<int>(effects.size());
@@ -91,17 +112,16 @@ namespace PlayerHUDEffects {
                             ? ((std::max)(timerBorderWidth + 2.0f, 5.0f) + 10.0f) : 0.0f;
         float borderBleed = (std::max)({ glowBleed, arcBleed, vbarBleed }) + ScalePx(2.0f);
 
-        int nEff       = static_cast<int>(effects.size());
-        int activeCols = nEff > 0 ? ((nEff - 1) / wrapCount + 1) : 1;
-        int primCount  = nEff > 0 ? (std::min)(nEff, wrapCount) : 1;
-
-        int colsMax  = vertical ? activeCols : primCount;
-        int rowsMax  = vertical ? primCount  : activeCols;
-        float gridW  = colsMax * totalIconW + (colsMax - 1) * hSpacing;
-        float gridH  = rowsMax * iconSize   + (rowsMax - 1) * vSpacing;
-
-        bool anchorLeft = settings->phEffectAnchor == 0 || settings->phEffectAnchor == 2;
-        bool anchorTop  = settings->phEffectAnchor <= 1;
+        HUDFlow::Options flow;
+        flow.corner    = static_cast<HUDFlow::Corner>(std::clamp(settings->phEffectAnchor, 0, 3));
+        flow.axis      = vertical ? HUDFlow::Axis::Vertical : HUDFlow::Axis::Horizontal;
+        flow.wrapCount = wrapCount;
+        flow.gapX      = hSpacing;
+        flow.gapY      = vSpacing;
+        const int nEff = static_cast<int>(effects.size());
+        const HUDFlow::Result grid = HUDFlow::ArrangeGrid((std::max)(nEff, 1), ImVec2(totalIconW, iconSize), flow);
+        const float gridW = grid.size.x;
+        const float gridH = grid.size.y;
 
         float extraH = settings->phShowEffectTimeText
                        ? ImGui::GetFont()->LegacySize * settings->phEffectTimeTextScale + 8.0f : 0.0f;
@@ -117,12 +137,10 @@ namespace PlayerHUDEffects {
         ImVec2 targetPos;
         const bool forcedThisFrame = g_ForcePos;
         {
-            float winX = anchorLeft ? static_cast<float>(settings->phEffectPosX) - borderBleed
-                                    : static_cast<float>(settings->phEffectPosX) - gridW - borderBleed;
-            float winY = anchorTop  ? static_cast<float>(settings->phEffectPosY) - borderBleed
-                                    : static_cast<float>(settings->phEffectPosY) - gridH - extraH - borderBleed;
-
-            targetPos = ImVec2(winX, winY);
+            const ImVec2 contentTopLeft = HUDFlow::TopLeftFromAnchor(
+                ImVec2(static_cast<float>(settings->phEffectPosX), static_cast<float>(settings->phEffectPosY)),
+                ImVec2(gridW, gridH + extraH), flow.corner);
+            targetPos = ImVec2(contentTopLeft.x - borderBleed, contentTopLeft.y - borderBleed);
             if (!allowDrag || g_ForcePos) {
                 ImGui::SetNextWindowPos(targetPos, ImGuiCond_Always);
                 g_ForcePos = false;
@@ -178,17 +196,8 @@ namespace PlayerHUDEffects {
 
         int iconIndex = 0;
         for (const auto& effect : effects) {
-            int primary   = iconIndex % wrapCount;
-            int secondary = iconIndex / wrapCount;
-
-            int col = vertical ? secondary : primary;
-            int row = vertical ? primary   : secondary;
-            if (!anchorLeft) col = colsMax - 1 - col;
-            if (!anchorTop)  row = rowsMax - 1 - row;
-
-            ImVec2 iconPos(
-                iconOrigin.x + col * (totalIconW + hSpacing),
-                iconOrigin.y + row * (opt.iconSize + vSpacing));
+            const ImVec2& slot = grid.offsets[iconIndex];
+            ImVec2 iconPos(iconOrigin.x + slot.x, iconOrigin.y + slot.y);
 
             if (settings->phEffectIconBgEnabled) {
                 const std::uint32_t bg = settings->phEffectIconBgColor;
@@ -231,7 +240,9 @@ namespace PlayerHUDEffects {
             for (const auto& effect : effects) {
                 char line[128];
                 int sec = static_cast<int>(effect.timeRemaining);
-                if (effect.magnitude >= 1.0f)
+                if (effect.duration <= 0.0f)
+                    snprintf(line, sizeof(line), "%s", effect.name.c_str());
+                else if (effect.magnitude >= 1.0f)
                     snprintf(line, sizeof(line), "%s +%.0f (%ds)", effect.name.c_str(), effect.magnitude, sec);
                 else
                     snprintf(line, sizeof(line), "%s (%ds)", effect.name.c_str(), sec);
@@ -247,10 +258,11 @@ namespace PlayerHUDEffects {
             const float dx = pos.x - targetPos.x;
             const float dy = pos.y - targetPos.y;
             if (std::fabs(dx) > 1.5f || std::fabs(dy) > 1.5f) {
-                settings->phEffectPosX = static_cast<int>(std::lround(
-                    anchorLeft ? pos.x + borderBleed : pos.x + size.x - borderBleed));
-                settings->phEffectPosY = static_cast<int>(std::lround(
-                    anchorTop  ? pos.y + borderBleed : pos.y + size.y - borderBleed));
+                const ImVec2 anchor = HUDFlow::AnchorFromTopLeft(
+                    ImVec2(pos.x + borderBleed, pos.y + borderBleed),
+                    ImVec2(size.x - 2.0f * borderBleed, size.y - 2.0f * borderBleed), flow.corner);
+                settings->phEffectPosX = static_cast<int>(std::lround(anchor.x));
+                settings->phEffectPosY = static_cast<int>(std::lround(anchor.y));
             }
         }
 

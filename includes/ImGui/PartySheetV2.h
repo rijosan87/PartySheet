@@ -3,7 +3,6 @@
 // STATUS: Working
 // ImGui fullscreen Party Sheet dashboard.
 
-
 #include <RE/Skyrim.h>
 
 namespace PartySheetV2 {
@@ -12,6 +11,8 @@ namespace PartySheetV2 {
     bool IsVisible();
 
     void Render();
+
+    void DrawBody(bool layered);
 
     void PrevSubject();
     void NextSubject();

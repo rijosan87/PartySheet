@@ -1684,7 +1684,8 @@ void CharacterSheet::DrawUI()
                                        icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_main").c_str(), slot.hasItem,
                                        equipTextWidth,
                                        slot.baseValue, 0.0f, 0.0f,
-                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_mainhand", SlotItemId(slot), s);
+                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_mainhand", SlotItemId(slot), s,
+                                       slot.spellItem != nullptr);
                 }
 
                 if (equipment.size() > 1) {
@@ -1695,7 +1696,8 @@ void CharacterSheet::DrawUI()
                                        icon, slot.hasItem ? slot.itemName.c_str() : LocalizationManager::Get("slot_off").c_str(), slot.hasItem,
                                        equipTextWidth,
                                        slot.baseValue, 0.0f, 0.0f,
-                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_offhand", SlotItemId(slot), s);
+                                       slot.enchantDamage, slot.enchantType, slot.skillIconName, "equip_offhand", SlotItemId(slot), s,
+                                       slot.spellItem != nullptr);
                 }
             }
 

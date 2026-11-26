@@ -3,7 +3,6 @@
 // STATUS: Working
 // Coordinates potion consumption animations.
 
-
 #include <RE/Skyrim.h>
 
 #include <string>

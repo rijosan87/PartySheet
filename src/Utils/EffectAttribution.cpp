@@ -1,5 +1,6 @@
 #include "../../includes/Utils/EffectAttribution.h"
 #include "../../includes/EffectCategories.h"
+#include "../../includes/HUDSymptoms.h"
 #include "../../includes/ImGui/PlayerHUDSurvival.h"
 #include "../../includes/LocalizationManager.h"
 #include "../../includes/TextureManager.h"
@@ -9,6 +10,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
@@ -45,6 +48,19 @@ namespace EffectAttribution {
                 r.timeLeft   = g.timeLeft;
                 r.grantedByPerk = it->second.second;
             }
+        }
+
+        EffectClass ClassFor(const Record& r) {
+            switch (r.kind) {
+            case OwnerKind::Equipment: return EffectClass::Gear;
+            case OwnerKind::Disease:
+            case OwnerKind::Need:      return EffectClass::Condition;
+            case OwnerKind::Race:
+            case OwnerKind::Stone:     return EffectClass::Permanent;
+            default: break;
+            }
+            if (r.duration > 0.0f) return EffectClass::Timed;
+            return r.hostile ? EffectClass::Condition : EffectClass::Permanent;
         }
 
         void Walk(RE::Actor* actor, std::vector<Record>& out) {
@@ -102,7 +118,31 @@ namespace EffectAttribution {
             }
 
             ReassignPerkGrantedAbilities(out);
+            for (auto& r : out) r.cls = ClassFor(r);
         }
+    }
+
+    bool ShowsOnHud(EffectClass cls) {
+        return cls == EffectClass::Timed || cls == EffectClass::Condition;
+    }
+
+    const Record* Find(RE::Actor* actor, const RE::ActiveEffect* effect) {
+        for (const auto& r : Get(actor))
+            if (r.effect == effect) return &r;
+        return nullptr;
+    }
+
+    GroupKey GroupKeyOf(const RE::ActiveEffect* effect) {
+        GroupKey key;
+        if (!effect) return key;
+        key.mgef = effect->GetBaseObject();
+        key.source = effect->spell ? static_cast<const void*>(effect->spell) : static_cast<const void*>(effect->source);
+        return key;
+    }
+
+    EffectClass ClassOf(RE::Actor* actor, const RE::ActiveEffect* effect) {
+        const Record* r = Find(actor, effect);
+        return r ? r->cls : EffectClass::Timed;
     }
 
     const std::vector<Record>& Get(RE::Actor* actor) {
@@ -156,6 +196,9 @@ namespace EffectAttribution {
             }
             case OwnerKind::Blessing:
                 icon = ResolveBlessingIcon(r.spellItem);
+                break;
+            case OwnerKind::Need:
+                icon = PlayerHUDSurvival::GetNeedSpellIcon(r.spellItem);
                 break;
             default:
                 break;
@@ -298,12 +341,16 @@ namespace EffectAttribution {
         return TextureManager::GetPartyIcon("blessing");
     }
 
-    static bool StatEffectMatches(RE::Actor* actor, RE::ActorValue stat, bool wantDebuff, bool potionOnly) {
+    static bool IsTimedBuffSource(const Record& rec) {
+        return rec.kind == OwnerKind::Potion || (rec.kind == OwnerKind::Spell && rec.duration > 0.0f);
+    }
+
+    static bool StatEffectMatches(RE::Actor* actor, RE::ActorValue stat, bool wantDebuff, bool timedOnly) {
         const bool skill = EffectCategories::GetSkillTarget(stat) == stat;
         auto Hits = [&](RE::ActorValue av) { return av != RE::ActorValue::kNone && (av == stat || (skill && EffectCategories::GetSkillTarget(av) == stat)); };
         for (const auto& rec : Get(actor)) {
             if (rec.hostile != wantDebuff) continue;
-            if (potionOnly && rec.kind != OwnerKind::Potion) continue;
+            if (timedOnly && !IsTimedBuffSource(rec)) continue;
             const RE::ActorValue av = Hits(rec.primaryAV) ? rec.primaryAV : (Hits(rec.secondaryAV) ? rec.secondaryAV : RE::ActorValue::kNone);
             if (av == RE::ActorValue::kNone) continue;
             if (DisplayMagnitude(rec, av) >= 0.5f) return true;
@@ -311,6 +358,172 @@ namespace EffectAttribution {
         return false;
     }
 
-    bool HasPotionBuff(RE::Actor* actor, RE::ActorValue stat) { return StatEffectMatches(actor, stat, false, true); }
+    bool HasTimedBuff(RE::Actor* actor, RE::ActorValue stat) { return StatEffectMatches(actor, stat, false, true); }
     bool HasStatDebuff(RE::Actor* actor, RE::ActorValue stat) { return StatEffectMatches(actor, stat, true, false); }
+
+    namespace {
+        enum class CutNeed : std::uint8_t { kHunger, kFatigue, kCold };
+        struct CutEffect { RE::FormID localId; CutNeed need; };
+
+        constexpr CutEffect kCutEffects[] = {
+            { 0x95B, CutNeed::kHunger },  { 0x95C, CutNeed::kHunger },  { 0x95D, CutNeed::kHunger },
+            { 0x957, CutNeed::kFatigue }, { 0x958, CutNeed::kFatigue }, { 0x959, CutNeed::kFatigue },
+            { 0x956, CutNeed::kCold },    { 0x955, CutNeed::kCold },
+            { 0x954, CutNeed::kCold },    { 0x95F, CutNeed::kCold },
+        };
+
+        const std::unordered_map<const RE::EffectSetting*, CutNeed>& CutEffects() {
+            static const auto s_map = [] {
+                std::unordered_map<const RE::EffectSetting*, CutNeed> map;
+                if (auto* dh = RE::TESDataHandler::GetSingleton())
+                    for (const auto& c : kCutEffects)
+                        if (auto* m = dh->LookupForm<RE::EffectSetting>(c.localId, "ccQDRSSE001-SurvivalMode.esl"))
+                            map.emplace(m, c.need);
+                return map;
+            }();
+            return s_map;
+}
+
+        bool HasStarfrost() {
+            static const bool s_loaded = [] {
+                auto* dh = RE::TESDataHandler::GetSingleton();
+                return dh && dh->LookupModByName("Starfrost.esp") != nullptr;
+            }();
+            return s_loaded;
+        }
+
+        float DescriptionNumber(const RE::EffectSetting* mgef) {
+            const char* text = mgef->magicItemDescription.c_str();
+            for (const char* p = text; p && *p; ++p) {
+                if (*p != '<') continue;
+                char* end = nullptr;
+                const float v = std::strtof(p + 1, &end);
+                if (end != p + 1 && *end == '>') return v;
+            }
+            return 0.0f;
+        }
+
+        float CapPoints(RE::Actor* actor, RE::ActorValue pool) {
+            const auto& bars = HUDSymptoms::GetBars(actor);
+            switch (pool) {
+            case RE::ActorValue::kHealth:  return bars.health.capPoints;
+            case RE::ActorValue::kMagicka: return bars.magicka.capPoints;
+            default:                       return bars.stamina.capPoints;
+            }
+        }
+
+        std::vector<RE::ActorValue> PoolsCutBy(CutNeed need) {
+            using AV = RE::ActorValue;
+            if (need == CutNeed::kCold) return { AV::kHealth };
+            if (HasStarfrost())         return { AV::kMagicka, AV::kStamina };
+            return { need == CutNeed::kHunger ? AV::kStamina : AV::kMagicka };
+        }
+    }
+
+    std::vector<NeedPoolCut> NeedPoolCuts(RE::Actor* actor) {
+        std::vector<NeedPoolCut> out;
+        if (!actor || !actor->IsPlayerRef()) return out;
+        const auto& effects   = CutEffects();
+        const bool  starfrost = HasStarfrost();
+        for (const auto& r : Get(actor)) {
+            const auto it = effects.find(r.mgef);
+            if (it == effects.end()) continue;
+            for (auto pool : PoolsCutBy(it->second)) {
+                const float amount = starfrost ? DescriptionNumber(r.mgef) : CapPoints(actor, pool);
+                if (amount >= 0.5f) out.push_back({ &r, { pool, -amount, starfrost } });
+            }
+        }
+        return out;
+    }
+
+    std::vector<StatChange> SpellStatChanges(RE::Actor* actor, const RE::MagicItem* spell, bool hiddenOnly) {
+        using Arch = RE::EffectSetting::Archetype;
+        std::vector<StatChange> out;
+        if (!spell) return out;
+        for (const auto& r : Get(actor)) {
+            if (r.spell != spell || r.primaryAV == RE::ActorValue::kNone) continue;
+            if (hiddenOnly && !r.hiddenInUI) continue;
+            const auto arch = r.mgef->GetArchetype();
+            if (arch != Arch::kValueModifier && arch != Arch::kPeakValueModifier &&
+                arch != Arch::kDualValueModifier) continue;
+            for (auto av : { r.primaryAV, r.secondaryAV }) {
+                if (!EffectCategories::IsGameplayAV(av)) continue;
+                const float mag = DisplayMagnitude(r, av);
+                if (mag <= 0.0f) continue;
+                out.push_back({ av, r.hostile ? -mag : mag });
+            }
+        }
+        for (const auto& cut : NeedPoolCuts(actor))
+            if (cut.record->spell == spell) out.push_back(cut.change);
+        return out;
+    }
+
+    std::vector<const Record*> NeedStages(RE::Actor* actor) {
+        std::vector<const Record*> out;
+        for (const auto& r : Get(actor)) {
+            if (r.kind != OwnerKind::Need || r.timeLeft >= 0.0f || !r.spell) continue;
+            if (std::none_of(out.begin(), out.end(), [&](const Record* o) { return o->spell == r.spell; }))
+                out.push_back(&r);
+        }
+        return out;
+    }
+
+    namespace {
+        constexpr int kSkillsPerTree = 6;
+
+        std::string JoinStatNames(const std::vector<RE::ActorValue>& avs) {
+            static const char* kTreeKeys[3] = { "Skills.CombatSkills", "Skills.MagicSkills", "Skills.StealthSkills" };
+            static const char* kTreeEng[3]  = { "Combat skills", "Magic skills", "Stealth skills" };
+            auto Label = [](const char* key, const char* eng) {
+                std::string v = LocalizationManager::GetSingleton()->FindLabel(key);
+                return v.empty() ? std::string(eng) : v;
+            };
+
+            std::unordered_set<std::string> seen;
+            int perTree[3] = {};
+            for (auto av : avs) {
+                const int g = EffectCategories::SkillGroup(av);
+                if (g >= 0 && seen.insert(EffectCategories::LocalizedAVName(av)).second) ++perTree[g];
+            }
+            bool full[3];
+            for (int g = 0; g < 3; ++g) full[g] = perTree[g] == kSkillsPerTree;
+
+            std::vector<std::string> names;
+            if (full[0] && full[1] && full[2]) names.push_back(Label("Skills.AllSkills", "All skills"));
+            else for (int g = 0; g < 3; ++g) if (full[g]) names.push_back(Label(kTreeKeys[g], kTreeEng[g]));
+
+            for (auto av : avs) {
+                const int g = EffectCategories::SkillGroup(av);
+                if (g >= 0 && full[g]) continue;
+                auto n = EffectCategories::LocalizedAVName(av);
+                if (std::find(names.begin(), names.end(), n) == names.end()) names.push_back(std::move(n));
+            }
+
+            std::string out;
+            for (const auto& n : names) out += (out.empty() ? "" : ", ") + n;
+            return out;
+        }
+    }
+
+    std::vector<StatLine> FormatStatChanges(const std::vector<StatChange>& changes) {
+        struct Bucket { int value; bool pct; std::vector<RE::ActorValue> avs; };
+        std::vector<Bucket> buckets;
+        for (const auto& c : changes) {
+            const int  v   = static_cast<int>(std::lround(c.value));
+            const bool pct = c.percent || EffectCategories::IsPercentageMagnitude(c.av);
+            auto it = std::find_if(buckets.begin(), buckets.end(),
+                [&](const Bucket& b) { return b.value == v && b.pct == pct; });
+            if (it == buckets.end()) buckets.push_back({ v, pct, { c.av } });
+            else it->avs.push_back(c.av);
+        }
+
+        std::vector<StatLine> lines;
+        for (const auto& b : buckets) {
+            if (b.value == 0) continue;
+            char num[24];
+            snprintf(num, sizeof(num), "%+d%s", b.value, b.pct ? "%" : "");
+            lines.push_back({ JoinStatNames(b.avs) + " " + num, b.value < 0 });
+        }
+        return lines;
+    }
 }

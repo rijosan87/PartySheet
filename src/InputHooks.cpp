@@ -58,6 +58,7 @@ namespace InputHooks {
         bool settingsVisible = ImGuiRenderer::IsVisible();
         bool inspectCardVisible = InspectCard::IsVisible();
         bool horsePickerVisible = WidgetHorsePicker::IsVisible();
+        const bool settingsOverV2 = partySheetV2Visible && settingsVisible;
 
         if ((partySheetVisible || partySheetV2Visible || characterSheetVisible || settingsVisible || inspectCardVisible || horsePickerVisible) && a_events && *a_events) {
             RE::InputEvent* prev = nullptr;
@@ -80,7 +81,7 @@ namespace InputHooks {
                     auto* btn = curr->AsButtonEvent();
                     if (partySheetV2Visible && btn && btn->GetDevice() == RE::INPUT_DEVICE::kKeyboard) {
                         const uint32_t sc = btn->GetIDCode();
-                        PartySheetV2Camera::SetNudgeKey(sc, btn->IsPressed());
+                        PartySheetV2Camera::SetNudgeKey(sc, btn->IsPressed() && !settingsOverV2);
                         const auto* st = Settings::GetSingleton();
                         bool ownKey = false;
                         for (std::int32_t hk : { st->partySheetHotkey, st->menuSettingsKey, st->characterSheetHotkey,
@@ -88,7 +89,8 @@ namespace InputHooks {
                                                  st->potionHealthKey, st->potionMagickaKey, st->potionStaminaKey })
                             if (hk >= 1 && sc == static_cast<uint32_t>(hk)) { ownKey = true; break; }
                         v2SwallowKey = sc != SCANCODE_ESC && sc != SCANCODE_TAB && !ownKey &&
-                                       !ImGuiRenderer::IsModifierScancode(sc);
+                                       !ImGuiRenderer::IsModifierScancode(sc) &&
+                                       !(settingsOverV2 && IsTextInputActive());
                     }
                     if (btn && (btn->userEvent == "Zoom In" || btn->userEvent == "Zoom Out" ||
                                 btn->userEvent == "Toggle POV")) {
@@ -112,15 +114,14 @@ namespace InputHooks {
                                 cb(scancode);
                             }
                         }
-                        // P = open Effects & Spells modal, I = open Inventory modal
-                        else if (partySheetV2Visible && scancode == 0x19) {
-                            if (!PartySheetV2::IsEffectsModalOpen() && !PartySheetV2::IsInventoryModalOpen())
-                                PartySheetV2::OpenEffectsModal();
-                            else
-                                PartySheetV2::CloseEffectsModal();
+                        else if (partySheetV2Visible && !settingsOverV2 && scancode == 0x19) {
+                            if (PartySheetV2::IsSpellWindowOpen())
+                                PartySheetV2::CloseInventoryModal();
+                            else if (!PartySheetV2::IsEffectsModalOpen() && !PartySheetV2::IsInventoryModalOpen())
+                                PartySheetV2::OpenSpellWindow();
                             shouldConsume = true;
                         }
-                        else if (partySheetV2Visible && scancode == 0x17) {
+                        else if (partySheetV2Visible && !settingsOverV2 && scancode == 0x17) {
                             if (!PartySheetV2::IsInventoryModalOpen() && !PartySheetV2::IsEffectsModalOpen())
                                 PartySheetV2::OpenInventoryModal();
                             else
@@ -141,7 +142,21 @@ namespace InputHooks {
                                 bool modalOpen = PartySheetV2::IsEffectsModalOpen() ||
                                                  PartySheetV2::IsInventoryModalOpen() ||
                                                  PartySheetV2::IsStatusModalOpen();
-                                if (modalOpen) {
+                                if (scancode == SCANCODE_TAB) {
+                                    if (settingsVisible) {
+                                        ImGuiRenderer::Toggle();
+                                        settingsVisible = false;
+                                    }
+                                    PartySheetV2::Toggle();
+                                    shouldConsume = true;
+                                    partySheetV2Visible = false;
+                                }
+                                else if (settingsVisible) {
+                                    ImGuiRenderer::Toggle();
+                                    shouldConsume = true;
+                                    settingsVisible = false;
+                                }
+                                else if (modalOpen) {
                                     PartySheetV2::CloseEffectsModal();
                                     PartySheetV2::CloseInventoryModal();
                                     PartySheetV2::CloseStatusModal();
@@ -195,6 +210,10 @@ namespace InputHooks {
                                 partySheetVisible = false;
                              }
                              else if (partySheetV2Visible) {
+                                if (settingsVisible) {
+                                    ImGuiRenderer::Toggle();
+                                    settingsVisible = false;
+                                }
                                 PartySheetV2::Toggle();
                                 closedSomething = true;
                                 partySheetV2Visible = false;
@@ -227,7 +246,7 @@ namespace InputHooks {
                                  PartySheet::Toggle();
                                  closedOverlay = true;
                               }
-                              else if (partySheetV2Visible) {
+                              else if (partySheetV2Visible && !settingsOverV2) {
                                  PartySheetV2::Toggle();
                                  closedOverlay = true;
                               }
@@ -252,7 +271,7 @@ namespace InputHooks {
                                 logger::trace("Gamepad RB - Party Sheet next page");
                             }
                         }
-                        else if (partySheetV2Visible) {
+                        else if (partySheetV2Visible && !settingsOverV2) {
                             if (id == 0x0100) {
                                 PartySheetV2::PrevSubject();
                                 logger::trace("Gamepad LB - PartySheetV2 prev subject");

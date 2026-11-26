@@ -7,6 +7,7 @@ namespace PartySheetV2Camera {
     void Exit();
     bool IsActive();
     bool ShowSubject(RE::Actor* subject);
+    void FollowLiveSetting();
     void SetNudgeKey(std::uint32_t scancode, bool down);
     void Nudge(float dt);
     void RetryPending();

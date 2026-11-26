@@ -12,12 +12,13 @@ namespace PlayerHUDResistancesPresets
         const char* name;
     };
 
-    inline constexpr std::array<Preset, 5> kPresets{ {
+    inline constexpr std::array<Preset, 6> kPresets{ {
         { "Default" },
         { "Compact" },
         { "Vivid"   },
         { "Minimal" },
         { "Halo"    },
+        { "Bare"    },
     } };
 
     inline void ApplyDefault(Settings& s)
@@ -169,7 +170,15 @@ namespace PlayerHUDResistancesPresets
     inline void ApplyHalo(Settings& s)
     {
         ApplyDefault(s);
+        s.prStyle  = 0;
         s.prLayout = 2; // Radial
+    }
+
+    inline void ApplyBare(Settings& s)
+    {
+        ApplyVivid(s);
+        s.prBgTintEnabled = false;
+        s.prSpacing       = 8;
     }
 
     inline void ApplyPreset(Settings& s, std::size_t index)
@@ -180,6 +189,7 @@ namespace PlayerHUDResistancesPresets
         case 2:  ApplyVivid(s);   break;
         case 3:  ApplyMinimal(s); break;
         case 4:  ApplyHalo(s);    break;
+        case 5:  ApplyBare(s);    break;
         default: ApplyDefault(s); break;
         }
     }

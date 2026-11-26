@@ -266,6 +266,23 @@ namespace PartyHorses {
         return records;
     }
 
+    bool HorseRegistry::IsNearPlayer(RE::Actor* horse) {
+        constexpr float kNearMeters    = 100.0f;
+        constexpr float kUnitsPerMeter = 70.0f;
+        auto* player = RE::PlayerCharacter::GetSingleton();
+        if (!horse || !player || !horse->Is3DLoaded()) return false;
+        auto* horseCell  = horse->GetParentCell();
+        auto* playerCell = player->GetParentCell();
+        if (!horseCell || !playerCell) return false;
+        if (horseCell->IsInteriorCell() || playerCell->IsInteriorCell()) {
+            if (horseCell != playerCell) return false;
+        } else if (horse->GetWorldspace() != player->GetWorldspace()) {
+            return false;
+        }
+        const float limit = kNearMeters * kUnitsPerMeter;
+        return horse->GetPosition().GetSquaredDistance(player->GetPosition()) <= limit * limit;
+    }
+
     void HorseRegistry::Summon(RE::FormID runtimeFormID) {
         if (runtimeFormID == 0) return;
 
@@ -291,8 +308,8 @@ namespace PartyHorses {
                     logger::info("HorseRegistry: Skipping summon of horse (0x{:X}) — player no longer owns it.", runtimeFormID);
                     return;
                 }
-                if (horse->GetParentCell() == player->GetParentCell()) {
-                    logger::info("HorseRegistry: Horse (0x{:X}) already in player's cell, skipping summon.", runtimeFormID);
+                if (IsNearPlayer(horse)) {
+                    logger::info("HorseRegistry: Horse (0x{:X}) already near the player, skipping summon.", runtimeFormID);
                     return;
                 }
                 horse->MoveTo(player);

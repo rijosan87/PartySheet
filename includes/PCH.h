@@ -3,7 +3,6 @@
 // STATUS: Working
 // Precompiled headers.
 
-
 // ===========================================================
 // Core Skyrim / SKSE Includes for CommonLibSSE-NG 3.x
 // ===========================================================

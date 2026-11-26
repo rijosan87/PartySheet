@@ -1,6 +1,7 @@
-#include "../includes/SurvivalSymptoms.h"
+#include "../includes/HUDSymptoms.h"
 #include "../includes/ImGui/PlayerHUDPenalties.h"
 #include "../includes/EffectCategories.h"
+#include "../includes/Utils/EffectAttribution.h"
 #include "../includes/ImGui/PlayerHUDSurvival.h"
 #include "../includes/LocalizationManager.h"
 #include <array>
@@ -9,7 +10,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace SurvivalSymptoms {
+namespace HUDSymptoms {
 
     namespace {
         using AV   = RE::ActorValue;
@@ -71,6 +72,58 @@ namespace SurvivalSymptoms {
         {
             return a == Arch::kValueModifier || a == Arch::kPeakValueModifier || a == Arch::kDualValueModifier;
         }
+
+        std::string KindFor(RE::MagicItem* spell, bool isDisease)
+        {
+            auto* sp = spell ? spell->As<RE::SpellItem>() : nullptr;
+            if (isDisease)
+                return LocalizationManager::Get("Symptom.KindDisease");
+            if (sp && (PlayerHUDSurvival::IsNeedSpell(sp) || PlayerHUDSurvival::IsVitalitySpell(sp)))
+                return LocalizationManager::Get("Symptom.KindNeed");
+            if (sp && sp->GetSpellType() == RE::MagicSystem::SpellType::kAbility)
+                return LocalizationManager::Get("PartySheetV2.SpellTypeAbility");
+            return LocalizationManager::Get("Symptom.KindEffect");
+        }
+
+        Cause MakeCause(RE::ActiveEffect* eff, RE::EffectSetting* mgef, const EffectAttribution::Record* rec)
+        {
+            Cause c;
+            c.disease = eff->spell && eff->spell->GetSpellType() == RE::MagicSystem::SpellType::kDisease;
+            if (rec && rec->kind == EffectAttribution::OwnerKind::Equipment) c.name = EffectAttribution::OwnerName(*rec);
+            else c.name = eff->spell ? eff->spell->GetFullName() : "";
+            if (c.name.empty()) c.name = mgef->GetFullName();
+            c.kind    = KindFor(eff->spell, c.disease);
+            c.mgef    = mgef;
+            c.spell   = eff->spell;
+            c.effect  = eff;
+            c.icon    = rec ? EffectAttribution::OwnerIcon(*rec) : nullptr;
+            return c;
+        }
+
+        float TimeLeft(const RE::ActiveEffect* e)
+        {
+            if (!e || e->duration <= 0.0f) return 1e9f;
+            return e->duration - e->elapsedSeconds;
+        }
+
+        void AddCause(Causes& list, const Cause& base, float amount, bool percent)
+        {
+            auto it = std::find_if(list.begin(), list.end(), [&](const Cause& x) {
+                return x.name == base.name && x.percent == percent;
+            });
+            if (it != list.end()) {
+                it->amount += amount;
+                if (base.effect && base.effect != it->effect && base.mgef == it->mgef) {
+                    ++it->count;
+                    if (TimeLeft(base.effect) < TimeLeft(it->effect)) it->effect = base.effect;
+                }
+                return;
+            }
+            Cause c   = base;
+            c.amount  = amount;
+            c.percent = percent;
+            list.push_back(std::move(c));
+        }
     }
 
     namespace {
@@ -105,31 +158,55 @@ namespace SurvivalSymptoms {
                 const bool  isDisease = eff->spell &&
                     eff->spell->GetSpellType() == RE::MagicSystem::SpellType::kDisease;
 
+                const auto* rec   = EffectAttribution::Find(player, eff);
+                const bool  marks = rec ? EffectAttribution::ShowsOnHud(rec->cls) : true;
+                const bool  named = marks && amount >= 0.01f;
+                const bool  barNamed = amount >= 0.01f;
+                const Cause base  = barNamed ? MakeCause(eff, mgef, rec) : Cause{};
+
+                const AV avs[2] = { mgef->data.primaryAV,
+                                    arch == Arch::kDualValueModifier ? mgef->data.secondaryAV : AV::kNone };
+
                 if (!isCut) {
-                    if (mag > 0.0f && IsMaxArchetype(arch)) {
-                        const AV bavs[2] = { mgef->data.primaryAV,
-                                             arch == Arch::kDualValueModifier ? mgef->data.secondaryAV : AV::kNone };
-                        for (AV av : bavs)
-                            if (float* b = buffFor(EffectCategories::GetHudTarget(av))) *b += amount;
+                    for (AV av : avs) {
+                        const HudTarget t = EffectCategories::GetHudTarget(av);
+                        if (mag > 0.0f && IsMaxArchetype(arch))
+                            if (float* b = buffFor(t)) *b += amount;
+                        if (!barNamed || mag <= 0.0f) continue;
+                        const bool pct = EffectCategories::IsPercentageMagnitude(av);
+                        if (Bar* b = BarFor(s_snap, t)) {
+                            if (IsRegen(t)) b->regenRaised = true;
+                            else if (mgef->data.flags.any(RE::EffectSetting::EffectSettingData::Flag::kRecover))
+                                AddCause(b->buffs, base, amount, pct);
+                            continue;
+                        }
+                        if (!named) continue;
+                        if (Mark* em = MarkFor(s_snap.equip, t))          AddCause(em->buffs, base, amount, pct);
+                        else if (t == HudTarget::CarryWeight)             AddCause(s_snap.carryWeight.buffs, base, amount, pct);
+                        else if (Mark* rm = ResistFor(s_snap.resist, t))  AddCause(rm->buffs, base, amount, pct);
                     }
                     continue;
                 }
 
-                const AV avs[2] = { mgef->data.primaryAV,
-                                    arch == Arch::kDualValueModifier ? mgef->data.secondaryAV : AV::kNone };
                 for (AV av : avs) {
-                    const HudTarget t = EffectCategories::GetHudTarget(av);
+                    const HudTarget t   = EffectCategories::GetHudTarget(av);
+                    const bool      pct = EffectCategories::IsPercentageMagnitude(av);
                     if (Mark* m = MarkFor(s_snap.equip, t)) {
-                        SetMark(*m, isDisease);
+                        if (marks) SetMark(*m, isDisease);
+                        if (named) AddCause(m->cuts, base, amount, pct);
                         continue;
                     }
                     if (t == HudTarget::CarryWeight) {
-                        SetMark(s_snap.carryWeight, isDisease);
+                        if (marks) SetMark(s_snap.carryWeight, isDisease);
+                        if (named) AddCause(s_snap.carryWeight.cuts, base, amount, pct);
                         continue;
                     }
                     if (Mark* m = ResistFor(s_snap.resist, t)) {
                         auto* sp = eff->spell ? eff->spell->As<RE::SpellItem>() : nullptr;
-                        if (isDisease || PlayerHUDSurvival::IsNeedSpell(sp)) SetMark(*m, isDisease);
+                        if (isDisease || PlayerHUDSurvival::IsNeedSpell(sp)) {
+                            SetMark(*m, isDisease);
+                            if (named) AddCause(m->cuts, base, amount, pct);
+                        }
                         continue;
                     }
                     Bar* b = BarFor(s_snap, t);
@@ -138,10 +215,12 @@ namespace SurvivalSymptoms {
                         if (b->regen == Regen::kNormal) b->regen = Regen::kSlowed;
                     } else if (IsMaxArchetype(arch)) {
                         (isDisease ? b->diseasePoints : b->needPoints) += amount;
+                        if (barNamed) AddCause(b->cuts, base, amount, pct);
                     }
                 }
-                if (EffectCategories::PerkLowersAttackDamage(mgef->data.perk)) {
+                if (marks && EffectCategories::PerkLowersAttackDamage(mgef->data.perk)) {
                     SetMark(s_snap.equip.any, isDisease);
+                    s_snap.equip.any.cuts.push_back(MakeCause(eff, mgef, rec));
                     static RE::FormID s_loggedPerk = 0;
                     if (s_loggedPerk != mgef->data.perk->GetFormID()) {
                         s_loggedPerk = mgef->data.perk->GetFormID();
@@ -153,7 +232,6 @@ namespace SurvivalSymptoms {
         }
 
         if (!ccCap) return;
-
         const auto cc  = PlayerHUDPenalties::GetSurvivalPenalties();
         auto*      avo = player->AsActorValueOwner();
         auto cap = [&](float frac, RE::ActorValue av, float buff, const Bar& b) {
@@ -168,6 +246,12 @@ namespace SurvivalSymptoms {
         s_snap.health.capPoints  = cap(cc.health,  RE::ActorValue::kHealth,  buffH, s_snap.health);
         s_snap.magicka.capPoints = cap(cc.magicka, RE::ActorValue::kMagicka, buffM, s_snap.magicka);
         s_snap.stamina.capPoints = cap(cc.stamina, RE::ActorValue::kStamina, buffS, s_snap.stamina);
+
+        for (const auto& cut : EffectAttribution::NeedPoolCuts(player)) {
+            const auto& rec = *cut.record;
+            if (Bar* b = BarFor(s_snap, EffectCategories::GetHudTarget(cut.change.av)))
+                AddCause(b->cuts, MakeCause(rec.effect, rec.mgef, &rec), std::fabs(cut.change.value), cut.change.percent);
+        }
     }
 
     const Snapshot& Walk(RE::Actor* player)
@@ -236,7 +320,8 @@ namespace SurvivalSymptoms {
     namespace {
         constexpr int kSkillFirst = static_cast<int>(RE::ActorValue::kOneHanded);
         constexpr int kSkillCount = static_cast<int>(RE::ActorValue::kEnchanting) - kSkillFirst + 1;
-        using SkillCauses = std::array<Causes, kSkillCount>;
+        struct SkillEntry { Causes cuts, buffs; };
+        using SkillCauses = std::array<SkillEntry, kSkillCount>;
 
         void WalkSkills(RE::Actor* actor, SkillCauses& out)
         {
@@ -250,61 +335,56 @@ namespace SurvivalSymptoms {
                     continue;
                 auto* mgef = eff->GetBaseObject();
                 if (!mgef) continue;
-                const float mag = eff->magnitude;
-                if (!(mgef->IsDetrimental() || mag < 0.0f)) continue;
+                const auto* rec = EffectAttribution::Find(actor, eff);
+                if (rec && !EffectAttribution::ShowsOnHud(rec->cls)) continue;
+                const float mag   = eff->magnitude;
+                const bool  isCut = mgef->IsDetrimental() || mag < 0.0f;
                 const float amount = std::fabs(mag);
                 if (amount < 0.01f) continue;
-                const Arch arch = mgef->GetArchetype();
-                const bool isDisease = eff->spell &&
-                    eff->spell->GetSpellType() == RE::MagicSystem::SpellType::kDisease;
-                std::string name = eff->spell ? eff->spell->GetFullName() : "";
-                if (name.empty()) name = mgef->GetFullName();
-                std::string kind;
-                {
-                    auto* sp = eff->spell ? eff->spell->As<RE::SpellItem>() : nullptr;
-                    if (isDisease)
-                        kind = LocalizationManager::Get("Symptom.KindDisease");
-                    else if (sp && (PlayerHUDSurvival::IsNeedSpell(sp) || PlayerHUDSurvival::IsVitalitySpell(sp)))
-                        kind = LocalizationManager::Get("Symptom.KindNeed");
-                    else if (sp && sp->GetSpellType() == RE::MagicSystem::SpellType::kAbility)
-                        kind = LocalizationManager::Get("PartySheetV2.SpellTypeAbility");
-                    else
-                        kind = LocalizationManager::Get("Symptom.KindEffect");
-                }
+                const Arch  arch = mgef->GetArchetype();
+                const Cause base = MakeCause(eff, mgef, rec);
 
                 const AV avs[2] = { mgef->data.primaryAV,
                                     arch == Arch::kDualValueModifier ? mgef->data.secondaryAV : AV::kNone };
                 for (AV av : avs) {
                     const AV skill = EffectCategories::GetSkillTarget(av);
                     if (skill == AV::kNone) continue;
-                    Causes& c = out[static_cast<int>(skill) - kSkillFirst];
-                    const bool pct = EffectCategories::IsPercentageMagnitude(av);
-                    auto it = std::find_if(c.begin(), c.end(), [&](const Cause& x) {
-                        return x.name == name && x.percent == pct;
-                    });
-                    if (it != c.end()) it->amount += amount;
-                    else c.push_back({ name, amount, pct, isDisease, kind });
+                    SkillEntry& e = out[static_cast<int>(skill) - kSkillFirst];
+                    AddCause(isCut ? e.cuts : e.buffs, base, amount, EffectCategories::IsPercentageMagnitude(av));
                 }
             }
+        }
+
+        const SkillEntry* SkillFor(RE::Actor* actor, RE::ActorValue skill)
+        {
+            const int idx = static_cast<int>(skill) - kSkillFirst;
+            if (!actor || idx < 0 || idx >= kSkillCount) return nullptr;
+
+            static int s_frame = -1;
+            static std::unordered_map<RE::FormID, SkillCauses> s_cache;
+            const int frame = ImGui::GetFrameCount();
+            if (frame != s_frame) {
+                s_frame = frame;
+                s_cache.clear();
+            }
+            auto [it, fresh] = s_cache.try_emplace(actor->GetFormID());
+            if (fresh) WalkSkills(actor, it->second);
+            return &it->second[idx];
         }
     }
 
     const Causes& GetSkillCauses(RE::Actor* actor, RE::ActorValue skill)
     {
         static const Causes kEmpty{};
-        const int idx = static_cast<int>(skill) - kSkillFirst;
-        if (!actor || idx < 0 || idx >= kSkillCount) return kEmpty;
+        const SkillEntry* e = SkillFor(actor, skill);
+        return e ? e->cuts : kEmpty;
+    }
 
-        static int s_frame = -1;
-        static std::unordered_map<RE::FormID, SkillCauses> s_cache;
-        const int frame = ImGui::GetFrameCount();
-        if (frame != s_frame) {
-            s_frame = frame;
-            s_cache.clear();
-        }
-        auto [it, fresh] = s_cache.try_emplace(actor->GetFormID());
-        if (fresh) WalkSkills(actor, it->second);
-        return it->second[idx];
+    const Causes& GetSkillBuffs(RE::Actor* actor, RE::ActorValue skill)
+    {
+        static const Causes kEmpty{};
+        const SkillEntry* e = SkillFor(actor, skill);
+        return e ? e->buffs : kEmpty;
     }
 
     void ShowCausesTooltip(const Causes& causes, const char* header)

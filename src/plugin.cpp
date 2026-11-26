@@ -8,6 +8,8 @@
 #include <ctime>
 #include <spdlog/sinks/basic_file_sink.h>
 
+#include "../includes/Utils/SurvivalState.h"
+
 #include "BuildInfo.h"
 
 extern "C" IMAGE_DOS_HEADER __ImageBase;
@@ -26,7 +28,9 @@ extern "C" IMAGE_DOS_HEADER __ImageBase;
 #include "../includes/ImGui/WidgetPinnedItems.h"
 #include "../includes/QuickHeal.h"
 #include "../includes/Utils/GearCatalog.h"
-#include "../includes/Utils/GearSwitcher.h"
+#include "../includes/Utils/FollowerCombatHold.h"
+#include "../includes/MenuFrameworkPage.h"
+#include "../includes/Utils/RecentEquips.h"
 #include "../includes/InputHooks.h"
 #include "../includes/InputHandler.h"
 #include "../includes/ImGui/CharacterSheet.h"
@@ -645,6 +649,25 @@ public:
     }
 };
 
+static void SaveCallback(SKSE::SerializationInterface* serde) {
+    FollowerCombatHold::OnGameSave(serde);
+    SurvivalState::OnGameSave(serde);
+}
+
+static void LoadCallback(SKSE::SerializationInterface* serde) {
+    std::uint32_t type = 0, version = 0, length = 0;
+    while (serde->GetNextRecordInfo(type, version, length)) {
+        if (type == FollowerCombatHold::kRecordType) FollowerCombatHold::LoadRecord(serde, version, length);
+        else if (type == SurvivalState::kRecordType) SurvivalState::LoadRecord(serde, version, length);
+        else logger::warn("Unknown cosave record {:08X} skipped", type);
+    }
+}
+
+static void RevertCallback(SKSE::SerializationInterface*) {
+    FollowerCombatHold::Clear();
+    SurvivalState::Clear();
+}
+
 extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
     // NG 7.x initializes the shared trampoline once. Reserve both 14-byte call stubs
     SKSE::Init(skse, {
@@ -703,6 +726,15 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
     WidgetPinnedItems::Init();
     QuickHeal::Init();
 
+    if (auto* serde = SKSE::GetSerializationInterface()) {
+        serde->SetUniqueID('SPSH');
+        serde->SetSaveCallback(SaveCallback);
+        serde->SetLoadCallback(LoadCallback);
+        serde->SetRevertCallback(RevertCallback);
+    } else {
+        logger::error("No serialization interface, follower holds are not saved");
+    }
+
     if (auto messaging = SKSE::GetMessagingInterface()) {
         messaging->RegisterListener([](SKSE::MessagingInterface::Message* msg) {
             switch (msg->type) {
@@ -729,7 +761,7 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
                 case SKSE::MessagingInterface::kPreLoadGame:
                     PartySheetV2Camera::Exit();
                     PNGIIBridge::Clear();
-                    GearSwitcher::ClearCombatHolds();
+                    RecentEquips::Clear();
                     break;
 
                 case SKSE::MessagingInterface::kPostLoadGame:
@@ -758,7 +790,8 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
                     PlayerStatus::InvalidateCache();
                     PNGIIBridge::Clear();
                     PlayerHUDEquipment::MarkSlotsDirty();
-                    GearSwitcher::ClearCombatHolds();
+                    FollowerCombatHold::Clear();
+                    RecentEquips::Clear();
                     GearCatalog::Clear();
                     logger::info("Widgets reset [kNewGame]");
                     break;
@@ -772,7 +805,11 @@ extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* skse) {
 
                     EffectBlacklist::Load();
 
-                    GearSwitcher::InstallCombatHold();
+                    FollowerCombatHold::Install();
+
+                    SurvivalState::Install();
+
+                    MenuFrameworkPage::Register();
 
                     if (auto modCallbackSource = SKSE::GetModCallbackEventSource()) {
                         modCallbackSource->AddEventSink(TweenMenuListener::GetSingleton());

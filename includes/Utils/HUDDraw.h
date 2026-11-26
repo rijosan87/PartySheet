@@ -49,6 +49,24 @@ namespace HUDDraw {
     };
     void DrawChip(ImDrawList* dl, const ImVec2& bMin, const ImVec2& bMax, const ChipStyle& style);
 
+    inline ChipStyle PanelChipFromColor(std::uint32_t baseArgb, float darken, float hover, float rounding)
+    {
+        const float mul = darken + (1.0f - darken) * 0.6f * hover;
+        auto ch = [&](int shift) {
+            const float v = static_cast<float>((baseArgb >> shift) & 0xFF) * mul;
+            return static_cast<std::uint32_t>(v > 255.0f ? 255.0f : v) << shift;
+        };
+        const std::uint32_t col = 0xE6000000u | ch(16) | ch(8) | ch(0);
+        ChipStyle cs;
+        cs.rounding    = rounding;
+        cs.topColor    = ChipTopFromArgb(col);
+        cs.bottomColor = ChipBottomFromArgb(col);
+        cs.innerBorder = 0;
+        cs.outerBorder = 0;
+        cs.grainAlpha  = 0;
+        return cs;
+    }
+
     enum class FadeBgMode : int {
         FadeRight = 0,
         FadeLeft,
@@ -66,6 +84,17 @@ namespace HUDDraw {
         float         fadeFrac    = 0.75f;
     };
     void DrawFadeBg(ImDrawList* dl, const ImVec2& bbMin, const ImVec2& bbMax, const FadeBgStyle& style);
+
+    enum StripStyle : int {
+        StripStyle_Off = 0,
+        StripStyle_Fade,
+        StripStyle_Arrow,
+        StripStyle_Rounded,
+        StripStyle_Count
+    };
+    inline constexpr const char* kStripStyleNames[StripStyle_Count] = { "Off", "Fade", "Arrow", "Rounded" };
+    void DrawStrip(ImDrawList* dl, const ImVec2& bbMin, const ImVec2& bbMax, int style,
+                   std::uint32_t color, bool towardRight);
 
     struct IconFx {
         bool          duotone      = true;
@@ -97,9 +126,32 @@ namespace HUDDraw {
     void DrawTextStyled(ImDrawList* dl, const ImVec2& pos, ImU32 baseCol, const char* txt,
                         const TextFx& fx);
 
+    enum class PennantDir : int { Down = 0, Up, Left, Right };
+    struct PennantStyle {
+        PennantDir    direction    = PennantDir::Down;
+        float         ringRadius   = 20.0f;
+        float         clothWidth   = 24.0f;
+        float         clothLength  = 46.0f;
+        float         borderWidth  = 1.5f;
+        float         iconSize     = 15.0f;
+        std::uint32_t borderColor  = 0xFFD9CCB0;
+        std::uint32_t ringColor    = 0xE614110D;
+        std::uint32_t clothColor   = 0xE614110D;
+        std::uint32_t numberColor  = 0xFFEFE3C6;
+        std::uint32_t iconColor    = 0xFFD9CCB0;
+        bool          filled       = false;
+        ImFont*       font         = nullptr;
+        float         fontSize     = 0.0f;
+        IconFx        iconFx{};
+    };
+    void DrawPennantBadge(ImDrawList* dl, const ImVec2& ringCenter, const char* value, ImTextureID icon,
+                          const PennantStyle& style);
+
     float DrawTextStyledWrapped(ImDrawList* dl, const ImVec2& pos, float maxWidth,
                                 ImU32 baseCol, const char* txt, const TextFx& fx,
                                 bool centered = false);
+
+    enum BadgeShape : int { BadgeShape_Rounded = 0, BadgeShape_CutCorner, BadgeShape_Hex, BadgeShape_Diamond };
 
     struct BadgeStyle {
         ImFont*       font      = nullptr;
@@ -118,12 +170,32 @@ namespace HUDDraw {
         ImTextureID   icon      = 0;
         std::uint32_t iconTint  = 0xFFFFFFFF;
         float         iconSize  = 0.0f;
+        ImTextureID   textIcon  = 0;
         float         alpha     = 1.0f;
+        int           shape     = BadgeShape_Rounded;
+        bool          tintRimOnly = false;
+        int           trend     = 0;
     };
     struct BadgeRect { ImVec2 min, max; };
     BadgeRect DrawBadge(ImDrawList* dl, const ImVec2& anchor, int corner, const char* txt,
                         const BadgeStyle& style);
     ImVec2 MeasureBadge(const char* txt, const BadgeStyle& style);
+
+    enum BadgePreset : int {
+        BadgePreset_Text = 0,
+        BadgePreset_Classic,
+        BadgePreset_Plain,
+        BadgePreset_Glass,
+        BadgePreset_Steel,
+        BadgePreset_Gem,
+        BadgePreset_Count
+    };
+    inline constexpr const char* kBadgePresetNames[BadgePreset_Count] = {
+        "Text", "Classic", "Plain", "Glass", "Steel", "Gem"
+    };
+    BadgeStyle BadgePresetStyle(int preset);
+    void DrawTrendRune(ImDrawList* dl, float x, float y, float height, bool up, float alpha = 1.0f);
+    void TintBadge(BadgeStyle& style, std::uint32_t tintArgb);
 
     struct PipStyle {
         int   shape  = 0;
@@ -293,5 +365,20 @@ namespace HUDDraw {
         ScopedTextNoSnap(const ScopedTextNoSnap&) = delete;
         ScopedTextNoSnap& operator=(const ScopedTextNoSnap&) = delete;
     };
+
+    void DrawControlTab(ImDrawList* dl, const ImVec2& min, const ImVec2& max, bool selected, bool hovered, float sc);
+
+    void DrawControlTag(ImDrawList* dl, const ImVec2& min, const ImVec2& max, const char* label,
+                        bool on, bool hovered, float sc);
+
+    void DrawOrnateFrame(ImDrawList* dl, const ImVec2& min, const ImVec2& max, float sc);
+
+    void DrawTileCaption(ImDrawList* dl, const ImVec2& tileMin, const ImVec2& tileMax, float pad, ImU32 col, const char* text);
+    inline float TileCaptionHeight() { return ImGui::GetTextLineHeight() * 2.0f; }
+
+    inline int RotateBegin(ImDrawList* dl) { return dl->VtxBuffer.Size; }
+    void RotateEnd(ImDrawList* dl, int startVtx, const ImVec2& center, float degrees);
+
+    ImVec2 RotatedExtent(float w, float h, float degrees);
 
 }

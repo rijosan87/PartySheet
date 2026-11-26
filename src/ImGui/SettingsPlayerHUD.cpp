@@ -8,12 +8,15 @@
 #include "../../includes/ImGui/PlayerHUDResources.h"
 #include "../../includes/ImGui/PlayerHUDEffects.h"
 #include "../../includes/ImGui/PlayerHUDSurvival.h"
+#include "../../includes/ImGui/PlayerHUDSupplies.h"
+#include "../../includes/ImGui/PlayerHUDEnvironment.h"
 #include "../../includes/ImGui/PlayerHUDDisease.h"
 #include "../../includes/ImGui/WidgetPinnedItems.h"
 #include "../../includes/ImGui/WidgetCollectibles.h"
 #include "../../includes/ImGui/WidgetStableMount.h"
 #include "../../includes/Utils/ColorUtils.h"
 #include "../../includes/Utils/SettingsWidgets.h"
+#include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/HUDVisibility.h"
 #include "../../includes/PNGIIBridge.h"
 #include "../../includes/PlayerHUDResistancesPresets.h"
@@ -44,27 +47,6 @@ namespace ImGuiRenderer::SettingsUI {
         if (ImGui::Button("+", ImVec2(buttonSize, buttonSize)))
             value = std::clamp(value < maximum ? value + 1 : maximum, minimum, maximum);
         ImGui::PopID();
-    }
-    static bool BeginAppearanceGroup(const char* id, const char* label) {
-        ImGui::Spacing();
-        const float avail = ImGui::GetContentRegionAvail().x;
-        const float textW = ImGui::CalcTextSize(label).x;
-        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (avail - textW) * 0.5f);
-        ImGui::TextDisabled("%s", label);
-        ImGui::Spacing();
-        if (!ImGui::BeginTable(id, 2, ImGuiTableFlags_SizingStretchProp))
-            return false;
-        ImGui::TableSetupColumn("##c", ImGuiTableColumnFlags_WidthStretch, 0.4f);
-        ImGui::TableSetupColumn("##s", ImGuiTableColumnFlags_WidthStretch, 0.6f);
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(0);
-        return true;
-    }
-    static void NextAppearanceStyleCol() { ImGui::TableSetColumnIndex(1); }
-    static void EndAppearanceGroup() {
-        ImGui::EndTable();
-        ImGui::Spacing();
-        ImGui::Separator();
     }
 
     [[maybe_unused]] static void PushInnerHeader() {
@@ -176,7 +158,7 @@ namespace ImGuiRenderer::SettingsUI {
             {
                 static int presetIndex = 0;
                 static constexpr const char* presetNames[] = {
-                    "Animated Portrait", "Custom Bars", "Scaled Bars", "Level Emblem", "No Portrait", "Halo", "Curved Status"
+                    "Animated Portrait", "Custom Bars", "Scaled Bars", "Level Emblem", "No Portrait", "Halo", "Curved Status", "Diamond Frame"
                 };
                 // Combo reads every advertised label when opened; keep both arrays in sync.
                 static_assert(IM_ARRAYSIZE(presetNames) == PlayerHUDBarPresets::kPresets.size());
@@ -238,8 +220,9 @@ namespace ImGuiRenderer::SettingsUI {
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::Checkbox("Stamina##phSP", &settings->phShowStamina);
-                    ImGui::TableSetColumnIndex(1); ImGui::Checkbox("XP Bar##phXP", &settings->phShowXP);
-                    ImGui::TableSetColumnIndex(2); ImGui::Checkbox("XP as Bar##phXPAsBar", &settings->phXPAsBar);
+                    ImGui::TableSetColumnIndex(1); ImGui::Checkbox("XP Ring##phXP", &settings->phShowXP);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("XP ring and percent badge on the portrait.\nShows as a bar when the Portrait is hidden.");
+                    ImGui::TableSetColumnIndex(2); ImGui::Checkbox("XP Bar##phXPAsBar", &settings->phXPAsBar);
                     ImGui::TableSetColumnIndex(3); ImGui::Checkbox("Bar Text##phBarText", &settings->phShowBarText);
 
                     ImGui::TableNextRow();
@@ -247,7 +230,7 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TableSetColumnIndex(1); ImGui::Checkbox("Regen Pip##phRegenPip", &settings->phShowRegenPip);
                     ImGui::TableSetColumnIndex(2); ImGui::Checkbox("Stat Bonus##phShowFortify", &settings->phShowFortify);
                     ImGui::TableSetColumnIndex(3); ImGui::Checkbox("Bar Icons##phBarIcons", &settings->phShowBarIcons);
-                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show a health/magicka/stamina icon left of each bar.\nOnly appears when the Portrait is hidden (no room otherwise).");
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show a health/magicka/stamina icon left of each bar.\nWith the Portrait on, raise Column Spacing to make room.");
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0); ImGui::Checkbox("Halo##phHalo", &settings->phHaloEnable);
@@ -267,7 +250,7 @@ namespace ImGuiRenderer::SettingsUI {
             }
 
             if (ImGui::CollapsingHeader("Bars##PHBars")) {
-                const bool xpAsBar = settings->phShowXP && (!settings->phShowPortrait || settings->phXPAsBar);
+                const bool xpAsBar = (settings->phXPAsBar || (settings->phShowXP && !settings->phShowPortrait));
                 const bool showAnnotations = settings->phShowBarText || settings->phShowRegenPip || settings->phShowFortify;
                 bool overrideStyle = settings->phHealthBarStyleIndex > 0 ||
                                      settings->phMagickaBarStyleIndex > 0 ||
@@ -409,7 +392,7 @@ namespace ImGuiRenderer::SettingsUI {
                     DrawPositionSlider("##phSpAnnotationOffsetX", settings->phSpAnnotationOffsetX, -3840, 3840, "Annotation X %d px");
                     DrawPositionSlider("##phSpAnnotationOffsetY", settings->phSpAnnotationOffsetY, -2160, 2160, "Annotation Y %d px");
                 }
-                if (settings->phShowXP) {
+                if (settings->phShowXP || settings->phXPAsBar) {
                     ImGui::Spacing();
                     ImGui::Separator();
                     ImGui::TextDisabled("XP");
@@ -430,13 +413,20 @@ namespace ImGuiRenderer::SettingsUI {
                         DrawPositionSlider("##phXPBarOffY", settings->phXPBarOffsetY, -2160, 2160, "XP Bar Y %d px");
                         DrawPositionSlider("##phXPAnnotationOffsetX", settings->phXPAnnotationOffsetX, -3840, 3840, "XP Annotation X %d px");
                         DrawPositionSlider("##phXPAnnotationOffsetY", settings->phXPAnnotationOffsetY, -2160, 2160, "XP Annotation Y %d px");
+                        ImGui::Checkbox("Level Ribbon##phLevelRibbon", &settings->phLevelRibbon);
+                        if (settings->phLevelRibbon) {
+                            ImGui::SameLine();
+                            ImVec4 rc = ColorUtils::ArgbToVec4(settings->phLevelRibbonColor);
+                            if (ImGui::ColorEdit4("##phLevelRibbonColor", reinterpret_cast<float*>(&rc), kPHArgb))
+                                settings->phLevelRibbonColor = ColorUtils::Vec4ToArgb(rc);
+                        }
                     }
                 }
 
                 ImGui::Spacing();
                 ImGui::Separator();
                 ImGui::Spacing();
-                if (settings->phShowBarText || (settings->phShowBarIcons && !settings->phShowPortrait)) {
+                if (settings->phShowBarText || settings->phShowBarIcons) {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     {
                         char offLabel[48];
@@ -477,6 +467,26 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::Checkbox("Fortify on Right##phFortifyRight", &settings->phFortifyRight);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Draw the Fortify bonus at the bar's right edge instead of to the left.\nWith Scale Bar Width to Stat, each number follows its own bar's edge.");
+                }
+                if (settings->phShowRegenPip) {
+                    ImGui::Checkbox("Tint Regen Pip##phTintRegenPip", &settings->phTintRegenPip);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Green when an effect raises regen, red when one slows it. Red wins.");
+                }
+                ImGui::Checkbox("Show Effect Badges##phFxBadges", &settings->phShowEffectBadges);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("One badge per source changing the bar's max: gear, potions, blessings, diseases, needs.\nThe same source twice shows once with a count.");
+                if (settings->phShowEffectBadges) {
+                    ImGui::Indent(20.0f);
+                    static const char* phFxStyleItems[] = { "Off", "Classic", "Plain", "Glass", "Steel", "Gem" };
+                    static_assert(std::size(phFxStyleItems) == HUDDraw::BadgePreset_Count);
+                    SettingsWidgets::SegmentedPicker("Badge Style##phFxStyle", &settings->phEffectBadgeStyle, phFxStyleItems, HUDDraw::BadgePreset_Count);
+                    static const char* phFxPlaceItems[] = { "Beside Stat Bonus", "Inside Bar End" };
+                    SettingsWidgets::SegmentedPicker("Badge Placement##phFxPlace", &settings->phEffectBadgePlace, phFxPlaceItems, 2);
+                    ImGui::SliderInt("##phFxSize", &settings->phEffectBadgeSize, 60, 200, "Badge Size %d%%");
+                    ImGui::SliderInt("##phFxMax", &settings->phEffectBadgeMax, 1, 8, "Max Badges %d");
+                    ImGui::Checkbox("Hide Bar Effects in Active Effects##phFxHideList", &settings->phEffectBadgeHideInList);
+                    ImGui::Unindent(20.0f);
                 }
 
                 if (settings->phShowBarText) {
@@ -734,25 +744,57 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     static int presetIndex = 0;
                     static constexpr const char* presetNames[] = {
-                        "Default", "Compact", "Minimal", "Weapon Focus"
+                        "Default", "Diamond", "Crest", "Ladder"
                     };
+                    static_assert(IM_ARRAYSIZE(presetNames) == PlayerHUDEquipmentPresets::kPresets.size());
                     if (SettingsWidgets::SegmentedPicker("##pePreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
                         PlayerHUDEquipmentPresets::ApplyPreset(*settings, static_cast<std::size_t>(presetIndex));
                 }
 
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::TextDisabled("Slot Order");
+                static constexpr ImGuiColorEditFlags kArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
+                ImVec4 c;
+
                 ImGui::Spacing();
 
-                {
+                if (ImGui::CollapsingHeader("General##peSecContent")) {
+                    ImGui::Checkbox("Show Names##peNames",            &settings->peShowNames);
+                    ImGui::Checkbox("Show Slot Badge##peBadge",       &settings->peShowSlotBadge);
+                    ImGui::Checkbox("Show Ammo Count##peAmmo",        &settings->peShowAmmoCount);
+                    ImGui::Checkbox("Show Weapon Damage##peDmg",      &settings->peShowDamage);
+                    ImGui::Checkbox("Show Durability##peDura",        &settings->peShowDurability);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Show wear pips on weapons (requires EquipmentDurabilitySystem-NG).");
+                ImGui::Spacing();
+                    static const char* chargeStyleItems[] = { "Number Badge", "Vertical Bar", "Off" };
+                    SettingsWidgets::SegmentedPicker("Enchant Charge Display##peChargeStyle", &settings->peChargeStyle, chargeStyleItems, 3);
+                    ImGui::Spacing();
+                }
+
+                if (ImGui::CollapsingHeader("Layout##peSecLayout", ImGuiTreeNodeFlags_DefaultOpen)) {
+                    const char* layoutItems[] = { "Row", "Column", "Grid", "Cluster", "Cross", "Stack" };
+                    SettingsWidgets::SegmentedPicker("##peLayout", &settings->peLayout, layoutItems, 6);
+                    if (settings->peLayout == 3) {
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderInt("##peClA1", &settings->peClusterAngle1, 0, 359, "2nd Slot Angle %d deg");
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderInt("##peClA2", &settings->peClusterAngle2, 0, 359, "3rd Slot Angle %d deg");
+                    } else if (settings->peLayout == 5) {
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderInt("##peStOv", &settings->peStackOverlap, 0, 80, "Stack Overlap %d%%");
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderInt("##peStSx", &settings->peStackShiftX, -60, 60, "Stack Shift X %d px");
+                    }
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##peSpacing", &settings->peSlotSpacing, 0, 100, "Slot Spacing %d");
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled(settings->peLayout == 3 ? "Slot Order (Slot 1 is the centre)" : "Slot Order");
                     const char* slotNames[] = { "Right Hand", "Left Hand", "Shout/Power" };
                     int* order[3] = { &settings->peSlotOrder0, &settings->peSlotOrder1, &settings->peSlotOrder2 };
                     for (int i = 0; i < 3; ++i) {
-                        if (i > 0) ImGui::SameLine();
                         int prev = *order[i];
                         char label[16]; snprintf(label, sizeof(label), "Slot %d##peOrder%d", i + 1, i);
-                        ImGui::SetNextItemWidth(120.0f);
+                        ImGui::SetNextItemWidth(160.0f);
                         if (ImGui::Combo(label, order[i], slotNames, 3) && *order[i] != prev) {
                             for (int j = 0; j < 3; ++j) {
                                 if (j != i && *order[j] == *order[i]) {
@@ -762,106 +804,10 @@ namespace ImGuiRenderer::SettingsUI {
                             }
                         }
                     }
-                }
-
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::TextDisabled("Layout");
-                ImGui::Spacing();
-
-                const char* layoutItems[] = { "Row", "Column", "Grid (2-col)" };
-                SettingsWidgets::SegmentedPicker("Layout##peLayout", &settings->peLayout, layoutItems, 3);
-
-                if (ImGui::SliderInt("Pos X##pePosX", &settings->pePosX, 0, static_cast<int>(displaySize.x)))
-                    PlayerHUDEquipment::ForceReposition();
-                if (ImGui::SliderInt("Pos Y##pePosY", &settings->pePosY, 0, static_cast<int>(displaySize.y)))
-                    PlayerHUDEquipment::ForceReposition();
-
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::TextDisabled("Items (Show / Hide)");
-                ImGui::Spacing();
-
-                if (ImGui::BeginTable("##PEItemsTable", 2, ImGuiTableFlags_SizingStretchProp)) {
-                    ImGui::TableSetupColumn("##PEItemCol0", ImGuiTableColumnFlags_WidthStretch, 0.5f);
-                    ImGui::TableSetupColumn("##PEItemCol1", ImGuiTableColumnFlags_WidthStretch, 0.5f);
-
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0); ImGui::Checkbox("Show Names##peNames",       &settings->peShowNames);
-                    ImGui::TableSetColumnIndex(1); ImGui::Checkbox("Show Slot Badge##peBadge",  &settings->peShowSlotBadge);
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0); ImGui::Checkbox("Show Ammo Count##peAmmo",   &settings->peShowAmmoCount);
-                    ImGui::TableSetColumnIndex(1); ImGui::Checkbox("Show Weapon Damage##peDmg",  &settings->peShowDamage);
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0); ImGui::Checkbox("Show Slot Icon BG##peIBgEn", &settings->peIconBgEnabled);
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Checkbox("Show Durability##peDura", &settings->peShowDurability);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Show wear pips on weapons (requires EquipmentDurabilitySystem-NG).");
-
-                    ImGui::EndTable();
-                }
-
-                ImGui::Spacing();
-                {
-                    static const char* chargeStyleItems[] = { "Number Badge", "Vertical Bar", "Off" };
-                    SettingsWidgets::SegmentedPicker("Enchant Charge Display##peChargeStyle", &settings->peChargeStyle, chargeStyleItems, 3);
-                }
-
-                ImGui::Checkbox("Custom Slot Background##peIBgTex", &settings->peUseIconBgTexture);
-                if (settings->peUseIconBgTexture) {
-                    ImGui::SameLine();
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGuiRenderer::RenderBackgroundPicker("PEIconBgPicker", settings->peIconBgIndex,
-                                                         BackgroundManager::Type::Inspectcard);
-                }
-
-                ImGui::Spacing();
-                ImGui::Separator();
-
-                static constexpr ImGuiColorEditFlags kArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
-                ImVec4 c;
-
-                if (BeginAppearanceGroup("##PEIconsGrp", "Icons")) {
-                    if (settings->peIconBgEnabled) {
-                        c = ColorUtils::ArgbToVec4(settings->peIconBgColor);
-                        if (ImGui::ColorEdit4("Slot Icon BG##peIBgCol", reinterpret_cast<float*>(&c), kArgb))
-                            settings->peIconBgColor = ColorUtils::Vec4ToArgb(c);
-                        if (!settings->peUseIconBgTexture) {
-                            const char* bgStyles[] = { "Solid", "Fade" };
-                            SettingsWidgets::SegmentedPicker("Background Style##peIconBgStyle", &settings->peIconBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
-                            if (settings->peIconBgStyle == 1) {
-                                const char* fadeModes[] = { "Fade Right", "Fade Left", "Fade Down", "Fade Up",
-                                                            "Center Out", "Edge Origin", "Diagonal TL", "Diagonal BL" };
-                                ImGui::SetNextItemWidth(120.0f);
-                                ImGui::Combo("Fade Mode##peIconBgFadeMode", &settings->peIconBgFadeMode, fadeModes, IM_ARRAYSIZE(fadeModes));
-                                ImGui::SetNextItemWidth(120.0f);
-                                ImGui::SliderInt("Solid Anchor##peIconBgFadeAnchor", &settings->peIconBgFadeAnchor, 0, 60, "%d%%");
-                                ImGui::SetNextItemWidth(120.0f);
-                                ImGui::SliderInt("Fade Length##peIconBgFadeLength", &settings->peIconBgFadeLength, 10, 100, "%d%%");
-                            }
-                        }
-                    }
-                    NextAppearanceStyleCol();
-                    ImGui::TextDisabled("Icon Source");
-                    {
-                        static const char* styleItems[] = { "Item Art", "PNG Icon Injector" };
-                        if (SettingsWidgets::SegmentedPicker("Icon Style##peIconStyle", &settings->peIconStyle, styleItems, 2))
-                            PlayerHUDEquipment::MarkSlotsDirty();
-                    }
-                    if (!PNGIIBridge::Available()) {
-                        ImGui::TextDisabled("PNG Icon Injector not installed, using item art");
-                    }
-                    if (settings->peIconStyle == 1) {
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::SliderFloat("##peGlyphScale", &settings->peGlyphScale, 0.40f, 1.00f, "Glyph Size %.2f");
-                        c = ColorUtils::ArgbToVec4(settings->peGlyphColor);
-                        if (ImGui::ColorEdit4("Glyph Color##peGlyphColor", reinterpret_cast<float*>(&c), kArgb))
-                            settings->peGlyphColor = ColorUtils::Vec4ToArgb(c);
-                        ImGui::Checkbox("Tint by Element##peGlyphTint", &settings->peGlyphTintByElement);
-                    }
-
                     ImGui::Spacing();
+                }
+
+                if (ImGui::CollapsingHeader("Size & Position##peSecSize")) {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##peIcon", &settings->peIconSize, 24, 128, "Icon Size %d");
                     if (settings->peLayout == 2) {
@@ -874,7 +820,136 @@ namespace ImGuiRenderer::SettingsUI {
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         ImGui::SliderFloat("##peScaleZ", &settings->peSlotScale2, 0.3f, 2.5f, "Shout Size x%.2f");
                     }
-                    // Item art also draws for PNGII misses, but hiding these keeps one size control per style.
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Fine Nudge (on top of the layout)");
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##peSlotOffsetX1", &settings->peSlotOffsetX1, -400, 400, "2nd Slot X %d px");
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##peSlotOffsetY1", &settings->peSlotOffsetY1, -400, 400, "2nd Slot Y %d px");
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##peSlotOffsetX2", &settings->peSlotOffsetX2, -400, 400, "3rd Slot X %d px");
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##peSlotOffsetY2", &settings->peSlotOffsetY2, -400, 400, "3rd Slot Y %d px");
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Screen Position");
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    if (ImGui::SliderInt("##pePosX", &settings->pePosX, 0, static_cast<int>(displaySize.x), "Pos X %d"))
+                        PlayerHUDEquipment::ForceReposition();
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    if (ImGui::SliderInt("##pePosY", &settings->pePosY, 0, static_cast<int>(displaySize.y), "Pos Y %d"))
+                        PlayerHUDEquipment::ForceReposition();
+                    ImGui::Spacing();
+                }
+
+                if (ImGui::CollapsingHeader("Slot Look##peSecSlot")) {
+                    ImGui::TextDisabled("Plate");
+                    {
+                        static const char* plateItems[] = { "Off", "Color", "Image" };
+                        int plate = settings->peUseIconBgTexture ? 2 : (settings->peIconBgEnabled ? 1 : 0);
+                        if (SettingsWidgets::SegmentedPicker("Slot Background##pePlate", &plate, plateItems, 3)) {
+                            settings->peIconBgEnabled    = plate == 1;
+                            settings->peUseIconBgTexture = plate == 2;
+                        }
+                    }
+                    if (settings->peIconBgEnabled) {
+                        c = ColorUtils::ArgbToVec4(settings->peIconBgColor);
+                        if (ImGui::ColorEdit4("Background Color##peIBgCol", reinterpret_cast<float*>(&c), kArgb))
+                            settings->peIconBgColor = ColorUtils::Vec4ToArgb(c);
+                        if (!settings->peUseIconBgTexture) {
+                            const char* bgStyles[] = { "Solid", "Fade" };
+                            SettingsWidgets::SegmentedPicker("Background Style##peIconBgStyle", &settings->peIconBgStyle, bgStyles, IM_ARRAYSIZE(bgStyles));
+                            if (settings->peIconBgStyle == 1) {
+                                const char* fadeModes[] = { "Fade Right", "Fade Left", "Fade Down", "Fade Up",
+                                                            "Center Out", "Edge Origin", "Diagonal TL", "Diagonal BL" };
+                                ImGui::SetNextItemWidth(-FLT_MIN);
+                                ImGui::Combo("##peIconBgFadeMode", &settings->peIconBgFadeMode, fadeModes, IM_ARRAYSIZE(fadeModes));
+                                ImGui::SetNextItemWidth(-FLT_MIN);
+                                ImGui::SliderInt("##peIconBgFadeAnchor", &settings->peIconBgFadeAnchor, 0, 60, "Solid Anchor %d%%");
+                                ImGui::SetNextItemWidth(-FLT_MIN);
+                                ImGui::SliderInt("##peIconBgFadeLength", &settings->peIconBgFadeLength, 10, 100, "Fade Length %d%%");
+                            }
+                        }
+                    }
+                    if (settings->peUseIconBgTexture) {
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGuiRenderer::RenderBackgroundPicker("PEIconBgPicker", settings->peIconBgIndex,
+                                                             BackgroundManager::Type::Inspectcard);
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderFloat("##peIBgTexOpacity", &settings->peIconBgTexOpacity, 0.0f, 1.0f, "Slot BG Opacity %.2f");
+                    }
+                    if (settings->peIconBgEnabled || settings->peUseIconBgTexture) {
+                        static const char* shapeItems[] = { "Rectangle", "Circle", "Diamond" };
+                        SettingsWidgets::SegmentedPicker("Backplate Shape##peIBgShape", &settings->peIconBgShape, shapeItems, 3);
+
+                        static const char* slotShapeItems[] = { "Same", "Rectangle", "Circle", "Diamond" };
+                        const struct { const char* label; int* value; } slotShapes[] = {
+                            { "Right Hand Shape##peShape0", &settings->peSlotShape0 },
+                            { "Left Hand Shape##peShape1",  &settings->peSlotShape1 },
+                            { "Shout Shape##peShape2",      &settings->peSlotShape2 },
+                        };
+                        for (const auto& row : slotShapes) {
+                            int pick = std::clamp(*row.value, -1, 2) + 1;
+                            if (SettingsWidgets::SegmentedPicker(row.label, &pick, slotShapeItems, 4))
+                                *row.value = pick - 1;
+                        }
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Border");
+                    c = ColorUtils::ArgbToVec4(settings->peIconBorderColor);
+                    if (ImGui::ColorEdit4("Border##peIBC", reinterpret_cast<float*>(&c), kArgb))
+                        settings->peIconBorderColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##peIBW", &settings->peIconBorderWidth, 0, 6, "Border Width %d");
+                    if (settings->peIconBgShape == 0 || settings->peSlotShape0 == 0 || settings->peSlotShape1 == 0 || settings->peSlotShape2 == 0) {
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderInt("##peIBR", &settings->peIconBorderRadius, 0, 50, "Border Radius %d");
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Aura");
+                    ImGui::Checkbox("Show Aura##peShowAura", &settings->peShowAura);
+                    ImGui::BeginDisabled(!settings->peShowAura);
+                    c = ColorUtils::ArgbToVec4(settings->peAuraPoisonColor);
+                    if (SettingsWidgets::ColorEdit4("Poison##peAuraPoison", reinterpret_cast<float*>(&c), kArgb))
+                        settings->peAuraPoisonColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::SameLine();
+                    c = ColorUtils::ArgbToVec4(settings->peAuraFireColor);
+                    if (SettingsWidgets::ColorEdit4("Fire##peAuraFire", reinterpret_cast<float*>(&c), kArgb))
+                        settings->peAuraFireColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::SameLine();
+                    c = ColorUtils::ArgbToVec4(settings->peAuraFrostColor);
+                    if (SettingsWidgets::ColorEdit4("Frost##peAuraFrost", reinterpret_cast<float*>(&c), kArgb))
+                        settings->peAuraFrostColor = ColorUtils::Vec4ToArgb(c);
+                    c = ColorUtils::ArgbToVec4(settings->peAuraShockColor);
+                    if (SettingsWidgets::ColorEdit4("Shock##peAuraShock", reinterpret_cast<float*>(&c), kArgb))
+                        settings->peAuraShockColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::SameLine();
+                    c = ColorUtils::ArgbToVec4(settings->peAuraOtherColor);
+                    if (SettingsWidgets::ColorEdit4("Enchanted (Other)##peAuraOther", reinterpret_cast<float*>(&c), kArgb))
+                        settings->peAuraOtherColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::EndDisabled();
+                    ImGui::Spacing();
+                }
+
+                if (ImGui::CollapsingHeader("Icon##peSecIcon")) {
+                    static const char* styleItems[] = { "Item Art", "PNG Icon Injector" };
+                    if (SettingsWidgets::SegmentedPicker("Icon Source##peIconStyle", &settings->peIconStyle, styleItems, 2))
+                        PlayerHUDEquipment::MarkSlotsDirty();
+                    if (!PNGIIBridge::Available()) {
+                        ImGui::TextDisabled("PNG Icon Injector not installed, using item art");
+                    }
+                    if (settings->peIconStyle == 1) {
+                        c = ColorUtils::ArgbToVec4(settings->peGlyphColor);
+                        if (ImGui::ColorEdit4("Glyph Color##peGlyphColor", reinterpret_cast<float*>(&c), kArgb))
+                            settings->peGlyphColor = ColorUtils::Vec4ToArgb(c);
+                        ImGui::SameLine();
+                        ImGui::Checkbox("Tint by Element##peGlyphTint", &settings->peGlyphTintByElement);
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderFloat("##peGlyphScale", &settings->peGlyphScale, 0.40f, 1.00f, "Glyph Size %.2f");
+                    }
                     if (settings->peIconStyle == 0 || !PNGIIBridge::Available()) {
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         ImGui::SliderInt("##peBgPad", &settings->peIconBgPadding, 0, 32, "Icon Padding %d");
@@ -886,135 +961,115 @@ namespace ImGuiRenderer::SettingsUI {
                         ImGui::SliderFloat("##peFV", &settings->peIconFocusV, 0.0f, 1.0f, "Focus V %.2f");
                     }
 
-                    ImGui::Spacing();
-                    ImGui::TextDisabled("Icon FX (spells + PNG Icon Injector)");
-                    ImGui::Checkbox("Duotone##peSpellDuo", &settings->peSpellIconDuotone);
-                    ImGui::SameLine();
-                    ImGui::Checkbox("Shadow##peSpellSh", &settings->peSpellIconShadow);
-                    ImGui::Checkbox("Outline##peSpellOl", &settings->peSpellIconOutline);
-                    if (settings->peSpellIconOutline) {
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::SliderInt("##peSpellOlW", &settings->peSpellIconOutlineWidth, 1, 3, "Outline Width %d px");
-                    }
-
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     {
                         float deg = settings->peWeaponRotation * 57.2958f;
                         if (ImGui::SliderFloat("##peWR", &deg, -90.0f, 90.0f, "Weapon Tilt %.0f deg"))
                             settings->peWeaponRotation = deg / 57.2958f;
                     }
-                    EndAppearanceGroup();
-                }
 
-                if (BeginAppearanceGroup("##PESlotGrp", "Slot")) {
-                    NextAppearanceStyleCol();
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##peSpacing", &settings->peSlotSpacing, 0, 100, "Slot Spacing %d");
-                    if (settings->peIconBgEnabled || settings->peUseIconBgTexture) {
-                        static const char* shapeItems[] = { "Rectangle", "Circle", "Diamond" };
-                        SettingsWidgets::SegmentedPicker("Backplate Shape##peIBgShape", &settings->peIconBgShape, shapeItems, 3);
-                    }
-                    if (settings->peUseIconBgTexture) {
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Icon FX (spells + PNG Icon Injector)");
+                    ImGui::Checkbox("Duotone##peSpellDuo", &settings->peSpellIconDuotone);
+                    ImGui::SameLine();
+                    ImGui::Checkbox("Shadow##peSpellSh", &settings->peSpellIconShadow);
+                    ImGui::SameLine();
+                    ImGui::Checkbox("Outline##peSpellOl", &settings->peSpellIconOutline);
+                    if (settings->peSpellIconOutline) {
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::SliderFloat("##peIBgTexOpacity", &settings->peIconBgTexOpacity, 0.0f, 1.0f, "Slot BG Opacity %.2f");
-                    }
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##peSlotOffsetX1", &settings->peSlotOffsetX1, -200, 200, "2nd Slot Offset X %d px");
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##peSlotOffsetY1", &settings->peSlotOffsetY1, -200, 200, "2nd Slot Offset Y %d px");
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##peSlotOffsetX2", &settings->peSlotOffsetX2, -200, 200, "3rd Slot Offset X %d px");
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##peSlotOffsetY2", &settings->peSlotOffsetY2, -200, 200, "3rd Slot Offset Y %d px");
-                    EndAppearanceGroup();
+                        ImGui::SliderInt("##peSpellOlW", &settings->peSpellIconOutlineWidth, 1, 3, "Outline Width %d px");
+                }
+                    ImGui::Spacing();
                 }
 
-                if (BeginAppearanceGroup("##PEBorderGrp", "Border")) {
-                    c = ColorUtils::ArgbToVec4(settings->peIconBorderColor);
-                    if (ImGui::ColorEdit4("Border##peIBC", reinterpret_cast<float*>(&c), kArgb))
-                        settings->peIconBorderColor = ColorUtils::Vec4ToArgb(c);
-                    NextAppearanceStyleCol();
+                if (ImGui::CollapsingHeader("Name##peSecName")) {
+                    if (!settings->peShowNames)
+                        ImGui::TextDisabled("Names are off, turn on Show Names in Content");
+                    ImGui::BeginDisabled(!settings->peShowNames);
+                    c = ColorUtils::ArgbToVec4(settings->peNameColor);
+                    if (ImGui::ColorEdit4("Name##peNameCol", reinterpret_cast<float*>(&c), kArgb))
+                        settings->peNameColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::SameLine();
+                    c = ColorUtils::ArgbToVec4(settings->peNameBgColor);
+                    if (ImGui::ColorEdit4("Name BG##peNameBg", reinterpret_cast<float*>(&c), kArgb))
+                        settings->peNameBgColor = ColorUtils::Vec4ToArgb(c);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##peIBW", &settings->peIconBorderWidth, 0, 6, "Border Width %d");
-                    if (settings->peIconBgShape == 0) {
+                    ImGui::SliderFloat("##peNameFontScale", &settings->peNameFontScale, 0.5f, 2.0f, "Name Font Scale %.2f");
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##peNameMaxChars", &settings->peNameMaxChars, 0, 60,
+                        settings->peNameMaxChars == 0 ? "Name Max Chars: No limit" : "Name Max Chars %d");
+                    const bool ringLayout = settings->peLayout == 3 || settings->peLayout == 4;
+                    if (ringLayout) {
+                        static const char* ringPlaceItems[] = { "Below", "Above", "Outer Side" };
+                        int ringPick = (std::min)(settings->peNamePlacement, 2);
+                        if (SettingsWidgets::SegmentedPicker("Name Placement##peNamePlaceRing", &ringPick, ringPlaceItems, 3))
+                            settings->peNamePlacement = ringPick == 2 ? (settings->peNamePlacement >= 2 ? settings->peNamePlacement : 2) : ringPick;
+                        if (settings->peNamePlacement >= 2) {
+                            static const char* sideItems[] = { "Left", "Right" };
+                            SettingsWidgets::SegmentedPicker(settings->peLayout == 3 ? "Centre Slot Name Side##peCenterSide" : "Top Slot Name Side##peCenterSide",
+                                                             &settings->peCenterNameSide, sideItems, 2);
+                            static const char* outerItems[] = { "Beside", "Above/Below" };
+                            int outerPick = settings->peSatelliteNamesBelow ? 1 : 0;
+                            if (SettingsWidgets::SegmentedPicker("Outer Slot Name Side##peSatNamesBelow", &outerPick, outerItems, 2))
+                                settings->peSatelliteNamesBelow = outerPick == 1;
+                    }
+                    } else {
+                        static const char* placeItems[] = { "Below", "Above", "Left", "Right" };
+                        SettingsWidgets::SegmentedPicker("Name Placement##peNamePlace", &settings->peNamePlacement, placeItems, 4);
+                    }
+                    {
+                        SettingsWidgets::SegmentedPicker("Strip##peStripStyle", &settings->peStripStyle,
+                                                         HUDDraw::kStripStyleNames, HUDDraw::StripStyle_Count);
+                        if (settings->peStripStyle > 0) {
+                            ImGui::SliderInt("Strip Width##peStripWidth", &settings->peStripWidth, 0, 400);
+                            ImGui::SetItemTooltip("0 fits the text. Set a width to make every row the same length.");
+                            c = ColorUtils::ArgbToVec4(settings->peStripTint);
+                            if (ImGui::ColorEdit4("Strip Colour##peStripTint", reinterpret_cast<float*>(&c), kArgb))
+                                settings->peStripTint = ColorUtils::Vec4ToArgb(c);
+                        }
+                    }
+                    static const char* alignItems[] = { "Left", "Center", "Right" };
+                    SettingsWidgets::SegmentedPicker("Name Alignment##peNameAlign", &settings->peNameAlignment, alignItems, 3);
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        ImGui::SliderInt("##peIBR", &settings->peIconBorderRadius, 0, 50, "Border Radius %d");
+                    ImGui::SliderInt("##peNameGap", &settings->peNameGap, -20, 60, "Name Gap %d px");
+                    if (settings->peNamePlacement >= 2) {
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderInt("##peNameSideW", &settings->peNameSideWidth, 40, 240, "Side Name Width %d px");
                     }
-                    EndAppearanceGroup();
-                }
-
-                if (BeginAppearanceGroup("##PEAuraGrp", "Aura")) {
-                    ImGui::Checkbox("Show Aura##peShowAura", &settings->peShowAura);
-                    ImGui::BeginDisabled(!settings->peShowAura);
-                    c = ColorUtils::ArgbToVec4(settings->peAuraPoisonColor);
-                    if (SettingsWidgets::ColorEdit4("Poison##peAuraPoison", reinterpret_cast<float*>(&c), kArgb))
-                        settings->peAuraPoisonColor = ColorUtils::Vec4ToArgb(c);
-                    c = ColorUtils::ArgbToVec4(settings->peAuraFireColor);
-                    if (SettingsWidgets::ColorEdit4("Fire##peAuraFire", reinterpret_cast<float*>(&c), kArgb))
-                        settings->peAuraFireColor = ColorUtils::Vec4ToArgb(c);
-                    c = ColorUtils::ArgbToVec4(settings->peAuraFrostColor);
-                    if (SettingsWidgets::ColorEdit4("Frost##peAuraFrost", reinterpret_cast<float*>(&c), kArgb))
-                        settings->peAuraFrostColor = ColorUtils::Vec4ToArgb(c);
-                    c = ColorUtils::ArgbToVec4(settings->peAuraShockColor);
-                    if (SettingsWidgets::ColorEdit4("Shock##peAuraShock", reinterpret_cast<float*>(&c), kArgb))
-                        settings->peAuraShockColor = ColorUtils::Vec4ToArgb(c);
-                    c = ColorUtils::ArgbToVec4(settings->peAuraOtherColor);
-                    if (SettingsWidgets::ColorEdit4("Enchanted (Other)##peAuraOther", reinterpret_cast<float*>(&c), kArgb))
-                        settings->peAuraOtherColor = ColorUtils::Vec4ToArgb(c);
                     ImGui::EndDisabled();
-                    EndAppearanceGroup();
+                    ImGui::Spacing();
                 }
 
-                if (BeginAppearanceGroup("##PEBadgeGrp", "Badge")) {
+                if (ImGui::CollapsingHeader("Badges##peSecBadges")) {
+                    ImGui::TextDisabled("Slot Badge");
+                    static const char* badgeItems[] = { "Corner", "Top", "Bottom", "Left", "Right" };
+                    static const int badgeValue[] = { 0, 1, 2, 4, 5 };
+                    int badgePick = 0;
+                    for (int i = 0; i < 5; ++i) if (badgeValue[i] == settings->peBadgeAnchor) badgePick = i;
+                    if (settings->peBadgeAnchor == 3) badgePick = 3;
+                    if (SettingsWidgets::SegmentedPicker("Position##peBadgeAnchor", &badgePick, badgeItems, 5))
+                        settings->peBadgeAnchor = badgeValue[badgePick];
                     c = ColorUtils::ArgbToVec4(settings->peBadgeBgColor);
                     if (ImGui::ColorEdit4("Badge BG##peBadgeBg", reinterpret_cast<float*>(&c), kArgb))
                         settings->peBadgeBgColor = ColorUtils::Vec4ToArgb(c);
-                    NextAppearanceStyleCol();
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    {
-                        float fs = settings->peBadgeFontScale;
-                        if (ImGui::SliderFloat("##peBadgeFontScale", &fs, 0.5f, 2.0f, "Badge Font Scale %.2f"))
-                            settings->peBadgeFontScale = fs;
-                    }
+                    ImGui::SliderFloat("##peBadgeFontScale", &settings->peBadgeFontScale, 0.5f, 2.0f, "Badge Font Scale %.2f");
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##peBadgeOffsetX", &settings->peBadgeOffsetX, -20, 40, "Badge H Offset %d");
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##peBadgeOffsetY", &settings->peBadgeOffsetY, -20, 40, "Badge V Offset %d");
-                    EndAppearanceGroup();
-                }
 
-                if (settings->peShowNames && BeginAppearanceGroup("##PENameGrp", "Name")) {
-                    c = ColorUtils::ArgbToVec4(settings->peNameColor);
-                    if (ImGui::ColorEdit4("Name##peNameCol", reinterpret_cast<float*>(&c), kArgb))
-                        settings->peNameColor = ColorUtils::Vec4ToArgb(c);
-                    c = ColorUtils::ArgbToVec4(settings->peNameBgColor);
-                    if (ImGui::ColorEdit4("Name BG##peNameBg", reinterpret_cast<float*>(&c), kArgb))
-                        settings->peNameBgColor = ColorUtils::Vec4ToArgb(c);
-                    NextAppearanceStyleCol();
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    {
-                        float fs = settings->peNameFontScale;
-                        if (ImGui::SliderFloat("##peNameFontScale", &fs, 0.5f, 2.0f, "Name Font Scale %.2f"))
-                            settings->peNameFontScale = fs;
-                    }
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##peNameMaxChars", &settings->peNameMaxChars, 0, 60,
-                        settings->peNameMaxChars == 0 ? "Name Max Chars: No limit" : "Name Max Chars %d");
-                    EndAppearanceGroup();
+                    if (settings->peChargeStyle == 1 || settings->peShowDurability) {
+                        ImGui::Spacing();
+                        ImGui::TextDisabled("Charge / Durability");
                 }
-
-                if ((settings->peChargeStyle == 1 || settings->peShowDurability) &&
-                    BeginAppearanceGroup("##PEChargeGrp", "Charge / Durability")) {
-                    NextAppearanceStyleCol();
                     if (settings->peChargeStyle == 1) {
                         ImGui::SetNextItemWidth(-FLT_MIN);
                         ImGui::SliderInt("##peChargeBarWidth", &settings->peChargeBarWidth, 4, 40, "Charge Bar Width %d px");
                         ImGui::SetNextItemWidth(-FLT_MIN);
-                        {
                             int hpct = (int)(settings->peChargeBarHeight * 100.0f + 0.5f);
                             if (ImGui::SliderInt("##peChargeBarHeight", &hpct, 5, 100, "Charge Bar Height %d%%"))
                                 settings->peChargeBarHeight = hpct / 100.0f;
-                        }
                     }
                     if (settings->peShowDurability) {
                         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -1022,7 +1077,23 @@ namespace ImGuiRenderer::SettingsUI {
                         if (ImGui::SliderInt("##peDuraScale", &dpct, 30, 200, "Durability Pip Scale %d%%"))
                             settings->peDurabilityScale = dpct / 100.0f;
                     }
-                    EndAppearanceGroup();
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Effect Badges");
+                    ImGui::Checkbox("Show Effect Badges##peFxBadges", &settings->peShowEffectBadges);
+                    if (settings->peShowEffectBadges) {
+                        ImGui::Indent(20.0f);
+                        static const char* styleItems[] = { "Off", "Classic", "Plain", "Glass", "Steel", "Gem" };
+                        static_assert(std::size(styleItems) == HUDDraw::BadgePreset_Count);
+                        SettingsWidgets::SegmentedPicker("Badge Style##peFxStyle", &settings->peEffectBadgeStyle, styleItems, HUDDraw::BadgePreset_Count);
+                        static const char* placeItems[] = { "Above Slot", "Above Label" };
+                        SettingsWidgets::SegmentedPicker("Badge Placement##peFxPlace", &settings->peEffectBadgePlace, placeItems, 2);
+                        ImGui::SliderInt("##peFxSize", &settings->peEffectBadgeSize, 15, 50, "Badge Size %d%%");
+                        ImGui::SliderInt("##peFxMax", &settings->peEffectBadgeMax, 1, 6, "Max Badges %d");
+                        ImGui::Checkbox("Hide Equipment Effects in Active Effects##peFxHideList", &settings->peEffectBadgeHideInList);
+                        ImGui::Unindent(20.0f);
+                    }
+                    ImGui::Spacing();
                 }
             }
 
@@ -1053,7 +1124,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     static int presetIndex = 0;
                     static constexpr const char* presetNames[] = {
-                        "Default", "Compact", "Vivid", "Minimal", "Halo"
+                        "Default", "Compact", "Vivid", "Minimal", "Halo", "Bare"
                     };
                     if (SettingsWidgets::SegmentedPicker("##prPreset", &presetIndex, presetNames, IM_ARRAYSIZE(presetNames)))
                         PlayerHUDResistancesPresets::ApplyPreset(*settings, static_cast<std::size_t>(presetIndex));
@@ -1064,19 +1135,41 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::TextDisabled("Layout / Behavior");
                 ImGui::Spacing();
 
-                const char* prLayoutItems[] = { "Vertical", "Horizontal", "Radial" };
-                SettingsWidgets::SegmentedPicker("Layout##prLayout", &settings->prLayout, prLayoutItems, 3);
+                const char* prStyleItems[] = { "Classic", "Quick List", "Pennant" };
+                SettingsWidgets::SegmentedPicker("Style##prStyle", &settings->prStyle, prStyleItems, 3);
+                const bool prClassic = settings->prStyle == 0;
+                const bool prPennant = settings->prStyle == 2;
+                if (prPennant) {
+                    const char* prClothItems[] = { "Auto", "Down", "Up", "Left", "Right" };
+                    SettingsWidgets::SegmentedPicker("Cloth Direction##prCloth", &settings->prClothDir, prClothItems, 5);
+                }
 
-                if (settings->prLayout == 2) {
+                const char* prLayoutItems[] = { "Vertical", "Horizontal", "Radial" };
+                int prShownLayout = prClassic ? settings->prLayout : (std::min)(static_cast<int>(settings->prLayout), 1);
+                if (SettingsWidgets::SegmentedPicker("Layout##prLayout", &prShownLayout, prLayoutItems, prClassic ? 3 : 2))
+                    settings->prLayout = prShownLayout;
+                const bool prRadial = prClassic && settings->prLayout == 2;
+
+                const char* prAnchorItems[] = { "Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right" };
+                const int prOldAnchor = settings->prAnchor;
+                if (SettingsWidgets::SegmentedPicker("Anchor##prAnchor", &settings->prAnchor, prAnchorItems, 4))
+                    PlayerHUDResistances::KeepPlaceOnAnchorChange(prOldAnchor);
+                if (!prRadial)
+                    ImGui::SliderInt("Wrap After##prWrap", &settings->prWrapAfter, 0, 8, settings->prWrapAfter == 0 ? "Never" : "%d");
+
+                if (prRadial) {
                     ImGui::SliderInt("Radius##prRadialRadius", &settings->prRadialRadius, 30, 200, "%d px");
                     ImGui::SliderInt("Start Angle##prRadialStartAngle", &settings->prRadialStartAngle, -180, 180, "%d\xc2\xb0");
                     ImGui::Checkbox("Value Rings##prRadialShowRing", &settings->prRadialShowRing);
                 }
 
                 ImGui::Checkbox("Show Values##prShowValue", &settings->prShowValue);
-                ImGui::SameLine(0.0f, 16.0f);
+                if (!prPennant) ImGui::SameLine(0.0f, 16.0f);
+                if (prClassic)
                 ImGui::Checkbox("Icon Fill##prIconFill", &settings->prIconFill);
-                if (ImGui::IsItemHovered())
+                else if (!prPennant)
+                    ImGui::Checkbox("Show Names##prShowNames", &settings->prShowNames);
+                if (prClassic && ImGui::IsItemHovered())
                     ImGui::SetTooltip("The icon itself becomes the meter: a faint ghost icon\nfills bottom-up with the resist value (like the Survival widget).\nWorks in all layouts.");
                 if (ImGui::SliderInt("Pos X##prPosX", &settings->prPosX, 0, static_cast<int>(displaySize.x)))
                     PlayerHUDResistances::ForceReposition();
@@ -1103,6 +1196,7 @@ namespace ImGuiRenderer::SettingsUI {
                     {
                         static constexpr ImGuiColorEditFlags kArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
                         ImVec4 c;
+                        if (prClassic) {
                         c = ColorUtils::ArgbToVec4(settings->prRibbonColor);
                         if (ImGui::ColorEdit4("Ribbon##prRibbon", reinterpret_cast<float*>(&c), kArgb))
                             settings->prRibbonColor = ColorUtils::Vec4ToArgb(c);
@@ -1118,6 +1212,16 @@ namespace ImGuiRenderer::SettingsUI {
                                 ImGui::SliderInt("Solid Anchor##prRibbonFadeAnchor", &settings->prRibbonFadeAnchor, 0, 60, "%d%%");
                                 ImGui::SetNextItemWidth(120.0f);
                                 ImGui::SliderInt("Fade Length##prRibbonFadeLength", &settings->prRibbonFadeLength, 10, 100, "%d%%");
+                                }
+                            }
+                        } else {
+                            c = ColorUtils::ArgbToVec4(settings->prDiscColor);
+                            if (ImGui::ColorEdit4("BG##prDisc", reinterpret_cast<float*>(&c), kArgb)) settings->prDiscColor = ColorUtils::Vec4ToArgb(c);
+                            c = ColorUtils::ArgbToVec4(settings->prDiscBorderColor);
+                            if (ImGui::ColorEdit4("Border##prDiscBorder", reinterpret_cast<float*>(&c), kArgb)) settings->prDiscBorderColor = ColorUtils::Vec4ToArgb(c);
+                            if (!prPennant) {
+                                c = ColorUtils::ArgbToVec4(settings->prStripColor);
+                                if (ImGui::ColorEdit4("Strip##prStrip", reinterpret_cast<float*>(&c), kArgb)) settings->prStripColor = ColorUtils::Vec4ToArgb(c);
                             }
                         }
                         ImGui::Spacing();
@@ -1190,8 +1294,17 @@ namespace ImGuiRenderer::SettingsUI {
 
                     ImGui::Spacing();
                     ImGui::TextDisabled("Background");
+                    if (!prClassic) {
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderInt("##prDiscBorderW", &settings->prDiscBorderWidth, 0, 6, "Border Width %d px");
+                        if (!prPennant) {
+                            ImGui::SetNextItemWidth(-FLT_MIN);
+                            ImGui::SliderInt("##prDiscRadius", &settings->prDiscRadius, 0, 50, "Corner Radius %d%%");
+                        }
+                    } else {
                     ImGui::Checkbox("Enable Background##prBgTint", &settings->prBgTintEnabled);
-                    if (settings->prBgTintEnabled) {
+                    }
+                    if (prClassic && settings->prBgTintEnabled) {
                         const char* prBgStyleItems[] = { "Flat Tint", "Layered Chip" };
                         SettingsWidgets::SegmentedPicker("Background Style##prBgStyle", &settings->prBgStyle, prBgStyleItems, 2);
                         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -1451,18 +1564,27 @@ namespace ImGuiRenderer::SettingsUI {
             ImGui::Indent(10);
             ImGui::Spacing();
 
+            enum { kNeeds, kSupplies, kEnvironment, kSharedStyle };
+            static int s_survivalSection = kNeeds;
+            static constexpr const char* survivalSections[] = { "Needs", "Supplies", "Environment", "Shared Style" };
+            SettingsWidgets::SegmentedPicker("##phSurvSection", &s_survivalSection, survivalSections, IM_ARRAYSIZE(survivalSections));
+            ImGui::Spacing();
+
+            if (s_survivalSection == kNeeds) {
+
             ImGui::Checkbox("Enable Widget##phSurvivalEnable", &settings->enablePlayerSurvivalWidget);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Shows Cold / Hunger / Fatigue cards when Survival Mode (ccqdrsse001-survivalmode.esl) is active.");
 
             ImGui::Checkbox("Stacking Warning##phSurvStackWarn", &settings->phSurvivalStackWarning);
             if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Shows a game message once per load when vanilla Survival Mode runs beside\nRND, Last Seed or Frostfall, when SunHelm and Frostfall both track cold,\nor when RND is installed but not started.");
+                    ImGui::SetTooltip("Warns you if two survival mods clash.");
+            }
 
-            if (settings->enablePlayerSurvivalWidget) {
+            if (s_survivalSection == kNeeds && settings->enablePlayerSurvivalWidget) {
                 ImGui::Spacing();
                 ImGui::Separator();
                 ImGui::TextDisabled("Preset Styles");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Presets also change the Shared Style section.");
                 ImGui::Spacing();
                 {
                     static int presetIndex = 0;
@@ -1496,15 +1618,13 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::AlignTextToFramePadding();
                 ImGui::TextUnformatted("Indicator:");
                 ImGui::SameLine();
+                ImGui::RadioButton("None##phSurvIndStyle", &settings->phSurvivalIndicatorStyle, 2);
+                ImGui::SameLine();
                 ImGui::RadioButton("Pips##phSurvIndStyle", &settings->phSurvivalIndicatorStyle, 0);
                 ImGui::SameLine();
                 ImGui::RadioButton("Progress Bar##phSurvIndStyle", &settings->phSurvivalIndicatorStyle, 1);
-                const float indicatorIndent = ImGui::CalcTextSize("Indicator:").x + ImGui::GetStyle().ItemSpacing.x;
-                ImGui::Indent(indicatorIndent);
-                ImGui::RadioButton("None##phSurvIndStyle", &settings->phSurvivalIndicatorStyle, 2);
                 ImGui::SameLine();
                 ImGui::RadioButton("Arc##phSurvIndStyle", &settings->phSurvivalIndicatorStyle, 3);
-                ImGui::Unindent(indicatorIndent);
                 ImGui::Checkbox("Icon Fill##phSurvFill", &settings->phSurvivalIconFill);
                 if (settings->phSurvivalIndicatorStyle == 0) {
                     ImGui::AlignTextToFramePadding();
@@ -1531,7 +1651,7 @@ namespace ImGuiRenderer::SettingsUI {
 
                 ImGui::Spacing();
                 ImGui::Separator();
-                ImGui::TextDisabled("Placement");
+                ImGui::TextDisabled("Padding");
                 ImGui::SliderInt("Padding X##phSurvPaddingX", &settings->phSurvivalInnerPaddingX,
                                  -1, 40, settings->phSurvivalInnerPaddingX < 0 ? "Default" : "%d px");
                 ImGui::SliderInt("Padding Y##phSurvPaddingY", &settings->phSurvivalInnerPaddingY,
@@ -1576,7 +1696,6 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::SameLine();
                 ImGui::Checkbox("Stage##phSurvShowStage", &settings->phSurvivalShowStage);
                 ImGui::SameLine();
-                ImGui::Checkbox("Alarm Pulse##phSurvAlarmPulse", &settings->phSurvivalAlarmPulse);
                 ImGui::Checkbox("Percentage##phSurvPercentage", &settings->phSurvivalShowPercentage);
                 ImGui::SetNextItemWidth(200.0f);
                 ImGui::SliderInt("##phSurvivalHideBelowStage", &settings->phSurvivalHideBelowStage, 0, 5, "Auto-Hide Below Stage %d");
@@ -1585,71 +1704,14 @@ namespace ImGuiRenderer::SettingsUI {
 
                 ImGui::Spacing();
                 ImGui::Separator();
-                ImGui::TextDisabled("Appearance");
+                ImGui::TextDisabled("Card Size");
                 ImGui::Spacing();
-
-                if (ImGui::BeginTable("##PhSurvAppearanceTable", 2, ImGuiTableFlags_SizingStretchProp)) {
-                    ImGui::TableSetupColumn("##PhSurvColorCol", ImGuiTableColumnFlags_WidthStretch, 0.4f);
-                    ImGui::TableSetupColumn("##PhSurvSizeCol",  ImGuiTableColumnFlags_WidthStretch, 0.6f);
-
-                    ImGui::TableNextRow();
-                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(255, 255, 255, 12));
-                    ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Colors");
-                    ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("Size / Style");
-
-                    ImGui::TableNextRow();
-
-                    ImGui::TableSetColumnIndex(0);
-                    {
-                        static constexpr ImGuiColorEditFlags kArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
-                        ImVec4 c;
-                        c = ColorUtils::ArgbToVec4(settings->phSurvivalBgColor);
-                        if (ImGui::ColorEdit4("Card BG##phSurvBg", reinterpret_cast<float*>(&c), kArgb))
-                            settings->phSurvivalBgColor = ColorUtils::Vec4ToArgb(c);
-                        c = ColorUtils::ArgbToVec4(settings->phSurvivalLabelColor);
-                        if (ImGui::ColorEdit4("Label##phSurvLabel", reinterpret_cast<float*>(&c), kArgb))
-                            settings->phSurvivalLabelColor = ColorUtils::Vec4ToArgb(c);
-                        ImGui::BeginDisabled(!settings->phSurvivalShowBorder);
-                        c = ColorUtils::ArgbToVec4(settings->phSurvivalBorderColor);
-                        if (SettingsWidgets::ColorEdit4("Border Color##phSurvBorderColor", reinterpret_cast<float*>(&c), kArgb))
-                            settings->phSurvivalBorderColor = ColorUtils::Vec4ToArgb(c);
-                        ImGui::EndDisabled();
-
-                        ImGui::Spacing();
-                        ImGui::TextDisabled("Need Colors");
-                        c = ColorUtils::ArgbToVec4(settings->phSurvivalColdColor);
-                        if (ImGui::ColorEdit4("Cold##phSurvCold", reinterpret_cast<float*>(&c), kArgb))
-                            settings->phSurvivalColdColor = ColorUtils::Vec4ToArgb(c);
-                        c = ColorUtils::ArgbToVec4(settings->phSurvivalHungerColor);
-                        if (ImGui::ColorEdit4("Hunger##phSurvHunger", reinterpret_cast<float*>(&c), kArgb))
-                            settings->phSurvivalHungerColor = ColorUtils::Vec4ToArgb(c);
-                        c = ColorUtils::ArgbToVec4(settings->phSurvivalFatigueColor);
-                        if (ImGui::ColorEdit4("Fatigue##phSurvFatigue", reinterpret_cast<float*>(&c), kArgb))
-                            settings->phSurvivalFatigueColor = ColorUtils::Vec4ToArgb(c);
-                        c = ColorUtils::ArgbToVec4(settings->phSurvivalThirstColor);
-                        if (ImGui::ColorEdit4("Thirst##phSurvThirst", reinterpret_cast<float*>(&c), kArgb))
-                            settings->phSurvivalThirstColor = ColorUtils::Vec4ToArgb(c);
-                        c = ColorUtils::ArgbToVec4(settings->phSurvivalAlarmColor);
-                        if (ImGui::ColorEdit4("Final Stage##phSurvAlarm", reinterpret_cast<float*>(&c), kArgb))
-                            settings->phSurvivalAlarmColor = ColorUtils::Vec4ToArgb(c);
-                    }
-
-                    ImGui::TableSetColumnIndex(1);
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##phSurvivalIconSz", &settings->phSurvivalIconSize, 8, 96, "Icon Size %d px");
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##phSurvivalCardW", &settings->phSurvivalCardWidth, 40, 300, "Card Width %d px");
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##phSurvivalCardSpacing", &settings->phSurvivalCardSpacing, 0, 60, "Card Spacing %d px");
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##phSurvivalBgRadius", &settings->phSurvivalBgCornerRadius, 0, 40, "BG Corner Radius %d px");
-                    ImGui::Spacing();
-                    {
-                        int labelScaleInt = static_cast<int>(settings->phSurvivalLabelScale * 100);
-                        ImGui::SetNextItemWidth(-FLT_MIN);
-                        if (ImGui::SliderInt("##phSurvLabelScale", &labelScaleInt, 40, 200, "Label Scale %d%%"))
-                            settings->phSurvivalLabelScale = static_cast<float>(labelScaleInt) / 100.0f;
-                    }
                     {
                         int stageScaleInt = static_cast<int>(settings->phSurvivalStageScale * 100);
                         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -1662,23 +1724,30 @@ namespace ImGuiRenderer::SettingsUI {
                         if (ImGui::SliderInt("##phSurvPercentageScale", &percentageScaleInt, 30, 200, "Percentage Scale %d%%"))
                             settings->phSurvivalPercentageScale = static_cast<float>(percentageScaleInt) / 100.0f;
                     }
-                    ImGui::BeginDisabled(!settings->phSurvivalShowBorder);
-                    ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderFloat("##phSurvBorderWidth", &settings->phSurvivalBorderWidth, 0.5f, 6.0f, "Border Width %.1f px");
-                    ImGui::EndDisabled();
 
-                    ImGui::EndTable();
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::TextDisabled("Need Colors");
+                ImGui::Spacing();
+                {
+                    static constexpr ImGuiColorEditFlags kArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
+                    ImVec4 c;
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalColdColor);
+                    if (ImGui::ColorEdit4("Cold##phSurvCold", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalColdColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::SameLine();
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalHungerColor);
+                    if (ImGui::ColorEdit4("Hunger##phSurvHunger", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalHungerColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::SameLine();
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalFatigueColor);
+                    if (ImGui::ColorEdit4("Fatigue##phSurvFatigue", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalFatigueColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::SameLine();
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalThirstColor);
+                    if (ImGui::ColorEdit4("Thirst##phSurvThirst", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalThirstColor = ColorUtils::Vec4ToArgb(c);
                 }
-
-                ImGui::Spacing();
-                ImGui::TextDisabled("BG Depth");
-                ImGui::Checkbox("Border##phSurvBorder", &settings->phSurvivalShowBorder);
-                ImGui::SameLine();
-                ImGui::Checkbox("Texture##phSurvBgTexture", &settings->phSurvivalBgTexture);
-                ImGui::SameLine();
-                ImGui::Checkbox("Duotone##phSurvBgDuotone", &settings->phSurvivalBgDuotone);
-
-                ImGui::Spacing();
                 ImGui::TextDisabled("Indicator Depth");
                 ImGui::Checkbox("Shadow##phSurvIndShadow", &settings->phSurvivalIndicatorShadow);
                 ImGui::SameLine();
@@ -1687,6 +1756,116 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Checkbox("Glow##phSurvIndGlow", &settings->phSurvivalIndicatorGlow);
                 ImGui::SameLine();
                 ImGui::Checkbox("Highlight##phSurvIndHighlight", &settings->phSurvivalIndicatorHighlight);
+            }
+
+            if (s_survivalSection == kSupplies) {
+                ImGui::Checkbox("Enable Supplies HUD##phSuppliesEnable", &settings->phSuppliesEnable);
+                if (settings->phSuppliesEnable) {
+                    constexpr int kPennantStyle = 1;
+                    static const char* const supplyStyles[] = { "Quick List", "Pennant" };
+                    if (SettingsWidgets::SegmentedPicker("Style##phSupStyle", &settings->phSuppliesStyle, supplyStyles, 2))
+                        PlayerHUDSupplies::ForceReposition();
+                    const bool suppliesPennant = settings->phSuppliesStyle == kPennantStyle;
+                    if (suppliesPennant) {
+                        static const char* const clothDirs[] = { "Auto", "Down", "Up", "Left", "Right" };
+                        if (SettingsWidgets::SegmentedPicker("Cloth Direction##phSupCloth", &settings->phSuppliesClothDir, clothDirs, 5))
+                            PlayerHUDSupplies::ForceReposition();
+                    }
+                    if (SettingsWidgets::FlowLayoutRows("phSuppliesFlow", &settings->phSuppliesLayout, &settings->phSuppliesAnchor,
+                                                        &settings->phSuppliesMaxItems, &settings->phSuppliesWrapAfter, 5))
+                        PlayerHUDSupplies::ForceReposition();
+                    if (ImGui::SliderInt("Scale##phSuppliesScale", &settings->phSuppliesScale, 50, 200, "%d%%"))
+                        PlayerHUDSupplies::ForceReposition();
+                    if (!suppliesPennant && ImGui::Checkbox("Show Names##phSuppliesNames", &settings->phSuppliesShowNames))
+                        PlayerHUDSupplies::ForceReposition();
+                    ImGui::SliderInt("Empty Opacity##phSuppliesEmpty", &settings->phSuppliesEmptyOpacity, 0, 100, "%d%%");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Supplies you have none of. 0 hides them.");
+                    {
+                        static constexpr ImGuiColorEditFlags kSupplyArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
+                        struct SupplyColor { const char* label; std::uint32_t* argb; };
+                        const SupplyColor supplyColors[] = {
+                            { "Food##phSupCol",        &settings->phSuppliesFoodColor },
+                            { "Drinks##phSupCol",      &settings->phSuppliesDrinksColor },
+                            { "Waterskin##phSupCol",   &settings->phSuppliesWaterskinColor },
+                            { "Dirty Water##phSupCol", &settings->phSuppliesDirtyWaterColor },
+                            { "Firewood##phSupCol",    &settings->phSuppliesFirewoodColor },
+                            { "Tents##phSupCol",       &settings->phSuppliesTentsColor },
+                            { "Torches##phSupCol",     &settings->phSuppliesTorchesColor },
+                        };
+                        ImGui::Spacing();
+                        ImGui::TextDisabled("Colors");
+                        for (int i = 0; i < IM_ARRAYSIZE(supplyColors); ++i) {
+                            constexpr int kColorsPerRow = 4;
+                            if (i % kColorsPerRow != 0) ImGui::SameLine();
+                            ImVec4 c = ColorUtils::ArgbToVec4(*supplyColors[i].argb);
+                            if (ImGui::ColorEdit4(supplyColors[i].label, reinterpret_cast<float*>(&c), kSupplyArgb))
+                                *supplyColors[i].argb = ColorUtils::Vec4ToArgb(c);
+                        }
+                    }
+                    {
+                        static constexpr ImGuiColorEditFlags kBackArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
+                        struct BackColor { const char* label; std::uint32_t* argb; };
+                        const BackColor backColors[] = {
+                            { "BG##phSupBack",     &settings->phSuppliesBgColor },
+                            { "Strip##phSupBack",  &settings->phSuppliesStripColor },
+                            { "Border##phSupBack", &settings->phSuppliesBorderColor },
+                        };
+                        ImGui::Spacing();
+                        ImGui::TextDisabled("Background");
+                        for (int i = 0; i < IM_ARRAYSIZE(backColors); ++i) {
+                            if (i != 0) ImGui::SameLine();
+                            ImVec4 c = ColorUtils::ArgbToVec4(*backColors[i].argb);
+                            if (ImGui::ColorEdit4(backColors[i].label, reinterpret_cast<float*>(&c), kBackArgb))
+                                *backColors[i].argb = ColorUtils::Vec4ToArgb(c);
+                        }
+                        ImGui::SliderInt("Border Width##phSupBorderW", &settings->phSuppliesBorderWidth, 0, 6, "%d px");
+                        if (!suppliesPennant)
+                            ImGui::SliderInt("Corner Radius##phSupRadius", &settings->phSuppliesCornerRadius, 0, 50, "%d%%");
+                    }
+                    ImGui::Checkbox("Change Messages##phSuppliesMsg", &settings->phSuppliesShowMessages);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("+2 Food");
+                    if (settings->phSuppliesShowMessages) {
+                        static const char* const popupSpots[] = { "At Item", "List End" };
+                        SettingsWidgets::SegmentedPicker("Popup##phSupPopup", &settings->phSuppliesPopup, popupSpots, 2);
+                    }
+                }
+            }
+
+            if (s_survivalSection == kEnvironment) {
+                ImGui::Checkbox("Enable Environment HUD##phEnvEnable", &settings->phEnvEnable);
+                if (settings->phEnvEnable) {
+                    if (ImGui::SliderInt("Scale##phEnvScale", &settings->phEnvScale, 50, 200, "%d%%"))
+                        PlayerHUDEnvironment::ForceReposition();
+                    ImGui::Checkbox("Hide Resources Weather##phEnvHideWeather", &settings->phEnvHideResourcesWeather);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Weather shows here, so the Resources widget hides it. Place names stay.");
+                    ImGui::Checkbox("Hide Cold Need##phEnvHideCold", &settings->phEnvHideColdNeed);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Cold shows here, so Needs drops its Cold or Exposure card.");
+                }
+            }
+
+            if (s_survivalSection == kSharedStyle) {
+                ImGui::TextDisabled("Used by Needs, Supplies and Environment.");
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::TextDisabled("Text");
+                ImGui::Spacing();
+                {
+                    static constexpr ImGuiColorEditFlags kArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
+                    ImVec4 c;
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalLabelColor);
+                    if (ImGui::ColorEdit4("Label##phSurvLabel", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalLabelColor = ColorUtils::Vec4ToArgb(c);
+                }
+                {
+                    int labelScaleInt = static_cast<int>(settings->phSurvivalLabelScale * 100);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    if (ImGui::SliderInt("##phSurvLabelScale", &labelScaleInt, 40, 200, "Label Scale %d%%"))
+                        settings->phSurvivalLabelScale = static_cast<float>(labelScaleInt) / 100.0f;
+                }
 
                 ImGui::Spacing();
                 ImGui::TextDisabled("Text Depth");
@@ -1699,6 +1878,11 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##phSurvTxOlOp", &settings->phSurvivalTextOutlineOpacity, 0, 255, "Outline Opacity %d");
                 }
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::TextDisabled("Icons");
+                ImGui::Spacing();
 
                 ImGui::Spacing();
                 ImGui::TextDisabled("Icon Depth");
@@ -1723,6 +1907,71 @@ namespace ImGuiRenderer::SettingsUI {
                     if (ImGui::ColorEdit4("##phSurvIconOlC", reinterpret_cast<float*>(&oc), kSurvOlArgb))
                         settings->phSurvivalIconOutlineColor = ColorUtils::Vec4ToArgb(oc);
                 }
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::TextDisabled("Cold and Fire");
+                ImGui::Spacing();
+                {
+                    static constexpr ImGuiColorEditFlags kArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
+                    ImVec4 c;
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalColdColor);
+                    if (ImGui::ColorEdit4("Cold##phSurvSharedCold", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalColdColor = ColorUtils::Vec4ToArgb(c);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Also changes Cold in Needs.");
+                    ImGui::SameLine();
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalFireColor);
+                    if (ImGui::ColorEdit4("Fire##phSurvSharedFire", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalFireColor = ColorUtils::Vec4ToArgb(c);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Environment only.");
+                }
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::TextDisabled("Alarm");
+                ImGui::Spacing();
+                {
+                    static constexpr ImGuiColorEditFlags kArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
+                    ImVec4 c;
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalAlarmColor);
+                    if (ImGui::ColorEdit4("Final Stage##phSurvAlarm", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalAlarmColor = ColorUtils::Vec4ToArgb(c);
+                }
+                ImGui::SameLine();
+                ImGui::Checkbox("Alarm Pulse##phSurvAlarmPulse", &settings->phSurvivalAlarmPulse);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Needs and Supplies only.");
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::TextDisabled("Background (Needs)");
+                ImGui::Spacing();
+                ImGui::Checkbox("Border##phSurvBorder", &settings->phSurvivalShowBorder);
+                ImGui::SameLine();
+                ImGui::Checkbox("Texture##phSurvBgTexture", &settings->phSurvivalBgTexture);
+                ImGui::SameLine();
+                ImGui::Checkbox("Duotone##phSurvBgDuotone", &settings->phSurvivalBgDuotone);
+                {
+                    static constexpr ImGuiColorEditFlags kArgb = ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview;
+                    ImVec4 c;
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalBgColor);
+                    if (ImGui::ColorEdit4("Card BG##phSurvBg", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalBgColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::SameLine();
+                    ImGui::BeginDisabled(!settings->phSurvivalShowBorder);
+                    c = ColorUtils::ArgbToVec4(settings->phSurvivalBorderColor);
+                    if (SettingsWidgets::ColorEdit4("Border Color##phSurvBorderColor", reinterpret_cast<float*>(&c), kArgb))
+                        settings->phSurvivalBorderColor = ColorUtils::Vec4ToArgb(c);
+                    ImGui::EndDisabled();
+                }
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::SliderInt("##phSurvivalBgRadius", &settings->phSurvivalBgCornerRadius, 0, 40, "BG Corner Radius %d px");
+                ImGui::BeginDisabled(!settings->phSurvivalShowBorder);
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                ImGui::SliderFloat("##phSurvBorderWidth", &settings->phSurvivalBorderWidth, 0.5f, 6.0f, "Border Width %.1f px");
+                ImGui::EndDisabled();
             }
 
             ImGui::Unindent(10);

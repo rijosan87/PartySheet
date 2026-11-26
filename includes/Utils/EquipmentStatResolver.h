@@ -57,6 +57,7 @@ namespace EquipmentStatResolver {
         float       skillBonus    = 0.0f;
         float       fortifyBonus  = 0.0f;
         float       enchantDamage = 0.0f;
+        float       enchantTotal  = 0.0f;
         float       weaponSpeed   = 0.0f;
         std::string enchantType;
         std::string skillIconName = "none";

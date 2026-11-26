@@ -62,6 +62,12 @@ namespace EffectCategories {
 
     std::string LocalizedAVName(RE::ActorValue av);
 
+    bool IsGameplayAV(RE::ActorValue av);
+
+    std::string FillDescriptionTags(std::string text, float mag = -1.0f, float dur = -1.0f);
+
+    int SkillGroup(RE::ActorValue av);
+
     enum class HudTarget : std::uint8_t {
         None,
         HealthMax, MagickaMax, StaminaMax,
@@ -75,6 +81,9 @@ namespace EffectCategories {
     HudTarget GetHudTarget(RE::ActorValue av);
 
     RE::ActorValue GetSkillTarget(RE::ActorValue av);
+
+    bool ChangesEquipment(RE::ActorValue av);
+    bool ChangesEquipment(const RE::EffectSetting* mgef);
 
     bool PerkLowersAttackDamage(const RE::BGSPerk* perk);
     

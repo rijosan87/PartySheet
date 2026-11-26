@@ -18,11 +18,15 @@ namespace IconRenderer {
         float borderRadius = 0.0f;
         ImVec2 uv0 = ImVec2(0.0f, 0.0f);
         ImVec2 uv1 = ImVec2(1.0f, 1.0f);
+
+        float imageScale = 1.0f;
         float bounceOffsetY = 0.0f;
     };
 
     inline void SetZoom(Style& style, float zoom, float focusU, float focusV)
     {
+        style.imageScale = zoom < 1.0f ? zoom : 1.0f;
+        if (zoom < 1.0f) zoom = 1.0f;
         float half = 0.5f / zoom;
         style.uv0 = ImVec2(focusU - half, focusV - half);
         style.uv1 = ImVec2(focusU + half, focusV + half);

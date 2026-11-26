@@ -1,7 +1,6 @@
 #include "../includes/PNGIIBridge.h"
 
 #include "../includes/ImGui/PlayerHUDEquipment.h"
-#include "../includes/TextureManager.h"
 #include "../includes/ThirdParty/PNGII_API.h"
 
 #include <chrono>
@@ -12,75 +11,35 @@ namespace PNGIIBridge
 {
     namespace
     {
-        const PNGII::API::InterfaceV1*              g_api = nullptr;
+        const PNGII::API::InterfaceV2*              g_api = nullptr;
+        PNGII::API::ResolveIconColorFunction         g_resolveColor = nullptr;
+        std::unordered_map<RE::FormID, std::uint32_t> g_colors;
         std::mutex                                  g_lock;
         std::unordered_map<RE::FormID, std::string> g_paths;
         std::atomic_bool                            g_pending = false;
         std::atomic_bool                            g_sawNotReady = false;
-
-        // SkyUI label names so PNGII's label rules (00_SkyUI-Labels.json) match outside menus.
-        const char* LabelFor(RE::TESForm* a_form)
-        {
-            if (auto* w = a_form->As<RE::TESObjectWEAP>()) {
-                switch (w->GetWeaponType()) {
-                case RE::WEAPON_TYPE::kOneHandSword:  return "weapon_sword";
-                case RE::WEAPON_TYPE::kOneHandDagger: return "weapon_dagger";
-                case RE::WEAPON_TYPE::kOneHandAxe:    return "weapon_waraxe";
-                case RE::WEAPON_TYPE::kOneHandMace:   return "weapon_mace";
-                case RE::WEAPON_TYPE::kTwoHandSword:  return "weapon_greatsword";
-                case RE::WEAPON_TYPE::kTwoHandAxe:    return TextureManager::IsWarhammer(w) ? "weapon_hammer" : "weapon_battleaxe";
-                case RE::WEAPON_TYPE::kBow:           return "weapon_bow";
-                case RE::WEAPON_TYPE::kCrossbow:      return "weapon_crossbow";
-                case RE::WEAPON_TYPE::kStaff:         return "weapon_staff";
-                default:                              return "default_weapon";
-                }
-            }
-            if (auto* a = a_form->As<RE::TESAmmo>()) return TextureManager::IsBoltAmmo(a) ? "weapon_bolt" : "weapon_arrow";
-            if (a_form->As<RE::TESObjectLIGH>()) return "misc_torch";
-            // costliest effect; Destruction splits by resistVariable; school-less -> default_power.
-            if (a_form->As<RE::TESShout>()) return "default_shout";
-            if (a_form->As<RE::ScrollItem>()) return "default_scroll";
-            if (auto* sp = a_form->As<RE::SpellItem>()) {
-                const auto* eff = sp->GetCostliestEffectItem();
-                const auto* mgef = eff ? eff->baseEffect : nullptr;
-                if (!mgef) return "default_power";
-                switch (mgef->GetMagickSkill()) {
-                case RE::ActorValue::kAlteration:  return "default_alteration";
-                case RE::ActorValue::kConjuration: return "default_conjuration";
-                case RE::ActorValue::kIllusion:    return "default_illusion";
-                case RE::ActorValue::kRestoration: return "default_restoration";
-                case RE::ActorValue::kDestruction:
-                    switch (mgef->data.resistVariable) {
-                    case RE::ActorValue::kResistFire:  return "magic_fire";
-                    case RE::ActorValue::kResistFrost: return "magic_frost";
-                    case RE::ActorValue::kResistShock: return "magic_shock";
-                    default:                           return "default_destruction";
-                    }
-                default: return "default_power";
-                }
-            }
-            if (auto* arm = a_form->As<RE::TESObjectARMO>(); arm && arm->IsShield()) {
-                return arm->IsHeavyArmor() ? "armor_shield" : arm->IsLightArmor() ? "lightarmor_shield" : "clothing_shield";
-            }
-            return nullptr;
-        }
     }
 
     void Init()
     {
         HMODULE dll = GetModuleHandleA("PNGIconInjector.dll");
         auto request = dll ? reinterpret_cast<PNGII::API::RequestAPIFunction>(GetProcAddress(dll, PNGII::API::kExportName)) : nullptr;
-        auto* api = request ? static_cast<const PNGII::API::InterfaceV1*>(request(PNGII::API::kVersion1)) : nullptr;
-        if (api && api->version == PNGII::API::kVersion1 && api->structSize >= sizeof(PNGII::API::InterfaceV1) && api->resolveIcon) {
+        if (auto* v3 = request ? static_cast<const PNGII::API::InterfaceV3*>(request(PNGII::API::kVersion3)) : nullptr;
+            v3 && v3->version == PNGII::API::kVersion3 && v3->structSize >= sizeof(PNGII::API::InterfaceV3) && v3->resolveIcon) {
+            g_api          = reinterpret_cast<const PNGII::API::InterfaceV2*>(v3);
+            g_resolveColor = v3->resolveIconColor;
+        } else if (auto* api = request ? static_cast<const PNGII::API::InterfaceV2*>(request(PNGII::API::kVersion2)) : nullptr;
+                   api && api->version == PNGII::API::kVersion2 && api->structSize >= offsetof(PNGII::API::InterfaceV2, getIconLabel) && api->resolveIcon) {
             g_api = api;
         }
-        logger::info("PNGII icon API: {}", g_api ? "v1 found" : "not available (pictograms use item art)");
+        logger::info("PNGII icon API: {}", g_resolveColor ? "v3 found, icon colors on" : g_api ? "v2 found, no icon colors" : "not available (pictograms use item art)");
     }
 
     void Clear()
     {
         std::scoped_lock l(g_lock);
         g_paths.clear();
+        g_colors.clear();
     }
 
     bool Available() { return g_api != nullptr; }
@@ -91,6 +50,15 @@ namespace PNGIIBridge
         const auto it = g_paths.find(a_id);
         if (it == g_paths.end()) return false;
         a_path = it->second;
+        return true;
+    }
+
+    bool TryGetColor(RE::FormID a_id, std::uint32_t& a_rgb)
+    {
+        std::scoped_lock l(g_lock);
+        const auto it = g_colors.find(a_id);
+        if (it == g_colors.end()) return false;
+        a_rgb = it->second;
         return true;
     }
 
@@ -114,10 +82,13 @@ namespace PNGIIBridge
                 if (!form) continue;
                 char buf[260] = {};
                 std::uint32_t need = 0;
-                const auto r = g_api->resolveIcon(id, LabelFor(form), -1, buf, sizeof(buf), &need);
+                const auto r = g_api->resolveIcon(id, nullptr, -1, buf, sizeof(buf), &need);
                 if (r == PNGII::API::Result::kSuccess || r == PNGII::API::Result::kNoMatch) {
                     std::scoped_lock l(g_lock);
                     g_paths[id] = r == PNGII::API::Result::kSuccess ? std::string(buf) : std::string();
+                    std::uint32_t rgb = 0;
+                    if (g_resolveColor && g_resolveColor(id, nullptr, -1, &rgb) == PNGII::API::Result::kSuccess) g_colors[id] = rgb;
+                    else g_colors.erase(id);
                 } else if (r == PNGII::API::Result::kBufferTooSmall) {
                     // 260 covers MAX_PATH; anything longer cannot be a loose Data file we can open anyway.
                     std::scoped_lock l(g_lock);

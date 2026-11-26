@@ -3,6 +3,8 @@
 
 #include "../includes/EffectCategories.h"
 #include "../includes/LocalizationManager.h"
+#include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <algorithm>
@@ -183,9 +185,9 @@ namespace EffectCategories {
             case AV::kHealRate:        return L("HealthRegen",     "Health Regen");
             case AV::kMagickaRate:     return L("MagickaRegen",    "Magicka Regen");
             case AV::kStaminaRate:     return L("StaminaRegen",    "Stamina Regen");
-            case AV::kHealRateMult:    return L("HealthRegenMult", "Health Regen Mult");
-            case AV::kMagickaRateMult: return L("MagickaRegenMult","Magicka Regen Mult");
-            case AV::kStaminaRateMult: return L("StaminaRegenMult","Stamina Regen Mult");
+            case AV::kHealRateMult:    return L("HealthRegen",     "Health Regen");
+            case AV::kMagickaRateMult: return L("MagickaRegen",    "Magicka Regen");
+            case AV::kStaminaRateMult: return L("StaminaRegen",    "Stamina Regen");
             case AV::kResistFire:    return L("Resistances.Fire",    "Fire Resist");
             case AV::kResistFrost:   return L("Resistances.Frost",   "Frost Resist");
             case AV::kResistShock:   return L("Resistances.Shock",   "Shock Resist");
@@ -235,6 +237,77 @@ namespace EffectCategories {
         }
     }
 
+    std::string FillDescriptionTags(std::string text, float mag, float dur) {
+        auto Num = [](float v) {
+            char b[24];
+            if (std::abs(v - std::round(v)) < 0.05f) snprintf(b, sizeof(b), "%.0f", v);
+            else                                      snprintf(b, sizeof(b), "%.1f", v);
+            return std::string(b);
+        };
+
+        std::string out;
+        out.reserve(text.size());
+        for (std::size_t i = 0; i < text.size();) {
+            const std::size_t close = text[i] == '<' ? text.find('>', i) : std::string::npos;
+            if (close == std::string::npos) { out += text[i++]; continue; }
+
+            const std::string tag = text.substr(i + 1, close - i - 1);
+            i = close + 1;
+            if (tag == "mag" && mag >= 0.0f)      out += Num(mag);
+            else if (tag == "dur" && dur >= 0.0f) out += Num(dur);
+            else if (tag.rfind("Global=", 0) == 0) {
+                auto* g = RE::TESForm::LookupByEditorID<RE::TESGlobal>(tag.substr(7));
+                if (g) out += Num(g->value);
+            }
+            else if (tag != "mag" && tag != "dur") out += tag;
+        }
+        return out;
+    }
+
+    bool IsGameplayAV(RE::ActorValue av) {
+        using AV = RE::ActorValue;
+        switch (av) {
+            case AV::kNone:
+            case AV::kAggression: case AV::kConfidence: case AV::kEnergy: case AV::kMorality:
+            case AV::kMood:       case AV::kAssistance:
+            case AV::kVariable01: case AV::kVariable02: case AV::kVariable03: case AV::kVariable04:
+            case AV::kVariable05: case AV::kVariable06: case AV::kVariable07: case AV::kVariable08:
+            case AV::kVariable09: case AV::kVariable10:
+                return false;
+            default:
+                return !LocalizedAVName(av).empty();
+        }
+    }
+
+    int SkillGroup(RE::ActorValue av) {
+        using AV = RE::ActorValue;
+        switch (av) {
+            case AV::kOneHanded:  case AV::kOneHandedModifier:
+            case AV::kTwoHanded:  case AV::kTwoHandedModifier:
+            case AV::kArchery:    case AV::kMarksmanModifier:
+            case AV::kBlock:      case AV::kBlockModifier:
+            case AV::kSmithing:   case AV::kSmithingModifier:
+            case AV::kHeavyArmor: case AV::kHeavyArmorModifier:
+                return 0;
+            case AV::kAlteration:  case AV::kAlterationModifier:
+            case AV::kConjuration: case AV::kConjurationModifier:
+            case AV::kDestruction: case AV::kDestructionModifier:
+            case AV::kIllusion:    case AV::kIllusionModifier:
+            case AV::kRestoration: case AV::kRestorationModifier:
+            case AV::kEnchanting:  case AV::kEnchantingModifier:
+                return 1;
+            case AV::kLightArmor:  case AV::kLightArmorModifier:
+            case AV::kSneak:       case AV::kSneakingModifier:
+            case AV::kLockpicking: case AV::kLockpickingModifier:
+            case AV::kPickpocket:  case AV::kPickpocketModifier:
+            case AV::kSpeech:      case AV::kSpeechcraftModifier:
+            case AV::kAlchemy:     case AV::kAlchemyModifier:
+                return 2;
+            default:
+                return -1;
+        }
+    }
+
     HudTarget GetHudTarget(RE::ActorValue av) {
         using AV = RE::ActorValue;
         switch (av) {
@@ -264,6 +337,41 @@ namespace EffectCategories {
             case AV::kSpeedMult:     return HudTarget::Speed;
             default: return HudTarget::None;
         }
+    }
+
+    bool ChangesEquipment(RE::ActorValue av) {
+        using AV = RE::ActorValue;
+        switch (GetHudTarget(av)) {
+            case HudTarget::WeaponOneHanded: case HudTarget::WeaponTwoHanded: case HudTarget::WeaponRanged:
+            case HudTarget::WeaponMelee:     case HudTarget::WeaponAny:       case HudTarget::Shield:
+            case HudTarget::Shout:
+                return true;
+            default: break;
+        }
+        switch (GetSkillTarget(av)) {
+            case AV::kOneHanded: case AV::kTwoHanded: case AV::kArchery: case AV::kBlock:
+            case AV::kAlteration: case AV::kConjuration: case AV::kDestruction:
+            case AV::kIllusion: case AV::kRestoration:
+                return true;
+            default: break;
+        }
+        switch (av) {
+            case AV::kAlterationPowerModifier: case AV::kConjurationPowerModifier:
+            case AV::kDestructionPowerModifier: case AV::kIllusionPowerModifier:
+            case AV::kRestorationPowerModifier:
+                return true;
+            default: return false;
+        }
+    }
+
+    bool ChangesEquipment(const RE::EffectSetting* mgef) {
+        if (!mgef) return false;
+        if (PerkLowersAttackDamage(mgef->data.perk)) return true;
+        const bool dual = mgef->GetArchetype() == RE::EffectSetting::Archetype::kDualValueModifier;
+        const bool primary = ChangesEquipment(mgef->data.primaryAV);
+        if (!dual) return primary;
+        const auto second = mgef->data.secondaryAV;
+        return primary && (second == RE::ActorValue::kNone || ChangesEquipment(second));
     }
 
     RE::ActorValue GetSkillTarget(RE::ActorValue av) {

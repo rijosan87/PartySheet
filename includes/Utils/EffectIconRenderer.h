@@ -7,10 +7,12 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include "../../includes/EffectCategories.h"
 #include "../../includes/TextureManager.h"
 #include "../../includes/EffectBlacklist.h"
+#include "../../includes/Utils/EffectAttribution.h"
 #include "../../includes/ImGui/FollowerHUD.h"
 #include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/Utils/ColorUtils.h"
@@ -29,10 +31,76 @@ namespace EffectIconRenderer {
         EffectCategories::EffectSource    source       = EffectCategories::EffectSource::Unknown;
         std::string                       sourceIconId;
         std::string                       sourceName;
+        const RE::MagicItem*              spell = nullptr;
+        int                               count = 1;
+        EffectAttribution::GroupKey       group;
+        ID3D11ShaderResourceView*         needIcon    = nullptr;
+        float                             needAmount  = 0.0f;
+        bool                              needPercent = false;
     };
 
-    // Query an actor's active effect list and return displayable entries.
-    inline std::vector<EffectDisplayInfo> GetActiveEffectsInfo(RE::Actor* actor, int maxEffects, int minDuration = 0, int maxDuration = 0, bool hideManagedSummons = false) {
+    inline EffectDisplayInfo DescribeEffect(RE::ActiveEffect* effect) {
+
+            EffectDisplayInfo info;
+        auto* baseEffect = effect ? effect->GetBaseObject() : nullptr;
+        if (!baseEffect) return info;
+        if (const char* n = baseEffect->GetFullName()) info.name = n;
+            info.magnitude     = std::abs(effect->magnitude);
+            info.duration      = effect->duration;
+        info.timeRemaining = effect->duration > 0 ? effect->duration - effect->elapsedSeconds : 0.0f;
+        info.isHostile     = baseEffect->IsHostile() || baseEffect->IsDetrimental() || EffectCategories::IsDebuff(baseEffect, effect->magnitude);
+            info.archetype     = baseEffect->GetArchetype();
+            info.primaryAV     = baseEffect->data.primaryAV;
+            info.source       = EffectCategories::GetEffectSource(effect);
+            info.sourceIconId = EffectCategories::GetSourceIconId(info.source);
+        info.spell = effect->spell;
+            if (effect->spell) {
+                const char* sn = effect->spell->GetFullName();
+                if (sn && sn[0]) info.sourceName = sn;
+            }
+            if (info.source == EffectCategories::EffectSource::Spell) {
+                const char* schoolIcon = EffectCategories::GetSpellSchoolIconId(effect->spell);
+                if (schoolIcon && schoolIcon[0] != '\0')
+                    info.sourceIconId = schoolIcon;
+            }
+
+            const char* frostbiteIcon = EffectCategories::GetFrostbiteIconId(info.name);
+            if (frostbiteIcon) {
+                info.iconId = frostbiteIcon;
+                info.sourceIconId.clear();
+            } else {
+                auto effectType = EffectCategories::GetEffectType(info.archetype);
+                if (effectType == EffectCategories::EffectType::Standalone)
+                    info.iconId = EffectCategories::GetStandaloneIconId(info.archetype);
+                else if (effectType == EffectCategories::EffectType::Modifier)
+                    info.iconId = EffectCategories::GetActorValueIconId(info.primaryAV);
+                else
+                    info.iconId = EffectCategories::GetScriptEffectIconId(info.name, baseEffect->data.associatedSkill);
+            }
+
+        return info;
+    }
+
+    inline void AddOrMerge(std::vector<EffectDisplayInfo>& results, RE::ActiveEffect* effect, int maxEffects) {
+        const auto key = EffectAttribution::GroupKeyOf(effect);
+        for (auto& r : results) {
+            if (!(r.group == key)) continue;
+            r.count++;
+            r.magnitude += std::abs(effect->magnitude);
+            const float left = effect->duration > 0 ? effect->duration - effect->elapsedSeconds : 0.0f;
+            if (left > 0.0f && (r.timeRemaining <= 0.0f || left < r.timeRemaining)) {
+                r.timeRemaining = left;
+                r.duration      = effect->duration;
+            }
+            return;
+        }
+        if (static_cast<int>(results.size()) >= maxEffects) return;
+        results.push_back(DescribeEffect(effect));
+        results.back().group = key;
+    }
+
+    inline std::vector<EffectDisplayInfo> GetActiveEffectsInfo(RE::Actor* actor, int maxEffects, int minDuration = 0, int maxDuration = 0, bool hideManagedSummons = false,
+                                                                const std::function<bool(const EffectAttribution::GroupKey&)>& skipGroup = {}) {
         std::vector<EffectDisplayInfo> results;
         if (!actor) return results;
 
@@ -60,60 +128,36 @@ namespace EffectIconRenderer {
 
             if (EffectBlacklist::IsBlacklisted(effectName)) continue;
 
-            if (effect->duration <= 0) continue;
+            if (!EffectAttribution::ShowsOnHud(EffectAttribution::ClassOf(actor, effect))) continue;
+            const bool untimed = effect->duration <= 0;
 
-            float timeRemaining = effect->duration - effect->elapsedSeconds;
-            if (timeRemaining <= 0) continue;
+            float timeRemaining = untimed ? 0.0f : effect->duration - effect->elapsedSeconds;
+            if (!untimed && timeRemaining <= 0) continue;
 
-            if (minDuration > 0 && effect->duration < static_cast<float>(minDuration))
+            if (!untimed && minDuration > 0 && effect->duration < static_cast<float>(minDuration))
                 continue;
 
             if (maxDuration > 0 && effect->duration > static_cast<float>(maxDuration * 60))
                 continue;
 
-            // Display filtering only. Apply before the cap so other effects can fill the freed slots.
             if (hideManagedSummons && FollowerHUD::ShouldHideSummonEffect(actor->GetFormID(),
                     reinterpret_cast<std::uintptr_t>(effect), effect->usUniqueID,
                     baseEffect->GetFormID(), effect->spell ? effect->spell->GetFormID() : 0))
                 continue;
 
-            EffectDisplayInfo info;
-            info.name          = effectName;
-            info.magnitude     = std::abs(effect->magnitude);
-            info.duration      = effect->duration;
-            info.timeRemaining = timeRemaining;
-            info.isHostile     = baseEffect->IsHostile() || baseEffect->IsDetrimental();
-            info.archetype     = baseEffect->GetArchetype();
-            info.primaryAV     = baseEffect->data.primaryAV;
-            info.source       = EffectCategories::GetEffectSource(effect);
-            info.sourceIconId = EffectCategories::GetSourceIconId(info.source);
-            if (effect->spell) {
-                const char* sn = effect->spell->GetFullName();
-                if (sn && sn[0]) info.sourceName = sn;
-            }
-            if (info.source == EffectCategories::EffectSource::Spell) {
-                const char* schoolIcon = EffectCategories::GetSpellSchoolIconId(effect->spell);
-                if (schoolIcon && schoolIcon[0] != '\0')
-                    info.sourceIconId = schoolIcon;
-            }
+            if (skipGroup && skipGroup(EffectAttribution::GroupKeyOf(effect))) continue;
 
-            const char* frostbiteIcon = EffectCategories::GetFrostbiteIconId(info.name);
-            if (frostbiteIcon) {
-                info.iconId = frostbiteIcon;
-                info.sourceIconId.clear();
-            } else {
-                auto effectType = EffectCategories::GetEffectType(info.archetype);
-                if (effectType == EffectCategories::EffectType::Standalone)
-                    info.iconId = EffectCategories::GetStandaloneIconId(info.archetype);
-                else if (effectType == EffectCategories::EffectType::Modifier)
-                    info.iconId = EffectCategories::GetActorValueIconId(info.primaryAV);
-                else
-                    info.iconId = EffectCategories::GetScriptEffectIconId(info.name, baseEffect->data.associatedSkill);
+            AddOrMerge(results, effect, maxEffects);
+        }
+
+        for (const auto& cut : EffectAttribution::NeedPoolCuts(actor)) {
+            const auto key = EffectAttribution::GroupKeyOf(cut.record->effect);
+            for (auto& r : results) {
+                if (!(r.group == key)) continue;
+                r.needIcon    = EffectAttribution::OwnerIcon(*cut.record);
+                r.needAmount  = std::fabs(cut.change.value);
+                r.needPercent = cut.change.percent;
             }
-
-            results.push_back(info);
-
-            if (static_cast<int>(results.size()) >= maxEffects) break;
         }
 
         return results;
@@ -152,7 +196,7 @@ namespace EffectIconRenderer {
         ImDrawList*              drawList,
         const DrawOptions&       opt)
     {
-        auto effectIcon = TextureManager::GetEffectIcon(effect.iconId);
+        auto effectIcon = effect.needIcon ? effect.needIcon : TextureManager::GetEffectIcon(effect.iconId);
         if (!effectIcon) return false;
 
         bool  isNegative  = effect.isHostile || EffectCategories::IsNegativeArchetype(effect.archetype);
@@ -169,7 +213,7 @@ namespace EffectIconRenderer {
             tb.width     = barW;
             tb.height    = opt.iconSize;
             tb.fraction  = effect.duration > 0
-                           ? std::clamp(effect.timeRemaining / effect.duration, 0.0f, 1.0f) : 0.0f;
+                           ? std::clamp(effect.timeRemaining / effect.duration, 0.0f, 1.0f) : 1.0f;
             tb.fillColor = ((effectColor >> IM_COL32_A_SHIFT & 0xFF) << 24) |
                            ((effectColor >> IM_COL32_R_SHIFT & 0xFF) << 16) |
                            ((effectColor >> IM_COL32_G_SHIFT & 0xFF) << 8)  |
@@ -182,7 +226,7 @@ namespace EffectIconRenderer {
             tb.height      = opt.iconSize;
             tb.rounding    = opt.bgFillRadius;
             tb.fraction    = effect.duration > 0
-                             ? std::clamp(effect.timeRemaining / effect.duration, 0.0f, 1.0f) : 0.0f;
+                             ? std::clamp(effect.timeRemaining / effect.duration, 0.0f, 1.0f) : 1.0f;
             tb.fillColor   = 0x90000000 |
                              ((effectColor >> IM_COL32_R_SHIFT & 0xFF) << 16) |
                              ((effectColor >> IM_COL32_G_SHIFT & 0xFF) << 8)  |
@@ -199,7 +243,7 @@ namespace EffectIconRenderer {
                 ta.radius    = borderRadius;
                 ta.thickness = opt.borderThickness;
                 ta.fraction  = effect.duration > 0
-                               ? std::clamp(effect.timeRemaining / effect.duration, 0.0f, 1.0f) : 0.0f;
+                               ? std::clamp(effect.timeRemaining / effect.duration, 0.0f, 1.0f) : 1.0f;
                 ta.fillColor = ((effectColor >> IM_COL32_A_SHIFT & 0xFF) << 24) |
                                ((effectColor >> IM_COL32_R_SHIFT & 0xFF) << 16) |
                                ((effectColor >> IM_COL32_G_SHIFT & 0xFF) << 8)  |
@@ -254,10 +298,12 @@ namespace EffectIconRenderer {
             }
         }
 
-        if (opt.showMagnitude && effect.magnitude >= 1.0f) {
+        const bool  hasNeedCut  = effect.needAmount >= 0.5f;
+        const float shownAmount = hasNeedCut ? effect.needAmount : effect.magnitude;
+        if (opt.showMagnitude && (hasNeedCut || shownAmount >= 1.0f)) {
             char  magText[16];
-            int   magInt = static_cast<int>(effect.magnitude);
-            bool  isPct = EffectCategories::IsPercentageMagnitude(effect.primaryAV);
+            int   magInt = static_cast<int>(hasNeedCut ? std::round(shownAmount) : shownAmount);
+            bool  isPct = hasNeedCut ? effect.needPercent : EffectCategories::IsPercentageMagnitude(effect.primaryAV);
             snprintf(magText, sizeof(magText), isNegative ? (isPct ? "-%d%%" : "-%d") : (isPct ? "+%d%%" : "+%d"), magInt);
 
             ImFont* font     = ImGui::GetFont();
@@ -279,6 +325,19 @@ namespace EffectIconRenderer {
                         ImVec2(textPos.x + dx, textPos.y + dy), strokeColor, magText);
                 }
             drawList->AddText(font, fontSize, textPos, effectColor, magText);
+        }
+
+        if (effect.count > 1) {
+            char countText[8];
+            snprintf(countText, sizeof(countText), "x%d", effect.count);
+            ImFont* font     = ImGui::GetFont();
+            float   fontSize = font->LegacySize * opt.magnitudeScale;
+            ImVec2  textSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, countText);
+            ImVec2  textPos  = ImVec2(iconPos.x + opt.iconSize - textSize.x + opt.borderThickness, iconPos.y - opt.borderThickness);
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dy = -1; dy <= 1; dy++)
+                    if (dx || dy) drawList->AddText(font, fontSize, ImVec2(textPos.x + dx, textPos.y + dy), IM_COL32(0, 0, 0, 255), countText);
+            drawList->AddText(font, fontSize, textPos, IM_COL32(255, 255, 255, 255), countText);
         }
 
         if (opt.showTimeText && effect.timeRemaining > 0.0f) {

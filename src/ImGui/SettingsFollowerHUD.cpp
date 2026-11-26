@@ -56,7 +56,7 @@ namespace ImGuiRenderer::SettingsUI {
                 selectedPreset = 0;
             }
             ImGui::TextDisabled("Preset Styles");
-            const char* presetNames[] = { "Default", "Inline", "Stacked", "Halo", "Ribbon Fill" };
+            const char* presetNames[] = { "Default", "Inline", "Stacked", "Halo", "Ribbon Fill", "Framed" };
             static_assert(std::size(presetNames) == FollowerHUDPresets::kPresets.size());
             if (SettingsWidgets::SegmentedPicker("##FollowerHudPresets", &selectedPreset, presetNames,
                                                  static_cast<int>(std::size(presetNames)))) {
@@ -138,22 +138,25 @@ namespace ImGuiRenderer::SettingsUI {
                     if (!summonsEnabled) ImGui::EndDisabled();
                 }
 
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::TextDisabled("Limits");
-
-                ImGui::SliderInt("Max Actors##hudMaxActors", &settings->maxFollowers, 1, 30);
-                if (settings->maxFollowers < 1) settings->maxFollowers = 1;
-                if (settings->maxFollowers > 30) settings->maxFollowers = 30;
-
                 ImGui::Unindent(20);
             }
 
             if (ImGui::CollapsingHeader("Layout")) {
                 ImGui::Indent(20);
                 const char* layouts[] = { "Vertical", "Horizontal" };
-                if (SettingsWidgets::SegmentedPicker("Orientation##hudLayout", &settings->hudLayout, layouts, 2))
+                if (SettingsWidgets::SegmentedPicker("Layout##hudLayout", &settings->hudLayout, layouts, 2))
                     FollowerHUD::ForceReposition();
+
+                const char* anchorItems[] = { "Top-Left", "Top-Right", "Bottom-Left", "Bottom-Right" };
+                {
+                    const int previousCorner = settings->hudAnchor;
+                    if (SettingsWidgets::SegmentedPicker("Anchor##hudAnchor", &settings->hudAnchor, anchorItems, 4))
+                        FollowerHUD::OnAnchorChanged(previousCorner);
+                }
+
+                ImGui::SliderInt("Max Actors##hudMaxActors", &settings->maxFollowers, 1, 30);
+                if (settings->maxFollowers < 1) settings->maxFollowers = 1;
+                if (settings->maxFollowers > 30) settings->maxFollowers = 30;
 
                 ImGui::SliderInt("Wrap After##hudWrap", &settings->maxPerColumnOrRow, 1, 30);
                 if (ImGui::IsItemHovered())
@@ -167,21 +170,6 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Separator();
                 ImGui::TextDisabled("Position");
 
-                bool isVertical = (settings->hudLayout == 0);
-                if (ImGui::Checkbox("Grow Upward", &settings->hudGrowUpward))
-                    FollowerHUD::OnGrowUpwardToggled();
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip(isVertical
-                        ? "Anchor the HUD's bottom edge at Y Position so new\ncards appear above existing ones."
-                        : "Anchor the HUD's bottom edge at Y Position so new\nwrapped rows appear above existing ones.");
-                }
-
-                ImGui::SameLine();
-                if (ImGui::Checkbox("Anchor Right", &settings->hudAnchorRight))
-                    FollowerHUD::ForceReposition();
-                if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("X Position becomes the HUD's RIGHT edge. The first\nfollower stays pinned and new columns grow to the left.");
-
                 if (ImGui::SliderInt("X Position##Hud", &settings->hudPosX, 0, static_cast<int>(displaySize.x)))
                     FollowerHUD::ForceReposition();
                 if (ImGui::SliderInt("Y Position##Hud", &settings->hudPosY, 0, static_cast<int>(displaySize.y)))
@@ -190,15 +178,9 @@ namespace ImGuiRenderer::SettingsUI {
                 if (settings->hudSeparateSummons) {
                     ImGui::Spacing();
                     ImGui::TextDisabled("Summon Window");
-                    if (ImGui::Checkbox("Grow Upward##SummonHUD", &settings->hudSummonGrowUpward))
-                        FollowerHUD::OnGrowUpwardToggled(true);
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Anchor the summon window's bottom edge.\nNew summons or wrapped rows appear above existing ones.");
-                    ImGui::SameLine();
-                    if (ImGui::Checkbox("Anchor Right##SummonHUD", &settings->hudSummonAnchorRight))
-                        FollowerHUD::ForceReposition();
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip("Anchor the summon window's right edge.\nNew columns or cards appear to the left.");
+                    const int previousCorner = settings->hudSummonAnchor;
+                    if (SettingsWidgets::SegmentedPicker("Anchor##hudSummonAnchor", &settings->hudSummonAnchor, anchorItems, 4))
+                        FollowerHUD::OnAnchorChanged(previousCorner, true);
                 }
                 ImGui::Unindent(20);
             }

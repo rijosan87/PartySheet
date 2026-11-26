@@ -13,6 +13,7 @@ namespace PNGIIBridge
     bool Available();
     // Render thread. Returns true and fills a_path (Data-relative, "" = no match) when cached.
     bool TryGetPath(RE::FormID a_id, std::string& a_path);
+    bool TryGetColor(RE::FormID a_id, std::uint32_t& a_rgb);
     // Render thread. Queues one UI-thread resolve for forms not yet cached (throttled, one in flight).
     void RequestPaths(std::vector<RE::TESForm*> a_forms);
 }

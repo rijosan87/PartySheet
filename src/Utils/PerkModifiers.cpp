@@ -211,6 +211,48 @@ namespace PerkModifiers {
             StoreSkillPerks(key, std::move(est));
         }
 
+        bool RaisesArmorRating(RE::BGSPerk* perk, RE::Actor* actor, RE::TESObjectARMO* armor) {
+            for (auto* entry : perk->perkEntries) {
+                if (!entry || entry->GetType() != RE::PERK_ENTRY_TYPE::kEntryPoint) continue;
+                auto* ep = static_cast<RE::BGSEntryPointPerkEntry*>(entry);
+                if (!ep->IsEntryPoint(RE::BGSEntryPoint::ENTRY_POINT::kModArmorRating)) continue;
+                RE::TESForm* args[2] = { actor, armor };
+                const bool pass = ep->CheckConditionFilters(2, args);
+                logger::debug("[ArmorPerk] {} on {}: conditions {}", perk->GetFullName(), armor->GetName(), pass);
+                if (pass) return true;
+            }
+            return false;
+        }
+
+        void RefreshArmorPerks(RE::ActorHandle handle, RE::FormID armorID, std::uint64_t key) {
+            SkillPerks est{};
+            auto  actorPtr = handle.get();
+            auto* armor    = RE::TESForm::LookupByID<RE::TESObjectARMO>(armorID);
+            const bool rated = armor && (armor->IsHeavyArmor() || armor->IsLightArmor());
+            if (actorPtr && rated) {
+                auto* actor = actorPtr.get();
+                const auto recordPerks = RecordPerks(actor);
+                auto Owned = [&](RE::BGSPerk* p) { return actor->HasPerk(p) || recordPerks.contains(p); };
+                for (int av = static_cast<int>(RE::ActorValue::kOneHanded); av <= static_cast<int>(RE::ActorValue::kEnchanting); ++av) {
+                    for (const auto& chain : TreeChains(static_cast<RE::ActorValue>(av))) {
+                        RE::BGSPerk* top = nullptr;
+                        for (auto* p : chain) if (Owned(p)) top = p;
+                        if (!top || !RaisesArmorRating(top, actor, armor)) continue;
+                        const char* nm = top->GetFullName();
+                        if (nm && nm[0]) est.perks.push_back({ nm, PerkDescription(top) });
+                    }
+                }
+                const auto& treePerks = AllTreePerks();
+                for (auto* p : recordPerks) {
+                    if (p->data.hidden || treePerks.contains(p) || !RaisesArmorRating(p, actor, armor)) continue;
+                    const char* nm = p->GetFullName();
+                    if (nm && nm[0]) est.perks.push_back({ nm, PerkDescription(p) });
+                }
+                est.known = true;
+            }
+            StoreSkillPerks(key, std::move(est));
+        }
+
         template <class RefreshFn>
         SkillPerks ReadPerkCache(RE::Actor* actor, std::uint64_t key, RefreshFn refresh) {
             const auto now = Clock::now();
@@ -317,4 +359,10 @@ namespace PerkModifiers {
         const auto key = (static_cast<std::uint64_t>(actor->GetFormID()) << 32) | kOtherPerksSlot;
         return ReadPerkCache(actor, key, [](RE::ActorHandle h, std::uint64_t k) { RefreshOtherPerks(h, k); });
     }
+
+    SkillPerks GetArmorPerks(RE::Actor* actor, RE::TESObjectARMO* armor) {
+        if (!actor || !armor) return {};
+        const auto key = (static_cast<std::uint64_t>(actor->GetFormID()) << 32) | armor->GetFormID();
+        return ReadPerkCache(actor, key, [armorID = armor->GetFormID()](RE::ActorHandle h, std::uint64_t k) { RefreshArmorPerks(h, armorID, k); });
+}
 }

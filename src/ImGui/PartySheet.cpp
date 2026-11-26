@@ -10,7 +10,7 @@
 #include "../includes/ActorStats.h"
 #include "../includes/MenuUtils.h"
 #include "../includes/PerfStats.h"
-#include "../includes/SurvivalSymptoms.h"
+#include "../includes/HUDSymptoms.h"
 #include "../includes/ImGui/WidgetDrawHelpers.h"
 
 #include <imgui.h>
@@ -1174,7 +1174,7 @@ namespace PartySheet {
                             ImGui::SameLine(0, 8.0f);
                         }
                         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (skillIconSize - ImGui::GetFontSize()) / 2.0f);
-                        const auto& cuts = SurvivalSymptoms::GetSkillCauses(actor, sv.av);
+                        const auto& cuts = HUDSymptoms::GetSkillCauses(actor, sv.av);
                         const ImVec4 valCol = cuts.empty() ? ImVec4(0.7f, 0.8f, 0.9f, 1.0f)
                                                            : ImGui::ColorConvertU32ToFloat4(IM_COL32(0xE0, 0x5A, 0x4A, 0xFF));
                         ImGui::TextColored(valCol, "%.0f", sv.val);
@@ -1193,7 +1193,7 @@ namespace PartySheet {
                             } else {
                                 char head[96];
                                 snprintf(head, sizeof(head), "%s: %.0f", LocalizationManager::Get(sv.nameKey).c_str(), sv.val);
-                                SurvivalSymptoms::ShowCausesTooltip(cuts, head);
+                                HUDSymptoms::ShowCausesTooltip(cuts, head);
                             }
                         }
                         ImGui::EndGroup();

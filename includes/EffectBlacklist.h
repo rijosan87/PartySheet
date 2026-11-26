@@ -3,7 +3,6 @@
 // STATUS: Working
 // Filters out internal or invisible spells.
 
-
 #include <cctype>
 #include <cstring>
 #include <filesystem>

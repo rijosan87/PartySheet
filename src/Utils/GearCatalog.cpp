@@ -1,6 +1,7 @@
 #include "../../includes/Utils/GearCatalog.h"
 #include "../../includes/Utils/PerkModifiers.h"
 #include "../../includes/TextureManager.h"
+#include "../../includes/EffectCategories.h"
 
 #include <SKSE/SKSE.h>
 
@@ -9,6 +10,7 @@
 #include <cstring>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace GearCatalog {
 
@@ -110,17 +112,49 @@ namespace GearCatalog {
             SpellDamageResolver::CollectDamageEffects(enchant, item.enchants);
         }
 
+        std::string FillQuestTokens(const char* name, RE::ExtraDataList* xl) {
+            if (!std::strchr(name, '<')) return name;
+            auto* text = xl ? xl->GetByType<RE::ExtraTextDisplayData>() : nullptr;
+            RE::TESQuest* quest = text ? text->ownerQuest : nullptr;
+            std::string out = name;
+            if (quest) {
+                using ParseString_t = void (*)(RE::BSString*, const RE::TESQuest*, std::uint32_t);
+                static REL::Relocation<ParseString_t> parseString{ REL::RelocationID(23429, 23897) };
+                const auto instance = static_cast<std::int32_t>(text->ownerInstance.underlying());
+                RE::BSString formatted{ name };
+                parseString(&formatted, quest, instance >= 0 ? static_cast<std::uint32_t>(instance) : quest->currentInstanceID);
+                if (formatted.c_str() && formatted.c_str()[0]) out = formatted.c_str();
+            }
+            for (std::size_t open = out.find("<Alias"); open != std::string::npos; open = out.find("<Alias", open)) {
+                const std::size_t close = out.find('>', open);
+                if (close == std::string::npos) break;
+                out.erase(open, close - open + 1);
+            }
+            return out;
+        }
+
+        const char* RawNameOf(RE::InventoryEntryData& tmp, RE::TESBoundObject* obj) {
+            const char* name = tmp.GetDisplayName();
+            if (IsMissingName(name)) name = obj->GetName();
+            return IsMissingName(name) ? nullptr : name;
+        }
+
+        int PoisonDoses(const Instance& inst) {
+            auto* p = inst.list ? inst.list->GetByType<RE::ExtraPoison>() : nullptr;
+            return p && p->poison ? static_cast<int>(p->count) : 0;
+        }
+
         bool FillItem(GearItem& item, const PreviewContext& ctx, RE::TESBoundObject* obj, const Instance& inst) {
             RE::InventoryEntryData tmp(obj, 1);
             if (inst.list) tmp.AddExtraList(inst.list);
 
-            const char* name = tmp.GetDisplayName();
-            if (IsMissingName(name)) name = obj->GetName();
-            if (IsMissingName(name)) return false;
+            const char* name = RawNameOf(tmp, obj);
+            if (!name) return false;
 
             item.key = inst.key;
-            item.name = name;
+            item.name = FillQuestTokens(name, inst.list);
             item.count = inst.count;
+            item.poisonDoses = PoisonDoses(inst);
             item.category = Classify(obj);
             item.iconHint = IconHint(obj);
 
@@ -133,10 +167,41 @@ namespace GearCatalog {
             return true;
         }
 
-        void AddToCard(ActorGear& gear, Card card, GearItem item, bool equipped) {
+        SlotTag TagFor(Card card, RE::TESForm* form) {
+            if (auto* weapon = form->As<RE::TESObjectWEAP>()) {
+                using WT = RE::WEAPON_TYPE;
+                switch (weapon->GetWeaponType()) {
+                    case WT::kOneHandDagger: return SlotTag::Daggers;
+                    case WT::kBow:           return SlotTag::Bows;
+                    case WT::kCrossbow:      return SlotTag::Crossbows;
+                    case WT::kStaff:         return SlotTag::Staves;
+                    default: return IsTwoHandedWeapon(weapon) ? SlotTag::TwoHanded : SlotTag::OneHanded;
+                }
+            }
+            if (auto* ammo = form->As<RE::TESAmmo>()) return TextureManager::IsBoltAmmo(ammo) ? SlotTag::Bolts : SlotTag::Arrows;
+            if (form->As<RE::TESObjectLIGH>()) return SlotTag::Torches;
+            auto* armor = form->As<RE::TESObjectARMO>();
+            if (!armor) return SlotTag::None;
+            if (armor->IsShield()) return SlotTag::Shields;
+            if (card == Card::Amulet || card == Card::Ring) return SlotTag::None;
+            const bool rated = armor->IsHeavyArmor() || armor->IsLightArmor();
+            if (card == Card::Head) {
+                using SL = RE::BIPED_MODEL::BipedObjectSlot;
+                const bool circletOnly = armor->HasPartOf(SL::kCirclet) && !armor->HasPartOf(SL::kHead) && !armor->HasPartOf(SL::kHair);
+                if (circletOnly) return SlotTag::Circlets;
+                return rated ? SlotTag::Helmets : SlotTag::Hoods;
+            }
+            if (armor->IsHeavyArmor()) return SlotTag::Heavy;
+            if (armor->IsLightArmor()) return SlotTag::Light;
+            return SlotTag::Clothing;
+        }
+
+        void AddToCard(ActorGear& gear, Card card, RE::TESForm* form, GearItem item, bool equipped) {
             item.equipped = equipped;
+            item.tag = TagFor(card, form);
             auto& list = gear.cards[static_cast<std::size_t>(card)];
             list.categoryMask |= 1u << static_cast<std::uint32_t>(item.category);
+            if (item.tag != SlotTag::None) list.tagMask |= 1u << static_cast<std::uint32_t>(item.tag);
             list.items.push_back(std::move(item));
         }
 
@@ -166,20 +231,25 @@ namespace GearCatalog {
         }
 
         void AddWeaponInstance(ActorGear& gear, const GearItem& item, const Instance& inst, RE::TESObjectWEAP* weapon, LeftMode leftMode) {
-            AddToCard(gear, Card::RightHand, item, inst.wornRight);
+            AddToCard(gear, Card::RightHand, weapon, item, inst.wornRight);
 
             const bool oneHandCategory = item.category != Category::Staves && item.category != Category::Bows;
             if (leftMode == LeftMode::OneHandAndOffHand && oneHandCategory && IsOneHandedWeapon(weapon))
-                AddToCard(gear, Card::LeftHand, item, inst.wornLeft);
+                AddToCard(gear, Card::LeftHand, weapon, item, inst.wornLeft);
         }
 
         void AddArmorInstance(ActorGear& gear, const GearItem& item, const Instance& inst, RE::TESObjectARMO* armor, LeftMode leftMode) {
             if (item.category == Category::OffHand) {
-                if (leftMode == LeftMode::OneHandAndOffHand) AddToCard(gear, Card::LeftHand, item, inst.wornRight || inst.wornLeft);
+                if (leftMode == LeftMode::OneHandAndOffHand) AddToCard(gear, Card::LeftHand, armor, item, inst.wornRight || inst.wornLeft);
                 return;
             }
-            for (const auto& cardSlot : kArmorCards)
-                if (armor->HasPartOf(cardSlot.slot)) AddToCard(gear, cardSlot.card, item, inst.wornRight);
+            using SL = RE::BIPED_MODEL::BipedObjectSlot;
+            for (const auto& cardSlot : kArmorCards) {
+                bool fits = armor->HasPartOf(cardSlot.slot);
+                if (cardSlot.card == Card::Head && !fits)
+                    fits = (armor->HasPartOf(SL::kHair) || armor->HasPartOf(SL::kCirclet)) && !armor->HasPartOf(SL::kBody);
+                if (fits) AddToCard(gear, cardSlot.card, armor, item, inst.wornRight);
+            }
         }
 
         void AddAmmoStack(ActorGear& gear, RE::TESAmmo* ammo, int count, const PreviewContext& ctx, LeftMode leftMode) {
@@ -193,7 +263,7 @@ namespace GearCatalog {
             GearItem item;
             if (!FillItem(item, ctx, ammo, inst)) return;
             item.statValue = ammo->GetRuntimeData().data.damage;
-            AddToCard(gear, Card::LeftHand, std::move(item), ammo == ctx.actor->GetCurrentAmmo());
+            AddToCard(gear, Card::LeftHand, ammo, std::move(item), ammo == ctx.actor->GetCurrentAmmo());
         }
 
         void SortCard(CardList& list) {
@@ -238,7 +308,7 @@ namespace GearCatalog {
                     } else if (auto* armor = obj->As<RE::TESObjectARMO>()) {
                         AddArmorInstance(gear, item, inst, armor, leftMode);
                     } else if (leftMode == LeftMode::OneHandAndOffHand) {
-                        AddToCard(gear, Card::LeftHand, std::move(item), inst.wornRight || inst.wornLeft);
+                        AddToCard(gear, Card::LeftHand, obj, std::move(item), inst.wornRight || inst.wornLeft);
                     }
                 }
             }
@@ -252,7 +322,14 @@ namespace GearCatalog {
             else if (form->As<RE::TESObjectARMO>()) set(ItemTab::Armor, ItemType::Armor, IconHint(form));
             else if (auto* alch = form->As<RE::AlchemyItem>()) {
                 if (alch->IsFood()) set(ItemTab::Food, ItemType::Food, "food");
-                else                set(ItemTab::Potion, ItemType::Potion, "potion");
+                else {
+                    set(ItemTab::Potion, ItemType::Potion, "potion");
+                    row.potionTag = ClassifyPotion(alch);
+                    static std::unordered_set<RE::FormID> s_logged;
+                    if (s_logged.insert(alch->GetFormID()).second)
+                        logger::debug("[PotionTag] {:08X} '{}' tag={}", alch->GetFormID(), alch->GetName(),
+                                      static_cast<int>(row.potionTag));
+                }
             }
             else if (form->As<RE::TESAmmo>())       set(ItemTab::Misc, ItemType::Ammo, IconHint(form));
             else if (form->As<RE::IngredientItem>()) set(ItemTab::Ingredient, ItemType::Ingredient, "ingredient");
@@ -267,13 +344,13 @@ namespace GearCatalog {
             RE::InventoryEntryData tmp(obj, 1);
             if (inst.list) tmp.AddExtraList(inst.list);
 
-            const char* name = tmp.GetDisplayName();
-            if (IsMissingName(name)) name = obj->GetName();
-            if (IsMissingName(name)) return false;
+            const char* name = RawNameOf(tmp, obj);
+            if (!name) return false;
 
             row.key = inst.key;
-            row.name = name;
+            row.name = FillQuestTokens(name, inst.list);
             row.count = inst.count;
+            row.poisonDoses = PoisonDoses(inst);
             row.weight = tmp.GetWeight();
             row.value = tmp.GetValue();
             row.quest = tmp.IsQuestObject();
@@ -320,6 +397,13 @@ namespace GearCatalog {
                 Instance whole;
                 whole.key = KeyOf(obj, nullptr);
                 whole.count = count;
+                if (count == 1 && entry && entry->extraLists) {
+                    int lists = 0;
+                    for (auto* xl : *entry->extraLists) {
+                        if (xl && ++lists == 1) whole.list = xl;
+                    }
+                    if (lists != 1) whole.list = nullptr;
+                }
                 InventoryItem row;
                 if (!FillRow(row, ctx, obj, whole)) continue;
                 if (entry) {
@@ -399,8 +483,8 @@ namespace GearCatalog {
         }
         if (auto* armor = form->As<RE::TESObjectARMO>()) {
             using SL = RE::BIPED_MODEL::BipedObjectSlot;
-            if (armor->HasPartOf(SL::kHead))    return "helmet";
             if (armor->HasPartOf(SL::kBody))    return "cuirass";
+            if (armor->HasPartOf(SL::kHead) || armor->HasPartOf(SL::kHair)) return "helmet";
             if (armor->HasPartOf(SL::kHands))   return "gauntlets";
             if (armor->HasPartOf(SL::kFeet))    return "boots";
             if (armor->HasPartOf(SL::kShield))  return "shield";
@@ -411,6 +495,70 @@ namespace GearCatalog {
         }
         if (form->As<RE::TESAmmo>()) return "arrow";
         return "misc";
+    }
+
+    PotionTag ClassifyPotion(RE::AlchemyItem* potion) {
+        if (!potion || potion->IsFood()) return PotionTag::None;
+        if (potion->IsPoison()) return PotionTag::Poison;
+
+        RE::EffectSetting* base = nullptr;
+        for (auto* effect : potion->effects) {
+            if (effect && effect->baseEffect) { base = effect->baseEffect; break; }
+        }
+        if (!base) return PotionTag::None;
+
+        using Arch = RE::EffectArchetypes::ArchetypeID;
+        const auto arch = base->GetArchetype();
+        if (arch == Arch::kCureDisease || arch == Arch::kCurePoison) return PotionTag::Cure;
+
+        using AV = RE::ActorValue;
+        switch (base->data.primaryAV) {
+            case AV::kHealth:  case AV::kHealRate:    case AV::kHealRateMult:    return PotionTag::Health;
+            case AV::kMagicka: case AV::kMagickaRate: case AV::kMagickaRateMult: return PotionTag::Magicka;
+            case AV::kStamina: case AV::kStaminaRate: case AV::kStaminaRateMult: return PotionTag::Stamina;
+            case AV::kResistFire: case AV::kResistFrost: case AV::kResistShock:
+            case AV::kResistMagic: case AV::kPoisonResist: case AV::kResistDisease: return PotionTag::Resist;
+            case AV::kCarryWeight: case AV::kDamageResist: case AV::kAttackDamageMult:
+            case AV::kWeaponSpeedMult: case AV::kSpeedMult: return PotionTag::Fortify;
+            default: break;
+        }
+        if (EffectCategories::GetSkillTarget(base->data.primaryAV) != AV::kNone) return PotionTag::Fortify;
+        return PotionTag::None;
+    }
+
+    const char* PotionTagKey(PotionTag tag) {
+        switch (tag) {
+            case PotionTag::Health:  return "Inventory.TagHealth";
+            case PotionTag::Magicka: return "Inventory.TagMagicka";
+            case PotionTag::Stamina: return "Inventory.TagStamina";
+            case PotionTag::Fortify: return "Inventory.TagFortify";
+            case PotionTag::Resist:  return "Inventory.TagResist";
+            case PotionTag::Cure:    return "Inventory.TagCure";
+            case PotionTag::Poison:  return "Inventory.TagPoison";
+            default:                 return "";
+        }
+    }
+
+    const char* SlotTagKey(SlotTag tag) {
+        switch (tag) {
+            case SlotTag::OneHanded: return "Inventory.TagOneHanded";
+            case SlotTag::TwoHanded: return "Inventory.TagTwoHanded";
+            case SlotTag::Daggers:   return "Inventory.TagDaggers";
+            case SlotTag::Bows:      return "Inventory.TagBows";
+            case SlotTag::Crossbows: return "Inventory.TagCrossbows";
+            case SlotTag::Staves:    return "Inventory.TagStaves";
+            case SlotTag::Shields:   return "Inventory.TagShields";
+            case SlotTag::Torches:   return "Inventory.TagTorches";
+            case SlotTag::Arrows:    return "Inventory.TagArrows";
+            case SlotTag::Bolts:     return "Inventory.TagBolts";
+            case SlotTag::Helmets:   return "Inventory.TagHelmets";
+            case SlotTag::Hoods:     return "Inventory.TagHoods";
+            case SlotTag::Circlets:  return "Inventory.TagCirclets";
+            case SlotTag::Heavy:     return "Inventory.TagHeavy";
+            case SlotTag::Light:     return "Inventory.TagLight";
+            case SlotTag::Clothing:  return "Inventory.TagClothing";
+            default:                 return "";
+        }
     }
 
     const char* CategoryIcon(Category category) {

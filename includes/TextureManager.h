@@ -10,6 +10,10 @@ namespace TextureManager {
     void Shutdown();
     
     ID3D11ShaderResourceView* GetTexture(const std::string& path);
+
+    ID3D11ShaderResourceView* GetIconAtPixelSize(ID3D11ShaderResourceView* base, int px);
+
+    bool GetTextureSize(ID3D11ShaderResourceView* srv, float& width, float& height);
     
     ID3D11ShaderResourceView* GetPortrait(RE::Actor* actor);
     
@@ -21,12 +25,13 @@ namespace TextureManager {
     
     ID3D11ShaderResourceView* GetItemIcon(RE::TESForm* item, const std::string& slotType);
 
+    ID3D11ShaderResourceView* GetHeldIcon(RE::TESForm* form, const char* hint);
+
     // Shared by GetItemIcon P5 and the PNGII label map so both classify the same way.
     bool IsWarhammer(RE::TESObjectWEAP* weapon);
     // Name contains "bolt" OR kNonBolt unset. Never IsBolt(): its flag logic is inverted.
     bool IsBoltAmmo(RE::TESAmmo* ammo);
 
-    
     void PreloadPortraits();
     void PreloadEffectIcons();
     

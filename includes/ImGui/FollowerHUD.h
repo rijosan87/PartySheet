@@ -15,8 +15,7 @@ namespace FollowerHUD {
 
     void ForceReposition();
 
-    // Call right after the Grow Upward checkbox flips: converts saved Y between
-    void OnGrowUpwardToggled(bool summonWindow = false);
+    void OnAnchorChanged(int previousCorner, bool summonWindow = false);
 
     bool ShouldHideSummonEffect(RE::FormID ownerID, std::uintptr_t effectInstance, std::uint16_t uniqueID,
                                 RE::FormID baseEffectID, RE::FormID spellID);

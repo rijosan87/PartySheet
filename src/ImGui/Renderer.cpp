@@ -1,3 +1,4 @@
+#include "../../includes/Utils/SurvivalState.h"
 #include "../../includes/ImGui/Renderer.h"
 #include "../../includes/InputHandler.h"
 #include "../../includes/ImGui/FollowerHUD.h"
@@ -5,6 +6,7 @@
 #include "../../includes/ImGui/PlayerHUDEquipment.h"
 #include "../../includes/ImGui/PartySheet.h"
 #include "../../includes/ImGui/PartySheetV2.h"
+#include "../../includes/ImGui/PartySheetV2Camera.h"
 #include "../../includes/ImGui/PartySheetV2Modal.h"
 #include "../../includes/ImGui/PartySheetV2InventoryModal.h"
 #include "../../includes/ImGui/PartySheetV2StatusModal.h"
@@ -18,6 +20,8 @@
 #include "../../includes/ImGui/PlayerHUDResources.h"
 #include "../../includes/ImGui/PlayerHUDEffects.h"
 #include "../../includes/ImGui/PlayerHUDSurvival.h"
+#include "../../includes/ImGui/PlayerHUDSupplies.h"
+#include "../../includes/ImGui/PlayerHUDEnvironment.h"
 #include "../../includes/ImGui/PlayerHUDDisease.h"
 #include "../../includes/ImGui/RendererSections.h"
 #include "../../includes/Settings.h"
@@ -114,6 +118,7 @@ namespace ImGuiRenderer {
     // Advanced Styling popup state is managed in RendererFollowerHUD.cpp
     static float g_SavedZoomOffset = 0.0f;
     static bool g_WasThirdPerson = true;
+    static bool g_CameraSaved = false;
     static std::chrono::steady_clock::time_point g_LastCSVisibleTime;
     static std::chrono::steady_clock::time_point g_LastPSVisibleTime;
 
@@ -749,6 +754,12 @@ namespace ImGuiRenderer {
                 ImGui::NewFrame();
                 ImGuiRenderer::g_csFocusRow = ImGuiRenderer::CSFocusRow::None;
 
+                if (PartySheetV2::IsVisible()) {
+                    PerfStats::BeginPSV2Frame();
+                    PartySheetV2::DrawBody(true);
+                    PerfStats::EndPSV2Frame();
+                }
+
                 const float menuScale = std::clamp(static_cast<float>(settings->menuScale) / 100.0f, 0.5f, 2.0f);
                 // Full geometry scaling makes the settings text feel oversized above 100%.
                 const float menuFontScale = 1.0f + (menuScale - 1.0f) * 0.5f;
@@ -861,6 +872,8 @@ namespace ImGuiRenderer {
 
                 ImGui::End();
                 ImGui::GetStyle() = unscaledStyle;
+
+                if (!PartySheetV2::IsVisible()) {
                 
                 if (settings->followerHudMode != 0) {
                     FollowerHUD::RenderContent(true);
@@ -881,7 +894,10 @@ namespace ImGuiRenderer {
                 if (settings->enablePlayerHud && settings->enablePlayerResourcesWidget)     PlayerHUDResources::RenderPreview();
                 if (settings->enablePlayerHud && settings->enablePlayerEffectWidget)        PlayerHUDEffects::RenderPreview();
                 if (settings->enablePlayerHud && settings->enablePlayerSurvivalWidget)      PlayerHUDSurvival::RenderPreview();
+                    if (settings->enablePlayerHud && settings->phSuppliesEnable)                PlayerHUDSupplies::RenderPreview();
+                    if (settings->enablePlayerHud && settings->phEnvEnable)                     PlayerHUDEnvironment::RenderPreview();
                 if (settings->enablePlayerHud && settings->enablePlayerDiseaseWidget)       PlayerHUDDisease::RenderPreview();
+                }
 
                 if (Settings::GetSingleton()->enableCharacterSheet && CharacterSheet::GetSingleton()->IsVisible()) {
                     CharacterSheet::GetSingleton()->DrawUI();
@@ -955,6 +971,7 @@ namespace ImGuiRenderer {
             }
 
             if (!g_MenuVisible && g_Initialized) {
+                SurvivalState::Tick();
                 
                 if (PartySheet::IsVisible()) {
                     g_LastPSVisibleTime = std::chrono::steady_clock::now();
@@ -1038,6 +1055,12 @@ namespace ImGuiRenderer {
                         PerfStats::BeginPHSurvival();
                         PlayerHUDSurvival::RenderHUD();
                         PerfStats::EndPHSurvival();
+                        if (PerfStats::g_Enabled) ++PerfStats::g_Current.imguiRenderPasses;
+
+                        PlayerHUDSupplies::RenderHUD();
+                        if (PerfStats::g_Enabled) ++PerfStats::g_Current.imguiRenderPasses;
+
+                        PlayerHUDEnvironment::RenderHUD();
                         if (PerfStats::g_Enabled) ++PerfStats::g_Current.imguiRenderPasses;
 
                         PlayerHUDDisease::RenderHUD();
@@ -1171,7 +1194,7 @@ namespace ImGuiRenderer {
         }
         ImGui::GetIO().MouseDrawCursor = false;
 
-        auto* tex = TextureManager::GetTexture("Data\\Interface\\PartySheet\\Icons\\cursor.png");
+        auto* tex = TextureManager::GetTexture("Data\\Interface\\PartySheet\\Party\\cursor.png");
         if (!tex) return;
 
         static float s_cursorW = 0.0f;
@@ -1235,8 +1258,10 @@ namespace ImGuiRenderer {
                 logger::debug("Settings: Auto-closed PartySheet to open Settings");
             }
             if (PartySheetV2::IsVisible()) {
-                PartySheetV2::Toggle();
-                logger::debug("Settings: Auto-closed PartySheetV2 to open Settings");
+                PartySheetV2::CloseEffectsModal();
+                PartySheetV2::CloseInventoryModal();
+                PartySheetV2::CloseStatusModal();
+                logger::debug("Settings: Opened over PartySheetV2, V2 modals closed");
             }
             
             if (MenuUtils::ShouldBlockOverlay()) {
@@ -1280,8 +1305,11 @@ namespace ImGuiRenderer {
     }
     
     static void SaveCameraZoom() {
+        g_CameraSaved = false;
+        if (PartySheetV2Camera::IsActive()) return;
         auto camera = RE::PlayerCamera::GetSingleton();
         if (!camera) return;
+        g_CameraSaved = true;
         
         g_WasThirdPerson = camera->IsInThirdPerson();
         
@@ -1295,6 +1323,7 @@ namespace ImGuiRenderer {
     }
     
     static void RestoreCameraZoom() {
+        if (!g_MenuVisible || !g_CameraSaved || PartySheetV2Camera::IsActive()) return;
         auto camera = RE::PlayerCamera::GetSingleton();
         if (!camera) return;
         

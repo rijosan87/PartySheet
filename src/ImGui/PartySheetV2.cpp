@@ -4,6 +4,8 @@
 #include "../../includes/ImGui/PartySheetV2InventoryModal.h"
 #include "../../includes/ImGui/PartySheetV2StatusModal.h"
 #include "../../includes/ImGui/PartySheetV2Camera.h"
+#include "../../includes/ImGui/PartySheetV2Light.h"
+#include "../../includes/Utils/PerkModifiers.h"
 #include "../../includes/ImGui/Renderer.h"
 #include "../../includes/ImGui/CharacterSheet.h"
 #include "../../includes/ImGui/FollowerHUD.h"
@@ -20,12 +22,15 @@
 #include "../../includes/Utils/TraitResolver.h"
 #include "../../includes/PerfStats.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/Utils/BarRenderer.h"
 #include "../../includes/Utils/SkillRowTint.h"
 #include "../../includes/Utils/EffectAttribution.h"
 #include "../../includes/Utils/GearSwitcher.h"
+#include "../../includes/Utils/RecentEquips.h"
 #include "../../includes/UIAnimation.h"
 
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <cstring>
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
@@ -86,6 +91,102 @@ namespace PartySheetV2 {
     static float FontHeading() { auto* s = Settings::GetSingleton(); return s->psV2FontHeading * s_EffectiveScale; }
     static float FontBody()    { auto* s = Settings::GetSingleton(); return s->psV2FontBody    * s_EffectiveScale; }
     static float FontSmall()   { auto* s = Settings::GetSingleton(); return s->psV2FontSmall   * s_EffectiveScale; }
+
+    static constexpr std::uint64_t kVitalBarIdBase = 0x5053563200000000ull;
+
+    static float HoverLeftEdge(ImDrawList* dl, float x) { return (std::max)(x, dl->GetClipRectMin().x + 1.0f); }
+
+    static constexpr ImU32 kStatUp   = IM_COL32(125, 220, 122, 255);
+    static constexpr ImU32 kStatDown = IM_COL32(232, 103, 106, 255);
+    static constexpr float kStatChangeSeconds = 4.0f;
+    static constexpr float kPoolJumpSeconds   = 1.4f;
+    struct RolledStat { float shown; ImU32 tint; float sinceOpen; float chipAlpha; UIAnimation::WatchResult watch; };
+
+    static std::string StatKey(RE::Actor* actor, const char* slotKey)
+    {
+        char key[96];
+        snprintf(key, sizeof(key), "psv2_stat_%08X_%s", actor ? actor->GetFormID() : 0u, slotKey);
+        return key;
+    }
+
+    static RolledStat RollStat(RE::Actor* actor, const char* slotKey, float value, bool settled, float step = 0.5f)
+    {
+        if (!settled) return { value, IM_COL32(255, 255, 255, 220), 0.0f, 0.0f, {} };
+        const std::string key = StatKey(actor, slotKey);
+        static std::unordered_map<std::string, RolledStat> lastRoll;
+        if (actor && GearSwitcher::SentRecently(actor->GetFormID())) {
+            if (const auto it = lastRoll.find(key); it != lastRoll.end()) return it->second;
+            return { value, IM_COL32(255, 255, 255, 220), 0.0f, 0.0f, {} };
+        }
+        constexpr float kRollSpeed = 10.0f;
+        RolledStat r;
+        r.shown     = UIAnimation::Follow(key, value, kRollSpeed, kRollSpeed);
+        r.sinceOpen = UIAnimation::SinceShown(key, value);
+        constexpr float kChipHold = kStatChangeSeconds - 1.0f, kChipFade = 1.0f;
+        r.watch     = UIAnimation::Watch(key + "_chip", value, kChipHold + kChipFade, step);
+        r.chipAlpha = UIAnimation::AgeFade((1.0f - r.watch.flash) * (kChipHold + kChipFade), 0.0f, kChipHold, kChipFade);
+        r.tint      = IM_COL32(255, 255, 255, 220);
+        if (std::fabs(r.shown - value) >= step)
+            r.tint = r.shown < value ? kStatUp : kStatDown;
+        lastRoll[key] = r;
+        return r;
+    }
+
+    static void DrawChangeChip(ImDrawList* dl, float sc, ImVec2 edge, float sinceOpen, float alpha)
+    {
+        if (std::fabs(sinceOpen) < 0.5f || alpha <= 0.0f) return;
+        char chipBuf[16];
+        snprintf(chipBuf, sizeof(chipBuf), "%+.0f", sinceOpen);
+        const bool   up  = sinceOpen > 0.0f;
+        const ImVec2 csz = ImGui::CalcTextSize(chipBuf);
+        const float  cp  = 3.0f * sc;
+        const ImVec2 cTL(edge.x + 4.0f * sc, edge.y - csz.y * 0.5f - cp * 0.5f);
+        const ImVec2 cBR(cTL.x + csz.x + cp * 2.0f, cTL.y + csz.y + cp);
+        const int a = static_cast<int>(255.0f * alpha);
+        dl->AddRectFilled(cTL, cBR, up ? IM_COL32(125, 220, 122, 45 * a / 255) : IM_COL32(232, 103, 106, 45 * a / 255), 8.0f * sc);
+        dl->AddText(ImVec2(cTL.x + cp, cTL.y + cp * 0.5f), up ? IM_COL32(125, 220, 122, a) : IM_COL32(232, 103, 106, a), chipBuf);
+    }
+
+    static void DrawFloatDelta(ImDrawList* dl, float sc, float right, float bottom, float delta, float flash,
+                               float flashSeconds, const char* fmt, float rise = 6.0f)
+    {
+        if (flash <= 0.0f || std::fabs(delta) < 0.001f) return;
+        const float age   = (1.0f - flash) * flashSeconds;
+        const float alpha = UIAnimation::SmoothStep(UIAnimation::AgeFade(age, 0.10f, 0.50f, 0.60f));
+        if (alpha <= 0.0f) return;
+        char buf[24];
+        snprintf(buf, sizeof(buf), fmt, delta);
+        const ImVec2 sz   = ImGui::CalcTextSize(buf);
+        const float  up   = UIAnimation::EaseOut(UIAnimation::Clamp(age / 0.5f, 0.0f, 1.0f)) * rise * sc;
+        const ImU32  col  = ((delta > 0.0f ? kStatUp : kStatDown) & 0x00FFFFFF) | (static_cast<ImU32>(255.0f * alpha) << IM_COL32_A_SHIFT);
+        dl->AddText(ImVec2(right - sz.x, bottom - sz.y - up), col, buf);
+    }
+
+    static UIAnimation::WatchResult PoolJump(RE::Actor* actor, const char* slotKey, float current, float jumpMin)
+    {
+        if (actor && GearSwitcher::SentRecently(actor->GetFormID())) return {};
+        static std::unordered_map<std::string, float> s_JumpTotal;
+        const std::string key = StatKey(actor, slotKey);
+        const auto perFrame = UIAnimation::Watch(key + "_frame", current, 0.05f, 0.0f);
+        float& total = s_JumpTotal[key];
+        if (perFrame.changed && perFrame.delta >= jumpMin) total += perFrame.delta;
+        return UIAnimation::Watch(key + "_jump", total, kPoolJumpSeconds, 0.5f);
+    }
+
+    static void DrawThinBar(ImDrawList* dl, ImVec2 pos, float width, float height, float fraction, ImU32 color)
+    {
+        HUDDraw::BarStyle bs;
+        bs.width      = width;
+        bs.height     = height;
+        bs.rounding   = height * 0.5f;
+        bs.fraction   = fraction;
+        bs.fillColor  = HUDDraw::PackedToArgb(color);
+        bs.tip        = false;
+        bs.edgeLight  = false;
+        bs.shadow     = false;
+        bs.highlight  = false;
+        HUDDraw::DrawBarStyled(dl, pos, bs);
+    }
 
     static void AddTextShadowed(ImDrawList* dl, ImFont* font, float fontSize, const ImVec2& pos,
                                 ImU32 col, const char* text, const char* textEnd = nullptr,
@@ -348,9 +449,9 @@ namespace PartySheetV2 {
         ImVec2 origin  = ImGui::GetCursorScreenPos();
 
         const float sc      = s_EffectiveScale;
-        const float halfAct = 40.0f * sc;
-        const float halfInc = 32.0f * sc;
-        const float gapY    = 16.0f * sc;
+        const float halfAct = 50.0f * sc;
+        const float halfInc = 42.0f * sc;
+        const float gapY    = 18.0f * sc;
         const float cx      = origin.x + size.x * 0.5f;
         const float visH    = size.y;
 
@@ -384,6 +485,9 @@ namespace PartySheetV2 {
         ImVec2 clipMin = origin;
         ImVec2 clipMax = ImVec2(origin.x + size.x, origin.y + size.y);
         dl->PushClipRect(clipMin, clipMax, true);
+
+        const auto messages = GearSwitcher::RecentMessages();
+        const auto now      = std::chrono::steady_clock::now();
 
         for (int i = 0; i < static_cast<int>(subjects.size()); ++i) {
             RE::Actor* actor  = subjects[i];
@@ -439,6 +543,27 @@ namespace PartySheetV2 {
                 }
             }
 
+            for (const auto& m : messages) {
+                if (m.receiver == 0 || m.receiver != actor->GetFormID()) continue;
+                const float age   = std::chrono::duration<float>(now - m.at).count();
+                const float alpha = UIAnimation::SmoothStep(UIAnimation::AgeFade(age, 0.10f, 0.50f, 0.60f));
+                if (alpha <= 0.0f) continue;
+                const float grow = UIAnimation::EaseOut(UIAnimation::Clamp(age / 1.2f, 0.0f, 1.0f));
+                dl->AddQuadFilled(top, right, bottom, left, IM_COL32(125, 220, 122, static_cast<int>(50 * alpha)));
+                DrawDiamondBorder(dl, cx, cy, half, IM_COL32(125, 220, 122, static_cast<int>(230 * alpha)), 2.0f * sc);
+                DrawDiamondBorder(dl, cx, cy, half + (2.0f + 7.0f * grow) * sc,
+                    IM_COL32(125, 220, 122, static_cast<int>(140 * alpha * (1.0f - grow))), 1.5f * sc);
+
+                const float rise = UIAnimation::EaseOut(UIAnimation::Clamp(age / 0.5f, 0.0f, 1.0f));
+                ImGui::SetWindowFontScale(FontSmall());
+                const ImVec2 plusSz = ImGui::CalcTextSize("+1");
+                dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+                    ImVec2(left.x + 2.0f * sc, cy - half * 0.3f - plusSz.y * 0.5f - 16.0f * sc * rise),
+                    IM_COL32(125, 220, 122, static_cast<int>(255 * alpha)), "+1");
+                ImGui::SetWindowFontScale(1.0f);
+                break;
+            }
+
             {
                 int level = actor->GetLevel();
                 char lvlBuf[8];
@@ -452,8 +577,7 @@ namespace PartySheetV2 {
                             bottom.y - 5.0f * sc - 1);
                 ImVec2 bMax(bottom.x + textSz.x * 0.5f + bpad,
                             bottom.y - 5.0f * sc + textSz.y + bpad * 2 + 1);
-                dl->AddRectFilled(bMin, bMax, IM_COL32(9, 9, 11, 255), 2.0f * sc);
-                dl->AddRect(bMin, bMax, V2Theme::AccentA(160), 2.0f * sc, 0, 1.0f);
+                HUDDraw::DrawChip(dl, bMin, bMax, HUDDraw::PanelChipFromColor(HUDDraw::PackedToArgb(IM_COL32(28, 26, 30, 255)), 1.0f, 0.0f, 2.0f * sc));
 
                 ImGui::SetWindowFontScale(FontSmall());
                 dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
@@ -474,10 +598,10 @@ namespace PartySheetV2 {
                         (state == ActorState::Waiting) ? s_TexWait    : s_TexFollow;
                 }
                 if (stateTex) {
-                    const float iconHalf = 8.0f * sc;
-                    ImVec2 iMin(right.x - 5.0f * sc - 1,              right.y - iconHalf - 1);
-                    ImVec2 iMax(right.x - 5.0f * sc + iconHalf * 2 + 1, right.y + iconHalf + 1);
-                    dl->AddRectFilled(iMin, iMax, IM_COL32(9, 9, 11, 255), 2.0f * sc);
+                    const float iconHalf = 9.0f * sc;
+                    ImVec2 iMin(right.x - 9.0f * sc - 1,              right.y - iconHalf - 1);
+                    ImVec2 iMax(right.x - 9.0f * sc + iconHalf * 2 + 1, right.y + iconHalf + 1);
+                    HUDDraw::DrawChip(dl, iMin, iMax, HUDDraw::PanelChipFromColor(HUDDraw::PackedToArgb(IM_COL32(28, 26, 30, 255)), 1.0f, 0.0f, 2.0f * sc));
                     ImVec2 iTl(iMin.x + 1, iMin.y + 1), iBr(iMax.x - 1, iMax.y - 1);
                     HUDDraw::DrawIconStyled(dl, iTl, ImVec2(iBr.x - iTl.x, iBr.y - iTl.y),
                         reinterpret_cast<ImTextureID>(stateTex), 0xFFFFFFFF, IconFxDefault());
@@ -567,6 +691,18 @@ namespace PartySheetV2 {
             if (midTitle.empty()) midTitle = midWord;
             const bool blessed = HasBlessings(actor);
             const std::string blessWord = blessed ? Upper(LocalizationManager::Get("PartySheetV2.SectionBlessings")) : std::string();
+            const bool hasEffects = HasActiveEffects(actor);
+            const std::string effectsWord = hasEffects ? Upper(LocalizationManager::Get("PartySheetV2.ActiveEffects")) : std::string();
+            const std::string behaviorWord = isPlayer ? std::string() : Upper(LocalizationManager::Get("PartySheetV2.Behavior"));
+            const CurseInfo curse = GetCurse(actor);
+            std::string curseWord, curseTitle;
+            if (curse.kind != CurseInfo::Kind::None) {
+                const bool vamp = curse.kind == CurseInfo::Kind::Vampire;
+                curseTitle = Upper(LocalizationManager::Get(vamp ? "PartySheetV2.Vampire" : "PartySheetV2.Werewolf"));
+                curseWord  = curseTitle;
+                if (vamp && curse.stage > 0)
+                    curseWord += " Â· " + Upper(LocalizationManager::Get("PartySheetV2.Stage")) + " " + std::to_string(curse.stage);
+            }
             std::string levelWord = Upper(LocalizationManager::Get("Common.Level") + " " + std::to_string(actor->GetLevel()));
             const std::string sep = "  |  ";
 
@@ -615,8 +751,16 @@ namespace PartySheetV2 {
             static ID3D11ShaderResourceView* s_TexBlessIco = nullptr;
             if (!s_TexStoneIco) s_TexStoneIco = TextureManager::GetPartyIcon("standing_stone");
             if (!s_TexBlessIco) s_TexBlessIco = TextureManager::GetPartyIcon("blessing");
+            static ID3D11ShaderResourceView* s_TexEffectsIco = nullptr;
+            if (!s_TexEffectsIco) s_TexEffectsIco = TextureManager::GetPartyIcon("magic");
+            static ID3D11ShaderResourceView* s_TexBehaviorIco = nullptr;
+            static ID3D11ShaderResourceView* s_TexVampireIco  = nullptr;
+            static ID3D11ShaderResourceView* s_TexWerewolfIco = nullptr;
+            if (!s_TexBehaviorIco) s_TexBehaviorIco = TextureManager::GetPartyIcon("StateCombat");
+            if (!s_TexVampireIco)  s_TexVampireIco  = TextureManager::GetPartyIcon("vampire");
+            if (!s_TexWerewolfIco) s_TexWerewolfIco = TextureManager::GetPartyIcon("werewolf");
 
-            bool raceHover = false, midHover = false, blessHover = false, levelHover = false;
+            bool raceHover = false, midHover = false, blessHover = false, levelHover = false, effectsHover = false, behaviorHover = false, curseHover = false;
 
             enum class LvState { Player, Mirror, Max, Fixed } lvState = LvState::Fixed;
             float xpCur = 0.0f, xpNeed = 0.0f;
@@ -629,7 +773,7 @@ namespace PartySheetV2 {
                 const auto maxLv = nb->actorData.calcLevelMax;
                 lvState = (maxLv > 0 && actor->GetLevel() >= maxLv) ? LvState::Max : LvState::Mirror;
             }
-            const float xpFrac = (xpNeed > 0.0f) ? std::clamp(xpCur / xpNeed, 0.0f, 1.0f) : 0.0f;
+            const float xpFrac = (xpNeed > 0.0f) ? (std::max)(xpCur / xpNeed, 0.0f) : 0.0f;
 
             {
                 const float lvX0 = penX;
@@ -638,26 +782,35 @@ namespace PartySheetV2 {
                 if (lvState != LvState::Fixed) {
                     const float barY = lineB_Y + lineH + 1.0f * sc;
                     const float barH = 3.0f * sc;
-                    const float fill = (lvState == LvState::Max) ? 1.0f : xpFrac;
+                    const float fill = (lvState == LvState::Max) ? 1.0f : (std::min)(xpFrac, 1.0f);
                     const ImU32 fillCol = (lvState == LvState::Player) ? IM_COL32(212, 175, 55, 255) : IM_COL32(170, 140, 50, 230);
-                    dl->AddRectFilled(ImVec2(lvX0, barY), ImVec2(lvX1, barY + barH), IM_COL32(40, 44, 52, 220), 1.0f * sc);
-                    if (fill > 0.0f)
-                        dl->AddRectFilled(ImVec2(lvX0, barY), ImVec2(lvX0 + (lvX1 - lvX0) * fill, barY + barH), fillCol, 1.0f * sc);
+                    DrawThinBar(dl, ImVec2(lvX0, barY), lvX1 - lvX0, barH, fill, fillCol);
                 }
-                ImVec2 rMin(lvX0 - 3.0f * sc, lineB_Y - 1.0f * sc);
+                ImVec2 rMin(HoverLeftEdge(dl, lvX0 - 3.0f * sc), lineB_Y - 1.0f * sc);
                 ImVec2 rMax(lvX1 + 3.0f * sc, lineB_Y + lineH + 5.0f * sc);
                 levelHover = !modalOpen && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(rMin, rMax);
                 if (levelHover)
                     dl->AddRect(rMin, rMax, IM_COL32(212, 175, 55, 85), 2.0f * sc, 0, 1.0f);
             }
             DrawSep();
-            if (!raceWord.empty()) { raceHover = DrawWord(raceWord, kTheme.textMuted, true); if (!midWord.empty() || blessed) DrawSep(); }
+            if (!raceWord.empty()) { raceHover = DrawWord(raceWord, kTheme.textMuted, true); if (!midWord.empty() || blessed || hasEffects) DrawSep(); }
             if (!midWord.empty()) {
                 ImU32 midCol = midMuted ? IM_COL32(136, 136, 136, 140) : kTheme.textMuted;
                 midHover = DrawWord(midWord, midCol, true, isPlayer ? s_TexStoneIco : nullptr);
-                if (blessed) DrawSep();
+                if (blessed || hasEffects) DrawSep();
             }
-            if (blessed) blessHover = DrawWord(blessWord, kTheme.textMuted, true, s_TexBlessIco);
+            if (blessed) { blessHover = DrawWord(blessWord, kTheme.textMuted, true, s_TexBlessIco); if (hasEffects) DrawSep(); }
+            if (hasEffects) effectsHover = DrawWord(effectsWord, kTheme.textMuted, true, s_TexEffectsIco);
+            const bool anyBefore = !raceWord.empty() || !midWord.empty() || blessed || hasEffects;
+            if (!behaviorWord.empty()) {
+                if (anyBefore) DrawSep();
+                behaviorHover = DrawWord(behaviorWord, kTheme.textMuted, true, s_TexBehaviorIco);
+            }
+            if (!curseWord.empty()) {
+                if (anyBefore || !behaviorWord.empty()) DrawSep();
+                curseHover = DrawWord(curseWord, IM_COL32(230, 90, 90, 255), true,
+                    curse.kind == CurseInfo::Kind::Vampire ? s_TexVampireIco : s_TexWerewolfIco);
+            }
             penX += 16.0f * sc;
             ImGui::SetWindowFontScale(1.0f);
             ImGui::PopFont();
@@ -685,6 +838,9 @@ namespace PartySheetV2 {
             if (raceHover) DrawRaceTooltip(actor, sc);
             if (midHover)   DrawPassiveTooltip(actor, midTitle, sc, isPlayer);
             if (blessHover) DrawBlessingsTooltip(actor, blessWord, sc);
+            if (effectsHover) DrawActiveEffectsTooltip(actor, effectsWord, sc);
+            if (behaviorHover) DrawBehaviorTooltip(actor, behaviorWord, sc);
+            if (curseHover)    DrawCurseTooltip(actor, curseTitle, sc);
         }
 
         {
@@ -733,7 +889,8 @@ namespace PartySheetV2 {
             const float tpadH = 2.0f * sc;
 
             ImVec2 refSz = ImGui::CalcTextSize(relTag);
-            float tagY = lineB_Y;
+            float tagY = rowY + (nameSz.y - refSz.y - tpadH * 2.0f) * 0.5f;
+            penX = origin.x + nameSz.x + 16.0f * sc;
 
             auto DrawTag = [&](const char* text, ImU32 border, ImU32 textCol) {
                 ImVec2 sz  = ImGui::CalcTextSize(text);
@@ -765,95 +922,6 @@ namespace PartySheetV2 {
                 DrawTag(prStr.c_str(), IM_COL32(180,140, 60, 200), IM_COL32(180,140, 60, 255));
             }
 
-            if (auto curse = GetCurse(actor); curse.kind != CurseInfo::Kind::None) {
-                const bool vamp = curse.kind == CurseInfo::Kind::Vampire;
-                std::string cs = LocalizationManager::Get(vamp ? "PartySheetV2.Vampire" : "PartySheetV2.Werewolf");
-                for (char& c : cs) c = static_cast<char>(toupper(c));
-                const std::string title = cs;
-                if (vamp && curse.stage > 0) {
-                    std::string st = LocalizationManager::Get("PartySheetV2.Stage");
-                    for (char& c : st) c = static_cast<char>(toupper(c));
-                    cs += " \xC2\xB7 " + st + " " + std::to_string(curse.stage);
-                }
-                ImVec2 sz = ImGui::CalcTextSize(cs.c_str());
-                ImVec2 tMin(penX, tagY);
-                ImVec2 tMax(penX + sz.x + tpad * 2.0f, tagY + sz.y + tpadH * 2.0f);
-                const bool modalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
-                const bool hovered = !modalOpen && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(tMin, tMax);
-                if (hovered) dl->AddRectFilled(tMin, tMax, IM_COL32(60, 20, 20, 200), 2.0f * sc);
-                DrawTag(cs.c_str(), IM_COL32(200, 60, 60, 220), IM_COL32(230, 90, 90, 255));
-                if (hovered) {
-                    ImGui::SetWindowFontScale(1.0f);
-                    DrawCurseTooltip(actor, title, sc);
-                    ImGui::SetWindowFontScale(FontSmall());
-                }
-            }
-
-            if (!isPlayer) {
-                if (auto* actorBase = actor->GetActorBase()) {
-                    std::string aggrStr;
-                    switch (static_cast<uint8_t>(actorBase->GetAggressionLevel())) {
-                        case 0: aggrStr = LocalizationManager::Get("AI.Aggression.Unaggressive");  break;
-                        case 1: aggrStr = LocalizationManager::Get("AI.Aggression.Aggressive");    break;
-                        case 2: aggrStr = LocalizationManager::Get("AI.Aggression.VeryAggressive"); break;
-                        case 3: aggrStr = LocalizationManager::Get("AI.Aggression.Frenzied");      break;
-                        default: aggrStr = "?"; break;
-                    }
-                    std::string confStr;
-                    switch (static_cast<uint8_t>(actorBase->GetConfidenceLevel())) {
-                        case 0: confStr = LocalizationManager::Get("AI.Confidence.Cowardly");  break;
-                        case 1: confStr = LocalizationManager::Get("AI.Confidence.Cautious");  break;
-                        case 2: confStr = LocalizationManager::Get("AI.Confidence.Average");   break;
-                        case 3: confStr = LocalizationManager::Get("AI.Confidence.Brave");     break;
-                        case 4: confStr = LocalizationManager::Get("AI.Confidence.Foolhardy"); break;
-                        default: confStr = "?"; break;
-                    }
-                    std::string assistStr;
-                    switch (static_cast<uint8_t>(actorBase->GetAssistanceLevel())) {
-                        case 0: assistStr = LocalizationManager::Get("AI.Assistance.Nobody");           break;
-                        case 1: assistStr = LocalizationManager::Get("AI.Assistance.Allies");           break;
-                        case 2: assistStr = LocalizationManager::Get("AI.Assistance.FriendsAndAllies"); break;
-                        default: assistStr = "?"; break;
-                    }
-
-                    std::string aiLabelAggr   = LocalizationManager::Get("AI.Aggression.Label");
-                    std::string aiLabelConf   = LocalizationManager::Get("AI.Confidence.Label");
-                    std::string aiLabelAssist = LocalizationManager::Get("AI.Assistance.Label");
-                    for (char& c : aiLabelAggr)   c = static_cast<char>(toupper(c));
-                    for (char& c : aiLabelConf)   c = static_cast<char>(toupper(c));
-                    for (char& c : aiLabelAssist) c = static_cast<char>(toupper(c));
-
-                    struct AIEntry { const std::string& label; const std::string& value; ImU32 col; };
-                    AIEntry aiEntries[] = {
-                        { aiLabelAggr,   aggrStr,   IM_COL32(255, 120,  80, 255) },
-                        { aiLabelConf,   confStr,   IM_COL32(100, 200, 255, 255) },
-                        { aiLabelAssist, assistStr, IM_COL32(100, 220, 120, 255) },
-                    };
-                    constexpr float kAIColGap = 22.0f;
-                    float aiBlockW = 0.0f;
-                    for (int ai = 0; ai < 3; ++ai) {
-                        ImVec2 ls = ImGui::CalcTextSize(aiEntries[ai].label.c_str());
-                        ImVec2 vs = ImGui::CalcTextSize(aiEntries[ai].value.c_str());
-                        aiBlockW += std::max(ls.x, vs.x);
-                        if (ai < 2) aiBlockW += kAIColGap * sc;
-                    }
-
-                    float aiX = origin.x + size.x - aiBlockW;
-                    for (const auto& ai : aiEntries) {
-                        ImVec2 labelSz2 = ImGui::CalcTextSize(ai.label.c_str());
-                        ImVec2 valueSz  = ImGui::CalcTextSize(ai.value.c_str());
-                        float  colW     = std::max(labelSz2.x, valueSz.x);
-
-                        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                            ImVec2(aiX, tagY), kTheme.textMuted, ai.label.c_str());
-                        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                            ImVec2(aiX, tagY + labelSz2.y + 2.0f * sc), ai.col, ai.value.c_str());
-
-                        aiX += colW + kAIColGap * sc;
-                    }
-                }
-            }
-
             ImGui::SetWindowFontScale(1.0f);
         }
 
@@ -866,7 +934,7 @@ namespace PartySheetV2 {
         HUDDraw::DrawFadeRule(dl, origin.x, origin.x + size.x, sepY, IM_COL32(212,175,55,100));
 
         const float barsY    = sepY + 14.0f * sc;
-        const float barH     = 5.0f  * sc;
+        const float barH     = 7.0f  * sc;
         const float labelGap = 6.0f  * sc;
         ActorStats stats     = GetActorStats(actor);
 
@@ -896,15 +964,17 @@ namespace PartySheetV2 {
             const bool  reduced = vt.v.bonus <= -0.5f;
             const float lost    = vt.v.lost > 0.5f ? vt.v.lost : 0.0f;
             char curBuf[16], maxBuf[16];
+            static constexpr const char* kVitalKeys[3] = { "hp", "mp", "sp" };
+            const RolledStat maxRoll = RollStat(actor, kVitalKeys[v], vt.v.FullMax(), true);
             snprintf(curBuf, sizeof(curBuf), "%.0f / ", vt.v.current);
-            snprintf(maxBuf, sizeof(maxBuf), "%.0f", vt.v.FullMax());
+            snprintf(maxBuf, sizeof(maxBuf), "%.0f", maxRoll.shown);
             const float curW = ImGui::CalcTextSize(curBuf).x;
             ImVec2 valSz = ImGui::CalcTextSize(maxBuf);
             valSz.x += curW;
 
             if (HasStatPassives(actor, vt.av)) {
                 float barBottom = barsY + labelSz.y + labelGap + barH;
-                ImVec2 hMin(vx - 3.0f * sc, barsY - 1.0f * sc);
+                ImVec2 hMin(HoverLeftEdge(dl, vx - 3.0f * sc), barsY - 1.0f * sc);
                 ImVec2 hMax(vx + vitalW + 3.0f * sc, barBottom + 2.0f * sc);
                 bool hovered = !vitalModalOpen && ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(hMin, hMax);
                 if (hovered) {
@@ -924,35 +994,53 @@ namespace PartySheetV2 {
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                 ImVec2(vx + vitalW - valSz.x, barsY), kTheme.textMain, curBuf);
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(vx + vitalW - valSz.x + curW, barsY), reduced ? kPenaltyRed : kTheme.textMain, maxBuf);
+                ImVec2(vx + vitalW - valSz.x + curW, barsY),
+                std::fabs(maxRoll.shown - vt.v.FullMax()) >= 0.5f ? maxRoll.tint : (reduced ? kPenaltyRed : kTheme.textMain), maxBuf);
+            DrawFloatDelta(dl, sc, vx + vitalW, barsY, maxRoll.watch.delta, maxRoll.watch.flash, kStatChangeSeconds, "%+.0f");
             ImGui::SetWindowFontScale(1.0f);
 
             float barY = barsY + labelSz.y + labelGap;
             ImVec2 bMin(vx, barY);
             ImVec2 bMax(vx + vitalW, barY + barH);
-            dl->AddRectFilled(bMin, bMax, IM_COL32(0, 0, 0, 130), 2.0f * sc);
-            dl->AddRect(bMin, bMax, IM_COL32(255, 255, 255, 15), 2.0f * sc, 0, 1.0f);
 
             const float full    = vt.v.max + lost;
             const float usableW = (full > 0.0f) ? vitalW * (vt.v.max / full) : vitalW;
-            if (lost > 0.0f && usableW < vitalW) {
-                dl->AddRectFilled(ImVec2(vx + usableW, barY), bMax, IM_COL32(220, 80, 80, 110), 2.0f * sc);
-                HUDDraw::DrawRuleV(dl, vx + usableW, barY - 1.0f * sc, barY + barH + 1.0f * sc, kPenaltyRed, 1.5f * sc);
+            const std::uint64_t barId = (static_cast<std::uint64_t>(actor->GetFormID()) << 2) | static_cast<std::uint64_t>(v);
+            static std::unordered_map<std::uint64_t, float> s_LastBarTarget;
+            float target = (full > 0.0f) ? std::clamp(vt.v.current / full, 0.0f, 1.0f) : 0.0f;
+            if (GearSwitcher::SentRecently(actor->GetFormID()) && s_LastBarTarget.contains(barId)) target = s_LastBarTarget[barId];
+            else s_LastBarTarget[barId] = target;
+            HUDDraw::BarStyle bs;
+            bs.width         = vitalW;
+            bs.height        = barH;
+            bs.rounding      = barH * 0.5f;
+            bs.fraction      = HUDDraw::TickBarValue(kVitalBarIdBase ^ barId, target);
+            bs.ghostFraction = BarRenderer::TickGhost(kVitalBarIdBase ^ barId, target);
+            bs.fillColor     = HUDDraw::PackedToArgb(vt.color);
+            bs.gloss         = true;
+            bs.edgeLightSize = 24.0f * sc;
+            HUDDraw::DrawBarStyled(dl, bMin, bs);
+            char jumpKey[8];
+            snprintf(jumpKey, sizeof(jumpKey), "%s_cur", kVitalKeys[v]);
+            const auto jump = PoolJump(actor, jumpKey, vt.v.current, (std::max)(5.0f, vt.v.max * 0.03f));
+            if (jump.flash > 0.0f && jump.delta > 0.0f && maxRoll.watch.flash <= 0.0f) {
+                const float edgeX = vx + vitalW * bs.fraction;
+                dl->AddRectFilled(bMin, ImVec2(edgeX, barY + barH), IM_COL32(255, 255, 255, static_cast<int>(110.0f * jump.flash)), barH * 0.5f);
+                ImGui::SetWindowFontScale(FontSmall());
+                DrawFloatDelta(dl, sc, edgeX + 12.0f * sc, barY - 1.0f * sc, jump.delta, jump.flash, kPoolJumpSeconds, "%+.0f");
+                ImGui::SetWindowFontScale(1.0f);
             }
-            float pct = (vt.v.max > 0.0f) ? std::clamp(vt.v.current / vt.v.max, 0.0f, 1.0f) : 0.0f;
-            if (pct > 0.0f) {
-                ImVec2 fMax(vx + usableW * pct, barY + barH);
-                dl->AddRectFilled(bMin, fMax, vt.color, 2.0f * sc);
-                dl->AddRectFilledMultiColor(
-                    bMin, ImVec2(fMax.x, barY + barH * 0.5f),
-                    IM_COL32(255,255,255,40), IM_COL32(255,255,255,40),
-                    IM_COL32(0,0,0,0), IM_COL32(0,0,0,0));
+            if (lost > 0.0f && usableW < vitalW) {
+                dl->AddRectFilled(ImVec2(vx + usableW, barY), bMax, IM_COL32(220, 80, 80, 110), barH * 0.5f, ImDrawFlags_RoundCornersRight);
+                HUDDraw::DrawRuleV(dl, vx + usableW, barY - 1.0f * sc, barY + barH + 1.0f * sc, kPenaltyRed, 1.5f * sc);
             }
 
             {
-                const float perSec = vt.v.regenPerSec;
+                char regenKey[8];
+                snprintf(regenKey, sizeof(regenKey), "%s_rate", kVitalKeys[v]);
+                const RolledStat regen = RollStat(actor, regenKey, vt.v.regenPerSec, true, 0.05f);
                 char rBuf[24];
-                snprintf(rBuf, sizeof(rBuf), "%+.1f/s", perSec);
+                snprintf(rBuf, sizeof(rBuf), "%+.1f/s", regen.shown);
                 ImGui::SetWindowFontScale(FontSmall());
                 const ImVec2 rSz = ImGui::CalcTextSize(rBuf);
                 const ImVec2 rPos(vx + vitalW - rSz.x, barY + barH + 3.0f * sc);
@@ -969,7 +1057,9 @@ namespace PartySheetV2 {
                         dl->AddLine(ImVec2(x, uy), ImVec2((std::min)(x + 1.5f * sc, rPos.x + rSz.x), uy),
                             IM_COL32(136, 136, 136, 200), 1.0f);
                 }
-                dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), rPos, kTheme.textMuted, rBuf);
+                const bool regenRolling = std::fabs(regen.shown - vt.v.regenPerSec) >= 0.05f;
+                dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), rPos, regenRolling ? regen.tint : kTheme.textMuted, rBuf);
+                DrawFloatDelta(dl, sc, rPos.x - 4.0f * sc, rPos.y + rSz.y, regen.watch.delta, regen.watch.flash, kStatChangeSeconds, "%+.1f/s", 0.0f);
                 ImGui::SetWindowFontScale(1.0f);
             }
         }
@@ -1002,6 +1092,28 @@ namespace PartySheetV2 {
         ID3D11ShaderResourceView* enchanting  = nullptr;
     };
 
+    static bool UsePlaqueStyle() { return Settings::GetSingleton()->psV2PanelStyle == 1; }
+
+    static void DrawPlaqueRow(ImDrawList* dl, ImVec2 rMin, ImVec2 rMax, ImU32 fill, ImU32 edge, float hover, float sc) {
+        HUDDraw::FadeBgStyle plate;
+        plate.color     = HUDDraw::PackedToArgb(fill);
+        plate.solidFrac = 0.25f;
+        plate.fadeFrac  = 1.0f;
+        plate.mode      = HUDDraw::FadeBgMode::FadeRight;
+        HUDDraw::DrawFadeBg(dl, rMin, rMax, plate);
+        if (hover > 0.0f)
+            dl->AddRectFilled(rMin, rMax, IM_COL32(255, 255, 255, static_cast<int>(18 * hover)));
+        dl->AddRectFilled(rMin, ImVec2(rMin.x + 3.0f * sc, rMax.y), edge);
+    }
+
+    static void DrawPlaqueValue(ImDrawList* dl, float valueRight, float textY, const char* text, ImU32 col, float sc) {
+        const ImVec2 sz = ImGui::CalcTextSize(text);
+        const float padX = 6.0f * sc, padY = 1.0f * sc;
+        const ImVec2 pMin(valueRight - sz.x - padX, textY - padY), pMax(valueRight + padX * 0.5f, textY + sz.y + padY);
+        dl->AddRectFilled(pMin, pMax, IM_COL32(0, 0, 0, 140), (pMax.y - pMin.y) * 0.5f);
+        AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(valueRight - sz.x - padX * 0.25f, textY), col, text);
+    }
+
     static void LoadSkillTextures(SkillTex& t) {
         if (!t.oneHanded)   t.oneHanded   = TextureManager::GetPartyIcon("onehanded");
         if (!t.twoHanded)   t.twoHanded   = TextureManager::GetPartyIcon("twohanded");
@@ -1022,6 +1134,8 @@ namespace PartySheetV2 {
         if (!t.restoration) t.restoration = TextureManager::GetPartyIcon("restoration");
         if (!t.enchanting)  t.enchanting  = TextureManager::GetPartyIcon("enchanting");
     }
+
+    static ImU32 LiveBackingColor(RE::Actor* actor);
 
     static void RenderLeftColumn(ImVec2 size) {
         static SkillTex s_SkillTex;
@@ -1105,14 +1219,47 @@ namespace PartySheetV2 {
             ImVec2 rMin(cx, cy);
             ImVec2 rMax(cx + colW, cy + rowH);
 
-            if (ImGui::IsMouseHoveringRect(rMin, rMax))
-                dl->AddRectFilled(rMin, rMax, kTheme.hoverFill, 3.0f * sc);
-
             auto tint = SkillRowTint::Get(actor, s.av, s_WornGearData);
+
+            constexpr bool  kSkillChipBg  = true;
+            constexpr float kSkillDarken  = 0.45f;
+            const bool rowHovered = ImGui::IsMouseHoveringRect(rMin, rMax);
+            constexpr ImU32 kGroupCol[3] = { IM_COL32(200, 150, 70, 230), IM_COL32(110, 170, 90, 230),
+                                             IM_COL32(120, 120, 220, 230) };
+            const bool plaque = UsePlaqueStyle();
+            if (plaque) {
+                char hoverId[24];
+                snprintf(hoverId, sizeof(hoverId), "psv2_skill_%d", i);
+                const float hover = UIAnimation::Follow(hoverId, rowHovered ? 1.0f : 0.0f, 8.0f, 8.0f);
+                DrawPlaqueRow(dl, rMin, rMax, tint.on ? tint.bg : IM_COL32(14, 14, 12, 200),
+                              tint.on ? tint.value : kGroupCol[colIdx], hover, sc);
+            } else if (kSkillChipBg) {
+                if (tint.on) {
+                    const std::uint32_t argb = HUDDraw::PackedToArgb(tint.bg);
+                    HUDDraw::DrawChip(dl, rMin, rMax, HUDDraw::PanelChipFromColor(argb, 1.0f, 0.0f, 3.0f * sc));
+                    if (rowHovered) dl->AddRectFilled(rMin, rMax, kTheme.hoverFill, 3.0f * sc);
+                } else {
+                    char hoverId[24];
+                    snprintf(hoverId, sizeof(hoverId), "psv2_skill_%d", i);
+                    const float hover = UIAnimation::Follow(hoverId, rowHovered ? 1.0f : 0.0f, 8.0f, 8.0f);
+                    const std::uint32_t base = HUDDraw::PackedToArgb(LiveBackingColor(actor));
+                    HUDDraw::DrawChip(dl, rMin, rMax, HUDDraw::PanelChipFromColor(base, kSkillDarken, hover, 3.0f * sc));
+                }
+            } else {
             if (tint.on)
                 dl->AddRectFilled(rMin, rMax, tint.bg);
 
             dl->AddRect(rMin, rMax, IM_COL32(255, 255, 255, 18), 3.0f * sc, 0, 1.0f);
+                if (rowHovered) dl->AddRectFilled(rMin, rMax, kTheme.hoverFill, 3.0f * sc);
+            }
+
+            if (!plaque) {
+                const float fill  = std::clamp(s.value / 100.0f, 0.0f, 1.0f);
+                const float x0 = cx + rowPadX + iconSz + rowPadX, x1 = rMax.x - rowPadX;
+                const float thick = 3.0f * sc;
+                const float y0 = rMax.y - thick - 4.0f * sc, y1 = y0 + thick;
+                DrawThinBar(dl, ImVec2(x0, y0), x1 - x0, y1 - y0, fill, kGroupCol[colIdx]);
+            }
 
             float midY = cy + (rowH - iconSz) * 0.5f;
 
@@ -1140,6 +1287,9 @@ namespace PartySheetV2 {
             snprintf(valBuf, sizeof(valBuf), "%.0f", s.value);
             ImGui::SetWindowFontScale(FontBody());
             ImVec2 valSz = ImGui::CalcTextSize(valBuf);
+            if (plaque)
+                DrawPlaqueValue(dl, rMax.x - rowPadX, textY, valBuf, tint.on ? tint.value : V2Theme::AccentA(255), sc);
+            else
             AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(),
                 ImVec2(rMax.x - rowPadX - valSz.x, textY),
                 valCol, valBuf);
@@ -1165,12 +1315,12 @@ namespace PartySheetV2 {
         static ID3D11ShaderResourceView* s_TexMoveSpeed  = nullptr;
         if (!s_TexArmor)     s_TexArmor     = TextureManager::GetPartyIcon("armor");
         if (!s_TexDmgRes)    s_TexDmgRes    = TextureManager::GetPartyIcon("damage_resist");
-        if (!s_TexMagic)     s_TexMagic     = TextureManager::GetPartyIcon("magic_resist");
-        if (!s_TexFire)      s_TexFire      = TextureManager::GetPartyIcon("fire_resist");
-        if (!s_TexFrost)     s_TexFrost     = TextureManager::GetPartyIcon("frost_resist");
-        if (!s_TexShock)     s_TexShock     = TextureManager::GetPartyIcon("shock_resist");
-        if (!s_TexPoison)    s_TexPoison    = TextureManager::GetPartyIcon("poison_resist");
-        if (!s_TexDisease)   s_TexDisease   = TextureManager::GetPartyIcon("disease_resist");
+        if (!s_TexMagic)     s_TexMagic     = TextureManager::GetPartyIcon("magic");
+        if (!s_TexFire)      s_TexFire      = TextureManager::GetPartyIcon("fire");
+        if (!s_TexFrost)     s_TexFrost     = TextureManager::GetPartyIcon("frost");
+        if (!s_TexShock)     s_TexShock     = TextureManager::GetPartyIcon("shock");
+        if (!s_TexPoison)    s_TexPoison    = TextureManager::GetPartyIcon("poison");
+        if (!s_TexDisease)   s_TexDisease   = TextureManager::GetPartyIcon("disease");
         if (!s_TexMoveSpeed) s_TexMoveSpeed = TextureManager::GetPartyIcon("movespeed");
 
         struct ResistTile {
@@ -1191,7 +1341,7 @@ namespace PartySheetV2 {
             { LocalizationManager::Get("Resistances.Shock"),   stats.resistShock,     100.0f, "%.0f%%", s_TexShock,   WornGearStatResolver::kResistShock,  RE::ActorValue::kResistShock },
             { LocalizationManager::Get("Resistances.Poison"),  stats.resistPoison,    100.0f, "%.0f%%", s_TexPoison,  WornGearStatResolver::kResistPoison, RE::ActorValue::kPoisonResist },
             { LocalizationManager::Get("Resistances.Disease"), stats.resistDisease,   100.0f, "%.0f%%", s_TexDisease, WornGearStatResolver::kResistDisease, RE::ActorValue::kResistDisease },
-            { LocalizationManager::Get("Stats.Move"),          stats.speedMult,       150.0f, "%.0f%%", s_TexMoveSpeed },
+            { LocalizationManager::Get("Stats.Move"),          stats.speedMult,       150.0f, "%.0f%%", s_TexMoveSpeed, 0, RE::ActorValue::kSpeedMult },
         };
 
         {
@@ -1237,13 +1387,25 @@ namespace PartySheetV2 {
             const ImVec2 tMax(tMin.x + tColW, tMin.y + tRowH);
 
             const bool hovered = ImGui::IsMouseHoveringRect(tMin, tMax);
-            if (hovered) dl->AddRectFilled(tMin, tMax, kTheme.hoverFill);
             const bool fromGear = t.resistBit && (s_WornGearData.resistHighlightMask & t.resistBit);
             const bool debuffed = t.av != RE::ActorValue::kNone && EffectAttribution::HasStatDebuff(actor, t.av);
-            const bool potion   = !debuffed && !fromGear && t.av != RE::ActorValue::kNone && EffectAttribution::HasPotionBuff(actor, t.av);
-            if (debuffed)      dl->AddRectFilled(tMin, tMax, IM_COL32(100, 38, 38, 200));
-            else if (fromGear) dl->AddRectFilled(tMin, tMax, BadgeStyle::Theme::ResistPurple().fill);
-            else if (potion)   dl->AddRectFilled(tMin, tMax, IM_COL32(35, 85, 45, 210));
+            const bool potion   = !debuffed && !fromGear && t.av != RE::ActorValue::kNone && EffectAttribution::HasTimedBuff(actor, t.av);
+            ImU32 changedBg = 0;
+            if (debuffed)      changedBg = IM_COL32(100, 38, 38, 200);
+            else if (fromGear) changedBg = BadgeStyle::Theme::ResistPurple().fill;
+            else if (potion)   changedBg = IM_COL32(35, 85, 45, 210);
+            const bool plaque = UsePlaqueStyle();
+            if (plaque) {
+                char hoverId[24];
+                snprintf(hoverId, sizeof(hoverId), "psv2_def_%d", i);
+                const float hover = UIAnimation::Follow(hoverId, hovered ? 1.0f : 0.0f, 8.0f, 8.0f);
+                DrawPlaqueRow(dl, tMin, tMax, changedBg ? changedBg : IM_COL32(14, 14, 12, 200),
+                              changedBg ? (changedBg | IM_COL32(0, 0, 0, 255)) : IM_COL32(130, 130, 130, 200), hover, sc);
+            } else {
+                if (changedBg)
+                    HUDDraw::DrawChip(dl, tMin, tMax, HUDDraw::PanelChipFromColor(HUDDraw::PackedToArgb(changedBg), 1.0f, 0.0f, 3.0f * sc));
+                if (hovered) dl->AddRectFilled(tMin, tMax, kTheme.hoverFill, 3.0f * sc);
+            }
 
             const float iconX = tMin.x + tPadX;
             const float textY = tMin.y + (tRowH - tTextH) * 0.5f;
@@ -1264,11 +1426,20 @@ namespace PartySheetV2 {
                 dl->AddCircle(c, pipR, pipBorder, 0, 1.0f);
         }
 
+            char defKey[16];
+            snprintf(defKey, sizeof(defKey), "def_%d", i);
+            const RolledStat defRoll = RollStat(actor, defKey, t.value, true);
+            const bool defRolling = std::fabs(defRoll.shown - t.value) >= 0.5f;
+
             char valBuf[16];
-            snprintf(valBuf, sizeof(valBuf), t.fmt, t.value);
+            snprintf(valBuf, sizeof(valBuf), t.fmt, defRoll.shown);
             const ImVec2 valSz = ImGui::CalcTextSize(valBuf);
             const ImU32 valCol = t.value < -0.5f ? IM_COL32(220, 80, 80, 255) : (fromGear ? IM_COL32(255,255,255,255) : kTheme.textMain);
-            AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(valueRight - valSz.x, textY), valCol, valBuf);
+            if (plaque)
+                DrawPlaqueValue(dl, valueRight, textY, valBuf, t.value < -0.5f ? valCol : V2Theme::AccentA(255), sc);
+            else
+                AddTextShadowed(dl, ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(valueRight - valSz.x, textY), defRolling ? defRoll.tint : valCol, valBuf);
+            DrawFloatDelta(dl, sc, valueRight, textY, defRoll.watch.delta, defRoll.watch.flash, kStatChangeSeconds, "%+.0f");
             ImGui::SetWindowFontScale(1.0f);
 
             if (hovered && t.av != RE::ActorValue::kNone && !defModalOpen && ImGui::IsWindowHovered())
@@ -1283,8 +1454,8 @@ namespace PartySheetV2 {
 
         bool anyModalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
 
-        ImGui::SetWindowFontScale(FontSmall());
-        float tabH = ImGui::GetTextLineHeight() + 2.0f * 5.0f * sc;
+        ImGui::SetWindowFontScale(FontBody());
+        float tabH = ImGui::GetTextLineHeight() + 2.0f * 6.0f * sc;
         ImGui::SetWindowFontScale(1.0f);
 
         auto DrawTab = [&](const char* id, ImVec2 size, const char* label,
@@ -1329,7 +1500,7 @@ namespace PartySheetV2 {
             }
 
             float padX    = 8.0f * sc;
-            ImGui::SetWindowFontScale(FontSmall());
+            ImGui::SetWindowFontScale(FontBody());
             float iconSz  = ImGui::GetTextLineHeight();
             ImGui::SetWindowFontScale(1.0f);
             float cy      = (bMin.y + bMax.y) * 0.5f;
@@ -1345,7 +1516,7 @@ namespace PartySheetV2 {
                 cursorX += iconSz + 5.0f * sc;
             }
 
-            ImGui::SetWindowFontScale(FontSmall());
+            ImGui::SetWindowFontScale(FontBody());
             ImVec2 textSz = ImGui::CalcTextSize(label);
             const float labelFontSize = ImGui::GetFontSize();
             ImGui::SetWindowFontScale(1.0f);
@@ -1367,7 +1538,7 @@ namespace PartySheetV2 {
 
         auto TabWidth = [&](const char* label) -> float {
             const float padX = 8.0f * sc;
-            ImGui::SetWindowFontScale(FontSmall());
+            ImGui::SetWindowFontScale(FontBody());
             const float iconSz = ImGui::GetTextLineHeight();
             const float textW  = ImGui::CalcTextSize(label).x;
             ImGui::SetWindowFontScale(1.0f);
@@ -1383,7 +1554,7 @@ namespace PartySheetV2 {
 
         ImGui::BeginDisabled(anyModalOpen);
         if (DrawTab("##psv2_fx_btn", ImVec2(TabWidth(fxBtnLabel.c_str()), tabH), fxBtnLabel.c_str(), s_TexFxTab))
-            OpenEffectsModal();
+            OpenSpellWindow();
         ImGui::EndDisabled();
 
         ImGui::SameLine(0.0f, 6.0f * sc);
@@ -1392,6 +1563,18 @@ namespace PartySheetV2 {
         if (DrawTab("##psv2_inv_btn", ImVec2(TabWidth(invBtnLabel.c_str()), tabH), invBtnLabel.c_str(), s_TexInvTab))
             OpenInventoryModal();
         ImGui::EndDisabled();
+
+        if (actor && actor->IsPlayerRef()) {
+            static std::string s_needsLabel;
+            if (s_needsLabel.empty()) s_needsLabel = LocalizationManager::Get("PartySheetV2.SectionNeeds");
+            static ID3D11ShaderResourceView* s_TexNeedsTab = nullptr;
+            if (!s_TexNeedsTab) s_TexNeedsTab = TextureManager::GetPartyIcon("source_food");
+            ImGui::SameLine(0.0f, 6.0f * sc);
+            ImGui::BeginDisabled(anyModalOpen);
+            if (DrawTab("##psv2_needs_btn", ImVec2(TabWidth(s_needsLabel.c_str()), tabH), s_needsLabel.c_str(), s_TexNeedsTab))
+                OpenEffectsModal();
+            ImGui::EndDisabled();
+        }
 
         if (actor && actor->IsPlayerRef()) {
             ImGui::SameLine(0.0f, 6.0f * sc);
@@ -1504,35 +1687,108 @@ namespace PartySheetV2 {
 
         const float blockH   = iconSz + 4.0f * sc + labelH + 4.0f * sc + pipSz;
         const float resStripH = 22.0f * sc + 18.0f * sc;
-        const float blockY   = origin.y + size.y - resStripH - blockH;
+        constexpr bool kTouchFooter = true;
+        const float footerDrop = kTouchFooter ? kGap * sc : 0.0f;
+        const float blockY   = origin.y + size.y - resStripH - blockH + footerDrop - 6.0f * sc * (kTouchFooter ? 1.0f : 0.0f);
+        if (kTouchFooter) dl->PushClipRect(ImVec2(origin.x - 40.0f * sc, origin.y), ImVec2(origin.x + size.x + 40.0f * sc, origin.y + size.y + footerDrop), false);
 
         {
-            struct StatCard { const char* iconName; const char* labelKey; float value; };
-            const StatCard cards[2] = {
-                {"weapon", "Stats.Damage", stats.totalDamage > 0.0f ? stats.totalDamage : stats.unarmedDamage},
-                {"armor",  "Stats.Armor",  stats.armorRating},
-            };
-            ImFont* font = ImGui::GetFont();
-            const float labelSize = ImGui::GetFontSize() * FontSmall();
-            const float valueSize = ImGui::GetFontSize() * FontHeading() * 1.4f;
-            const float cardIcon  = labelSize + valueSize;
-            const float pad   = 8.0f * sc;
-            const float cardW = size.x * 0.5f;
-            const float cardY = blockY - cardIcon - pad * 2.0f - 12.0f * sc;
-            for (int i = 0; i < 2; ++i) {
-                const auto& card = cards[i];
-                ImVec2 iconMin(origin.x + i * cardW + pad, cardY + pad);
-                if (auto icon = TextureManager::GetPartyIcon(card.iconName))
-                    dl->AddImage((ImTextureID)icon, iconMin, ImVec2(iconMin.x + cardIcon, iconMin.y + cardIcon));
-                std::string label = LocalizationManager::Get(card.labelKey);
-                for (auto& c : label) c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
-                char valueText[32];
-                snprintf(valueText, sizeof(valueText), "%.0f", (std::max)(card.value, 0.0f));
-                const float textX = iconMin.x + cardIcon + pad;
-                dl->AddText(font, labelSize, ImVec2(textX, iconMin.y), IM_COL32(200, 200, 200, 200), label.c_str());
-                dl->AddText(font, valueSize, ImVec2(textX + 1.0f, iconMin.y + labelSize + 1.0f), IM_COL32(0, 0, 0, 180), valueText);
-                dl->AddText(font, valueSize, ImVec2(textX, iconMin.y + labelSize), IM_COL32(240, 240, 240, 255), valueText);
+            RE::TESForm* rhForm = actor->GetEquippedObject(false);
+            RE::TESForm* lhForm = actor->GetEquippedObject(true);
+            const bool hasWeapon = (rhForm && rhForm->As<RE::TESObjectWEAP>()) || (lhForm && lhForm->As<RE::TESObjectWEAP>());
+            float dmgValue = hasWeapon ? stats.totalDamage : stats.unarmedDamage;
+            bool  spellDmg = false;
+            if (!hasWeapon) {
+                for (RE::TESForm* f : { rhForm, lhForm }) {
+                    if (!f || !f->As<RE::SpellItem>()) continue;
+                    const auto sd = SpellDamageResolver::ResolveSpellDamage(actor, f);
+                    if (sd.HasDamage()) { dmgValue = sd.Headline(); spellDmg = true; break; }
+                }
             }
+
+            static ID3D11ShaderResourceView* s_TexWeaponC = nullptr;
+            static ID3D11ShaderResourceView* s_TexSpellC  = nullptr;
+            static ID3D11ShaderResourceView* s_TexArmorC  = nullptr;
+            if (!s_TexWeaponC) s_TexWeaponC = TextureManager::GetPartyIcon("weapon");
+            if (!s_TexSpellC)  s_TexSpellC  = TextureManager::GetPartyIcon("destruction");
+            if (!s_TexArmorC)  s_TexArmorC  = TextureManager::GetPartyIcon("armor");
+
+            struct StatCard { const char* labelKey; const char* rollKey; float value; ID3D11ShaderResourceView* tex; };
+            const StatCard kCards[2] = {
+                { "Stats.Damage", "center_damage", dmgValue,          spellDmg ? s_TexSpellC : s_TexWeaponC },
+                { "Stats.Armor",  "center_armor",  stats.armorRating, s_TexArmorC },
+            };
+
+            constexpr float kValueScale = 2.2f;
+            const float cardIconSz = Settings::GetSingleton()->psV2IconCard * sc;
+            const float cardPad    = 12.0f * sc;
+            ImGui::SetWindowFontScale(FontDisplay() * kValueScale);
+            const float valH = ImGui::GetTextLineHeight();
+            ImGui::SetWindowFontScale(FontBody());
+            const float lblH = ImGui::GetTextLineHeight();
+            ImGui::SetWindowFontScale(1.0f);
+            const float cardH = (std::max)(valH, cardIconSz) + 2.0f * sc + lblH + cardPad * 2.0f;
+            const float cardW = size.x * 0.80f;
+            const float cardX = origin.x + (size.x - cardW) * 0.5f;
+            const float cardY = blockY - 14.0f * sc - cardH;
+            const float midX  = cardX + cardW * 0.5f;
+
+            HUDDraw::FadeBgStyle plate;
+            plate.color     = 0xB40A0A0C;
+            plate.solidFrac = 0.35f;
+            plate.fadeFrac  = 1.0f;
+            plate.mode = HUDDraw::FadeBgMode::FadeLeft;
+            HUDDraw::DrawFadeBg(dl, ImVec2(cardX, cardY), ImVec2(midX, cardY + cardH), plate);
+            plate.mode = HUDDraw::FadeBgMode::FadeRight;
+            HUDDraw::DrawFadeBg(dl, ImVec2(midX, cardY), ImVec2(cardX + cardW, cardY + cardH), plate);
+            HUDDraw::DrawFadeRule(dl, cardX + cardW * 0.15f, cardX + cardW * 0.85f, cardY, IM_COL32(212, 175, 55, 110));
+            HUDDraw::DrawFadeRule(dl, cardX, cardX + cardW, cardY + cardH - 1.0f, IM_COL32(212, 175, 55, 110));
+            HUDDraw::DrawRuleV(dl, midX, cardY + cardPad, cardY + cardH - cardPad, V2Theme::AccentA(60));
+
+            for (int c = 0; c < 2; ++c) {
+                const auto& card = kCards[c];
+                const float halfX = cardX + c * cardW * 0.5f;
+                const float cx    = halfX + cardW * 0.25f;
+
+                const float value = (std::max)(card.value, 0.0f);
+                const RolledStat roll = RollStat(actor, card.rollKey, value, true);
+                const bool rolling = std::fabs(roll.shown - value) >= 0.5f;
+                char valBuf[16];
+                snprintf(valBuf, sizeof(valBuf), "%.0f", roll.shown);
+                ImGui::SetWindowFontScale(FontDisplay() * kValueScale);
+                const ImVec2 valSz = ImGui::CalcTextSize(valBuf);
+                const float iconGap = 10.0f * sc;
+                const float rowW = valSz.x + (card.tex ? iconGap + cardIconSz : 0.0f);
+                const float rowY = cardY + cardPad;
+                const float rowH = (std::max)(valH, cardIconSz);
+                const float valX = cx - rowW * 0.5f;
+                dl->AddText(ImVec2(valX, rowY + (rowH - valH) * 0.5f), rolling ? roll.tint : V2Theme::AccentA(255), valBuf);
+                if (card.tex)
+                    HUDDraw::DrawIconStyled(dl, ImVec2(valX + valSz.x + iconGap, rowY + (rowH - cardIconSz) * 0.5f), cardIconSz,
+                        reinterpret_cast<ImTextureID>(card.tex), 0xFFFFFFFF, IconFxDefault());
+
+                const std::string lbl = LocalizationManager::Get(card.labelKey);
+                ImGui::SetWindowFontScale(FontBody());
+                DrawFloatDelta(dl, sc, valX + valSz.x, rowY + (rowH - valH) * 0.5f, roll.watch.delta, roll.watch.flash, kStatChangeSeconds, "%+.0f");
+                const ImVec2 lblSz = ImGui::CalcTextSize(lbl.c_str());
+                dl->AddText(ImVec2(cx - lblSz.x * 0.5f, rowY + rowH + 2.0f * sc), IM_COL32(255, 255, 255, 180), lbl.c_str());
+                ImGui::SetWindowFontScale(1.0f);
+            }
+        }
+
+        {
+            HUDDraw::FadeBgStyle band;
+            band.color     = 0xB40A0A0C;
+            band.solidFrac = 0.35f;
+            band.fadeFrac  = 1.0f;
+            const float bandTop = blockY - 14.0f * sc;
+            const float bandBot = kTouchFooter ? origin.y + size.y + footerDrop
+                                               : blockY + blockH + 14.0f * sc + 22.0f * sc + 10.0f * sc;
+            const float midX    = origin.x + size.x * 0.5f;
+            band.mode = HUDDraw::FadeBgMode::FadeLeft;
+            HUDDraw::DrawFadeBg(dl, ImVec2(origin.x, bandTop), ImVec2(midX, bandBot), band);
+            band.mode = HUDDraw::FadeBgMode::FadeRight;
+            HUDDraw::DrawFadeBg(dl, ImVec2(midX, bandTop), ImVec2(origin.x + size.x, bandBot), band);
         }
 
         ImGui::SetWindowFontScale(FontBody());
@@ -1541,14 +1797,6 @@ namespace PartySheetV2 {
             const auto& entry = traits[i];
             const float colX  = origin.x + i * colW;
             const float cx    = colX + colW * 0.5f;
-
-            {
-                float hovInset = 4.0f * sc;
-                ImVec2 htl(colX + hovInset, blockY - hovInset);
-                ImVec2 hbr(colX + colW - hovInset, blockY + blockH + hovInset);
-                if (ImGui::IsMouseHoveringRect(htl, hbr))
-                    dl->AddRectFilled(htl, hbr, kTheme.hoverFill, 4.0f * sc);
-            }
 
             auto* tex = TexForKey(entry.nameKey);
             if (tex) {
@@ -1590,25 +1838,20 @@ namespace PartySheetV2 {
         const float resGap      = 16.0f * sc;
         const float resY        = blockY + blockH + 14.0f * sc;
 
-        HUDDraw::DrawRuleH(dl, origin.x + resPadX, origin.x + size.x - resPadX, resY, IM_COL32(255, 255, 255, 15));
+        HUDDraw::DrawFadeRule(dl, origin.x + resPadX, origin.x + size.x - resPadX, resY, IM_COL32(212, 175, 55, 110));
 
         ImGui::SetWindowFontScale(FontBody());
         const float resTextY = resY + (resH - ImGui::GetTextLineHeight()) * 0.5f;
 
         std::string actorName = actor->GetName() ? actor->GetName() : "";
         ImVec2 nameSzR = ImGui::CalcTextSize(actorName.c_str());
-        dl->AddText(ImVec2(origin.x + resPadX, resTextY), kTheme.textMain, actorName.c_str());
+        float curX = 0.0f;
 
-        float divX = origin.x + resPadX + nameSzR.x + resGap * 0.5f;
-        HUDDraw::DrawRuleV(dl, divX, resY + 3.0f * sc, resY + resH - 3.0f * sc, IM_COL32(255, 255, 255, 25));
-
-        float curX = divX + resGap * 0.5f;
-
-        auto DrawResItem = [&](const char* labelKey, const std::string& valueStr) {
+        auto DrawResItem = [&](const char* labelKey, const std::string& valueStr, ImU32 valueCol) {
             std::string lbl = LocalizationManager::Get(labelKey);
             dl->AddText(ImVec2(curX, resTextY), kTheme.textMuted, lbl.c_str());
             curX += ImGui::CalcTextSize(lbl.c_str()).x + 5.0f * sc;
-            dl->AddText(ImVec2(curX, resTextY), kTheme.accent, valueStr.c_str());
+            dl->AddText(ImVec2(curX, resTextY), valueCol, valueStr.c_str());
             curX += ImGui::CalcTextSize(valueStr.c_str()).x + resGap;
         };
 
@@ -1632,14 +1875,30 @@ namespace PartySheetV2 {
         char goldBuf[16];
         snprintf(goldBuf, sizeof(goldBuf), "%d", displayGold);
 
+        const RolledStat carryRoll = RollStat(actor, "carry", displayCarryWMax, true);
+        const bool carryRolling = std::fabs(carryRoll.shown - displayCarryWMax) >= 0.5f;
+
         char weightBuf[32];
         snprintf(weightBuf, sizeof(weightBuf), "%.0f/%.0f",
-                 displayCarryW, displayCarryWMax);
+                 displayCarryW, carryRoll.shown);
 
-        DrawResItem("gold",   goldBuf);
-        DrawResItem("weight", weightBuf);
+        const std::string goldLbl = LocalizationManager::Get("gold"), weightLbl = LocalizationManager::Get("weight");
+        const float lineW = nameSzR.x + resGap
+            + ImGui::CalcTextSize(goldLbl.c_str()).x + 5.0f * sc + ImGui::CalcTextSize(goldBuf).x + resGap
+            + ImGui::CalcTextSize(weightLbl.c_str()).x + 5.0f * sc + ImGui::CalcTextSize(weightBuf).x;
+        const float lineX = origin.x + (size.x - lineW) * 0.5f;
+        dl->AddText(ImVec2(lineX, resTextY), kTheme.textMain, actorName.c_str());
+        const float divX = lineX + nameSzR.x + resGap * 0.5f;
+        HUDDraw::DrawRuleV(dl, divX, resY + 3.0f * sc, resY + resH - 3.0f * sc, IM_COL32(255, 255, 255, 25));
+        curX = divX + resGap * 0.5f;
+
+        DrawResItem("gold",   goldBuf, kTheme.accent);
+        HUDDraw::DrawRuleV(dl, curX - resGap * 0.5f, resY + 3.0f * sc, resY + resH - 3.0f * sc, IM_COL32(255, 255, 255, 25));
+        DrawResItem("weight", weightBuf, carryRolling ? carryRoll.tint : kTheme.accent);
+        DrawFloatDelta(dl, sc, curX - resGap, resTextY, carryRoll.watch.delta, carryRoll.watch.flash, kStatChangeSeconds, "%+.0f");
 
         ImGui::SetWindowFontScale(1.0f);
+        if (kTouchFooter) dl->PopClipRect();
 
         ImGui::SetCursorScreenPos(ImVec2(origin.x, origin.y + size.y));
         ImGui::Dummy(ImVec2(size.x, 1.0f));
@@ -1648,7 +1907,12 @@ namespace PartySheetV2 {
     struct ItemTooltipCopy {
         const char*          name = nullptr;
         RE::EnchantmentItem* enchant = nullptr;
+        RE::AlchemyItem*     poison = nullptr;
+        int                  poisonDoses = 0;
         bool                 isCopy = false;
+        std::string          hint;
+        float                armorValue = -1.0f;
+        std::uint32_t        iconTint = 0xFFFFFFFF;
     };
 
     static void DrawItemTooltip(RE::Actor* actor, RE::TESForm* form, const char* slotLabel,
@@ -1661,10 +1925,13 @@ namespace PartySheetV2 {
 
         TipRow item;
         item.icon = icon;
+        item.iconTint = copy.iconTint;
         item.name = copy.name ? copy.name : (form->GetName() ? form->GetName() : "");
         auto* spell = form->As<RE::SpellItem>();
         auto* weap  = form->As<RE::TESObjectWEAP>();
-        if (auto* arm = form->As<RE::TESObjectARMO>()) {
+        auto* armor = form->As<RE::TESObjectARMO>();
+        RE::EnchantmentItem* shownEnchant = nullptr;
+        if (auto* arm = armor) {
             if (arm->IsHeavyArmor())      item.type = EffectCategories::LocalizedAVName(AV::kHeavyArmor);
             else if (arm->IsLightArmor()) item.type = EffectCategories::LocalizedAVName(AV::kLightArmor);
         } else if (weap) {
@@ -1711,6 +1978,7 @@ namespace PartySheetV2 {
                 }
                 if (!ench)
                     if (auto* ef = form->As<RE::TESEnchantableForm>()) ench = ef->formEnchanting;
+                shownEnchant = ench;
                 if (ench)
                     for (auto* eff : ench->effects)
                         if (eff && eff->baseEffect)
@@ -1731,6 +1999,19 @@ namespace PartySheetV2 {
 
         std::vector<TipRow> rows;
         rows.push_back(std::move(item));
+
+        if (copy.poison && copy.poisonDoses > 0) {
+            TipRow p;
+            p.icon = TextureManager::GetPartyIcon("poison");
+            p.name = copy.poison->GetName() ? copy.poison->GetName() : "";
+            p.type = LocalizationManager::Get("PartySheetV2.PoisonDoses");
+            if (auto at = p.type.find("%1"); at != std::string::npos) p.type.replace(at, 2, std::to_string(copy.poisonDoses));
+            p.tone = 1;
+            for (auto* eff : copy.poison->effects)
+                if (eff && eff->baseEffect)
+                    AddLine(p, eff->baseEffect, eff->effectItem.magnitude, static_cast<float>(eff->effectItem.duration), kBuff);
+            rows.push_back(std::move(p));
+        }
 
         if (bodySlot) {
             static ID3D11ShaderResourceView* s_TexArmorIco = nullptr;
@@ -1754,20 +2035,109 @@ namespace PartySheetV2 {
                 [](const TipRow& r) { return r.lines.empty(); }), rows.end());
         }
 
-        if (!copy.isCopy && rows.size() == 1 && rows[0].lines.empty()) return;
-        std::string title = slotLabel ? slotLabel : "";
-        for (char& c : title) c = static_cast<char>(toupper(c));
-        DrawCompactTooltip(title, rows, {}, sc);
+        TipHero hero;
+        hero.category = slotLabel ? slotLabel : "";
+        hero.icon     = rows[0].icon;
+        hero.iconTint = rows[0].iconTint;
+        hero.name     = rows[0].name;
+        hero.subtitle = rows[0].type;
+        hero.hint     = copy.hint;
+        rows[0].icon = nullptr;
+        rows[0].name.clear();
+        rows[0].type.clear();
+        if (armor) {
+            static std::string s_secEnchant, s_secKye, s_rating;
+            if (s_secEnchant.empty()) {
+                s_secEnchant = LocalizationManager::Get("PartySheetV2.SectionEnchantment");
+                s_secKye     = LocalizationManager::Get("PartySheetV2.SectionKnowYourEnemy");
+                s_rating     = LocalizationManager::Get("PartySheetV2.ArmorRating");
+            }
+            if (copy.armorValue >= 0.0f) {
+                std::string r = s_rating;
+                if (auto at = r.find("%1"); at != std::string::npos) r.replace(at, 2, std::to_string(static_cast<int>(copy.armorValue + 0.5f)));
+                hero.subtitle += (hero.subtitle.empty() ? "" : " \xC2\xB7 ") + r;
+            }
+
+            auto& enchRow = rows[0];
+            if (shownEnchant && shownEnchant->GetName() && shownEnchant->GetName()[0]) enchRow.name = shownEnchant->GetName();
+            enchRow.section = s_secEnchant;
+            enchRow.tone = 1;
+            for (size_t i = 1; i < rows.size(); ++i) rows[i].section = s_secKye;
+
+            static std::string s_secPerks;
+            if (s_secPerks.empty()) s_secPerks = LocalizationManager::Get("PartySheetV2.SectionPerks");
+            auto* perkIcon = TextureManager::GetPartyIcon("perk");
+            for (const auto& p : PerkModifiers::GetArmorPerks(actor, armor).perks) {
+                TipRow r;
+                r.icon    = perkIcon;
+                r.name    = p.name;
+                r.section = s_secPerks;
+                r.lines.push_back({ p.description.empty() ? std::string(" ") : p.description, kTextMuted });
+                rows.push_back(std::move(r));
+            }
+            rows.erase(std::remove_if(rows.begin(), rows.end(),
+                [](const TipRow& r) { return r.lines.empty(); }), rows.end());
+        }
+        if (rows.size() == 1 && rows[0].lines.empty() && rows[0].name.empty()) rows.clear();
+        DrawCompactTooltip({}, rows, {}, sc, {}, hero);
+    }
+
+    float PoisonMarkHeight(float sc) {
+        const float icon = (std::max)(ImGui::GetTextLineHeight(), Settings::GetSingleton()->psV2IconBadge * sc);
+        return icon + 4.0f * sc;
+    }
+
+    void DrawPoisonMark(ImDrawList* dl, ImVec2 topRight, int doses, float sc) {
+        if (doses <= 0) return;
+        static ID3D11ShaderResourceView* s_TexPoisonMark = nullptr;
+        if (!s_TexPoisonMark) s_TexPoisonMark = TextureManager::GetPartyIcon("poison");
+        char buf[8];
+        snprintf(buf, sizeof(buf), "%d", doses);
+        const ImVec2 tsz   = ImGui::CalcTextSize(buf);
+        const float  pad   = 2.0f * sc;
+        const float  icon  = (std::max)(tsz.y, Settings::GetSingleton()->psV2IconBadge * sc);
+        const ImVec2 bgTL(topRight.x - (pad * 3.0f + icon + tsz.x), topRight.y);
+        const ImVec2 bgBR(topRight.x, topRight.y + icon + pad * 2.0f);
+        HUDDraw::DrawChip(dl, bgTL, bgBR, HUDDraw::PanelChipFromColor(HUDDraw::PackedToArgb(IM_COL32(24, 52, 28, 220)), 1.0f, 0.0f, 3.0f * sc));
+        if (s_TexPoisonMark)
+            HUDDraw::DrawIconStyled(dl, ImVec2(bgTL.x + pad, bgTL.y + pad), icon,
+                reinterpret_cast<ImTextureID>(s_TexPoisonMark), 0xFFFFFFFF, IconFxDefault());
+        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(bgTL.x + pad * 2.0f + icon, bgTL.y + pad + (icon - tsz.y) * 0.5f),
+            IM_COL32(125, 220, 122, 255), buf);
+    }
+
+    struct HandPoison { RE::AlchemyItem* poison = nullptr; int doses = 0; };
+    static HandPoison EquippedPoison(RE::Actor* actor, GearCatalog::Card card) {
+        const auto gear = GearCatalog::Get(actor);
+        if (!gear) return {};
+        for (const auto& it : gear->cards[static_cast<std::size_t>(card)].items) {
+            if (!it.equipped || !it.key.poisonID) continue;
+            return { RE::TESForm::LookupByID<RE::AlchemyItem>(it.key.poisonID), it.poisonDoses };
+        }
+        return {};
     }
 
     void DrawInventoryItemTooltip(RE::Actor* actor, RE::TESForm* form, const char* name,
-                                  RE::EnchantmentItem* enchant, const char* typeLabel, void* icon, float sc) {
+                                  RE::EnchantmentItem* enchant, const char* typeLabel, void* icon, float sc,
+                                  RE::FormID poisonID, int poisonDoses, std::uint32_t iconTint, bool quest) {
         ItemTooltipCopy copy;
         copy.name = name;
         copy.enchant = enchant;
         copy.isCopy = true;
+        copy.poison = poisonID ? RE::TESForm::LookupByID<RE::AlchemyItem>(poisonID) : nullptr;
+        copy.poisonDoses = poisonDoses;
+        copy.iconTint = iconTint;
+        static const std::string s_consume = LocalizationManager::Get("Inventory.HintConsume");
+        static const std::string s_send    = LocalizationManager::Get("Inventory.HintSend");
+        static const std::string s_quest   = LocalizationManager::Get("Inventory.HintQuest");
+        auto* potion = form ? form->As<RE::AlchemyItem>() : nullptr;
+        if (quest) copy.hint = s_quest;
+        else if (potion && !potion->IsPoison()) copy.hint = s_consume;
+        else if (form && !form->As<RE::TESObjectWEAP>() && !form->As<RE::TESObjectARMO>() && !form->As<RE::TESAmmo>()) copy.hint = s_send;
         DrawItemTooltip(actor, form, typeLabel, static_cast<ID3D11ShaderResourceView*>(icon), false, sc, copy);
     }
+
+    static ImVec4 s_RecentRibbon[2] = {};
 
     static void RenderRightPanel(ImVec2 size) {
         auto subjects = BuildSubjectList();
@@ -1780,58 +2150,40 @@ namespace PartySheetV2 {
         ImDrawList* dl  = ImGui::GetWindowDrawList();
         ImVec2 origin   = ImGui::GetCursorScreenPos();
         float  curY     = origin.y;
+        constexpr float kSlotDarken      = 0.45f;
+        constexpr float kSlotDarkenEmpty = 0.25f;
 
-        auto HoverZoomUV = [&](const char* key, const ImVec2& tl, const ImVec2& br) -> float {
+        struct SlotFx { float hover; float press; float zoom; };
+        auto SlotFeel = [&](const std::string& key, const ImVec2& tl, const ImVec2& br) -> SlotFx {
             const float kMaxInset = 0.06f;
             const float kSpeed    = 12.0f;
-            const bool  hovered   = ImGui::IsMouseHoveringRect(tl, br);
-            const float cur = UIAnimation::Follow(std::string("psv2_zoom_") + key, hovered ? 1.0f : 0.0f, kSpeed, kSpeed);
-            return cur * kMaxInset;
+            const bool  hovered   = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(tl, br);
+            const float hover = UIAnimation::Follow("psv2_zoom_" + key, hovered ? 1.0f : 0.0f, kSpeed, kSpeed);
+            const std::string pressKey = "psv2_press_" + key;
+            if (hovered && ImGui::IsMouseClicked(0)) UIAnimation::Snap(pressKey, 1.0f);
+            const float press = UIAnimation::Step(pressKey, false, 0.01f, 0.35f);
+            return { hover, press, hover * kMaxInset };
         };
 
-        struct RolledStat { float shown; ImU32 tint; float sinceOpen; };
-        auto RollStat = [&](const char* slotKey, float value, bool settled) -> RolledStat {
-            if (!settled) return { value, IM_COL32(255, 255, 255, 220), 0.0f };
-            char key[96];
-            snprintf(key, sizeof(key), "psv2_stat_%08X_%s", actor ? actor->GetFormID() : 0u, slotKey);
-            constexpr float kRollSpeed = 10.0f;
-            RolledStat r;
-            r.shown     = UIAnimation::Follow(key, value, kRollSpeed, kRollSpeed);
-            r.sinceOpen = UIAnimation::SinceShown(key, value);
-            r.tint      = IM_COL32(255, 255, 255, 220);
-            if (std::fabs(r.shown - value) >= 0.5f)
-                r.tint = r.shown < value ? IM_COL32(125, 220, 122, 255) : IM_COL32(232, 103, 106, 255);
-            return r;
-        };
-        auto DrawChangeChip = [&](ImVec2 edge, float sinceOpen) {
-            if (std::fabs(sinceOpen) < 0.5f) return;
-            char chipBuf[16];
-            snprintf(chipBuf, sizeof(chipBuf), "%+.0f", sinceOpen);
-            const bool   up  = sinceOpen > 0.0f;
-            const ImVec2 csz = ImGui::CalcTextSize(chipBuf);
-            const float  cp  = 3.0f * sc;
-            const ImVec2 cTL(edge.x + 4.0f * sc, edge.y - csz.y * 0.5f - cp * 0.5f);
-            const ImVec2 cBR(cTL.x + csz.x + cp * 2.0f, cTL.y + csz.y + cp);
-            dl->AddRectFilled(cTL, cBR, up ? IM_COL32(125, 220, 122, 45) : IM_COL32(232, 103, 106, 45), 8.0f * sc);
-            dl->AddText(ImVec2(cTL.x + cp, cTL.y + cp * 0.5f),
-                up ? IM_COL32(125, 220, 122, 255) : IM_COL32(232, 103, 106, 255), chipBuf);
+        auto DrawPressFlash = [&](const ImVec2& tl, const ImVec2& br, float press) {
+            if (press <= 0.0f) return;
+            dl->AddRectFilled(tl, br, IM_COL32(255, 235, 190, static_cast<int>(70.0f * press)), 3.0f * sc);
         };
 
         auto ResolveEquipIcon = [&](RE::TESForm* form, const char* hint) -> ID3D11ShaderResourceView* {
-            if (!form) return nullptr;
-            if (auto* spell = form->As<RE::SpellItem>()) {
-                using ST = RE::MagicSystem::SpellType;
-                auto t = spell->GetSpellType();
-                if (t != ST::kPower && t != ST::kLesserPower)
-                    if (auto* i = SpellIconManager::GetSpellIcon(spell)) return i;
-            }
-            return TextureManager::GetItemIcon(form, hint);
+            return TextureManager::GetHeldIcon(form, hint);
         };
 
         const bool anyModalOpen = IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen();
 
         auto OpenCardOnClick = [&](GearCatalog::Card card, ImVec2 tl, ImVec2 br) {
             if (!ImGui::IsWindowHovered() || !ImGui::IsMouseHoveringRect(tl, br) || !ImGui::IsMouseClicked(0)) return;
+            const bool isHand = card == GearCatalog::Card::RightHand || card == GearCatalog::Card::LeftHand;
+            auto* held = isHand ? actor->GetEquippedObject(card == GearCatalog::Card::LeftHand) : nullptr;
+            if (held && held->Is(RE::FormType::Spell)) {
+                OpenSpellPicker(card);
+                return;
+            }
             const auto gear = GearCatalog::Get(actor);
             if (gear && !gear->cards[static_cast<std::size_t>(card)].interactive) return;
             OpenInventoryModal(card);
@@ -1842,24 +2194,15 @@ namespace PartySheetV2 {
         if (!s_TexWeapon) s_TexWeapon = TextureManager::GetPartyIcon("weapon");
         if (!s_TexArmor)  s_TexArmor  = TextureManager::GetPartyIcon("armor");
 
-        auto DrawBadge = [&](ImVec2 tl, const char* text, ImU32 textCol) {
-            ImGui::SetWindowFontScale(FontSmall());
-            ImVec2 sz  = ImGui::CalcTextSize(text);
-            float  bp  = 3.0f * sc;
-            ImVec2 br  = ImVec2(tl.x + sz.x + bp * 2.0f, tl.y + sz.y + bp * 2.0f);
-            dl->AddRectFilled(ImVec2(tl.x - bp, tl.y - bp), br,
-                IM_COL32(10, 10, 15, 200), 2.0f * sc);
-            dl->AddText(tl, textCol, text);
-            ImGui::SetWindowFontScale(1.0f);
-        };
-
         const float colGapEquip = 6.0f * sc;
         const float colWEquip   = (size.x - colGapEquip) * 0.5f;
         const float iconW       = Settings::GetSingleton()->psV2IconEquip * sc;
         const float iconH       = iconW * (300.0f / 216.0f);
+        const float cardH       = Settings::GetSingleton()->psV2EquipCardH * sc;
         const float rowGap      =  6.0f * sc;
 
         struct EnchBadge { ID3D11ShaderResourceView* tex; float value; std::string type; };
+        struct WeaponStat { ID3D11ShaderResourceView* tex; std::string value; std::string label; };
 
         auto DrawEquipRow = [&](float rowY, RE::TESForm* form, const char* hint,
                                 const char* subLabel,
@@ -1869,41 +2212,58 @@ namespace PartySheetV2 {
                                 float colX = -1.0f,
                                 float colW = -1.0f,
                                 bool alignLeft = true,
-                                const std::vector<std::string>& chips = {},
+                                const std::vector<WeaponStat>& chips = {},
                                 float dmgSeconds = 0.0f,
                                 bool statSettled = true) -> float
         {
             if (colX < 0.0f) colX = origin.x;
             if (colW < 0.0f) colW = size.x;
 
-            float iconOffX = (colW - iconW) * 0.5f;
-            ImVec2 iTL = ImVec2(colX + iconOffX, rowY);
-            ImVec2 iBR = ImVec2(colX + iconOffX + iconW, rowY + iconH);
+            const bool  list  = Settings::GetSingleton()->psV2SlotLayout == 1;
+            const float iconAreaW = list ? colW * 0.45f : colW;
+            const float textX = list ? colX + iconAreaW + 8.0f * sc : colX;
+            const float textW = list ? colW - iconAreaW - 16.0f * sc : colW;
 
-            static ID3D11ShaderResourceView* s_EquipSlotFrame = nullptr;
-            if (!s_EquipSlotFrame) s_EquipSlotFrame = TextureManager::GetFrameTexture("frame-4");
-            if (s_EquipSlotFrame) {
-                ImVec2 fTL = ImVec2(colX,         rowY);
-                ImVec2 fBR = ImVec2(colX + colW,  rowY + iconH);
-                dl->AddImage(reinterpret_cast<ImTextureID>(s_EquipSlotFrame), fTL, fBR,
-                    ImVec2(0,0), ImVec2(1,1), IM_COL32(110, 110, 115, 255));
-            }
+            const float turn = (form && form->As<RE::TESObjectWEAP>())
+                ? static_cast<float>(Settings::GetSingleton()->psV2WeaponIconRotate) : 0.0f;
+
+            const float stripH    = 30.0f * sc;
+            const float iconAreaH = (!list && !chips.empty()) ? cardH - stripH : cardH;
+
+            const bool  squareArt = form && (form->As<RE::SpellItem>() || form->As<RE::TESShout>());
+            const float artH      = squareArt ? iconW : iconH;
+
+            const ImVec2 ext = HUDDraw::RotatedExtent(iconW, artH, turn);
+            const float fit  = std::min({ 1.0f, iconAreaH / ext.y, iconAreaW / ext.x });
+            float iconOffX = (iconAreaW - iconW * fit) * 0.5f;
+            ImVec2 iTL = ImVec2(colX + iconOffX, rowY + (iconAreaH - artH * fit) * 0.5f);
+            ImVec2 iBR = ImVec2(iTL.x + iconW * fit, iTL.y + artH * fit);
+
+            char fxKey[64];
+            snprintf(fxKey, sizeof(fxKey), "eq_%.0f_%s", colX, subLabel ? subLabel : "");
+            const SlotFx fx = SlotFeel(fxKey, ImVec2(colX, rowY), ImVec2(colX + colW, rowY + (list ? cardH : cardH + ImGui::GetTextLineHeight() * 2.0f + 8.0f * sc)));
+            const ImVec2 wellTL(colX, rowY), wellBR(colX + colW, rowY + cardH);
+            Tip::g_slotChipBase = LiveBackingColor(actor);
+            HUDDraw::DrawChip(dl, wellTL, wellBR,
+                HUDDraw::PanelChipFromColor(HUDDraw::PackedToArgb(LiveBackingColor(actor)), form ? kSlotDarken : kSlotDarkenEmpty, fx.hover, 3.0f * sc));
+            DrawPressFlash(wellTL, wellBR, fx.press);
 
             auto* tex = form ? ResolveEquipIcon(form, hint) : nullptr;
             if (tex) {
-                char zkey[64];
-                snprintf(zkey, sizeof(zkey), "eq_%.0f_%s", colX, subLabel ? subLabel : "");
-                float z = HoverZoomUV(zkey, iTL, iBR);
+                const float z = fx.zoom;
+                const int turnStart = HUDDraw::RotateBegin(dl);
                 HUDDraw::DrawIconStyled(dl, iTL, ImVec2(iBR.x - iTL.x, iBR.y - iTL.y),
                     reinterpret_cast<ImTextureID>(tex), 0xFFFFFFFF, IconFxItemArt(),
                     ImVec2(z, z), ImVec2(1.0f - z, 1.0f - z));
+                if (turn != 0.0f)
+                    HUDDraw::RotateEnd(dl, turnStart, ImVec2((iTL.x + iBR.x) * 0.5f, (iTL.y + iBR.y) * 0.5f), turn);
             }
 
             {
                 ImGui::SetWindowFontScale(FontSmall());
                 const float bp    = 3.0f * sc;
                 const float gap   = 2.0f * sc;
-                float badgeY = iTL.y + 4.0f * sc;
+                float badgeY = rowY + 4.0f * sc;
 
                 auto DrawStatBadge = [&](ID3D11ShaderResourceView* iconTex, const char* text, ImU32, BadgeStyle::BadgeColors bgColors,
                                          ImU32 textTint = IM_COL32(255, 255, 255, 220)) -> ImVec2 {
@@ -1913,7 +2273,7 @@ namespace PartySheetV2 {
                     float  badgeH = iconSz + bp * 2.0f;
                     ImVec2 bgTL   = ImVec2(colX + 2.0f * sc, badgeY);
                     ImVec2 bgBR   = ImVec2(bgTL.x + badgeW, bgTL.y + badgeH);
-                    dl->AddRectFilled(bgTL, bgBR, bgColors.fill);
+                    HUDDraw::DrawChip(dl, bgTL, bgBR, HUDDraw::PanelChipFromColor(HUDDraw::PackedToArgb(bgColors.fill), 1.0f, 0.0f, 2.0f * sc));
                     float iconOffY = (badgeH - iconSz) * 0.5f;
                     if (iconTex)
                         HUDDraw::DrawIconStyled(dl, ImVec2(bgTL.x + bp, bgTL.y + iconOffY), iconSz,
@@ -1930,12 +2290,12 @@ namespace PartySheetV2 {
                 if (dmgOrArmor >= 0.0f) {
                     char slotKey[48];
                     snprintf(slotKey, sizeof(slotKey), "hand_%d_%s", alignLeft ? 0 : 1, subLabel ? subLabel : "");
-                    const RolledStat stat = RollStat(slotKey, dmgOrArmor, statSettled);
+                    const RolledStat stat = RollStat(actor, slotKey, dmgOrArmor, statSettled);
                     char buf[24];
                     if (dmgSeconds > 1.0f) snprintf(buf, sizeof(buf), "%.0f / %.0fs", stat.shown, dmgSeconds);
                     else                   snprintf(buf, sizeof(buf), "%.0f", stat.shown);
                     const ImVec2 edge = DrawStatBadge(statTex, buf, BadgeStyle::TextColor::Neutral(), BadgeStyle::Theme::NeutralGrey(), stat.tint);
-                    DrawChangeChip(edge, stat.sinceOpen);
+                    DrawChangeChip(dl, sc, edge, stat.sinceOpen, stat.chipAlpha);
                 }
 
                 for (const auto& [enchantTex, enchantDmg, enchantType] : enchBadges) {
@@ -1966,19 +2326,26 @@ namespace PartySheetV2 {
                 ImGui::SetWindowFontScale(1.0f);
             }
 
-            float textY = rowY + iconH + 4.0f * sc;
+            const HandPoison handPoison = (form && form->As<RE::TESObjectWEAP>())
+                ? EquippedPoison(actor, alignLeft ? GearCatalog::Card::RightHand : GearCatalog::Card::LeftHand)
+                : HandPoison{};
+            if (handPoison.poison) {
+                ImGui::SetWindowFontScale(FontSmall());
+                DrawPoisonMark(dl, ImVec2(colX + colW - 4.0f * sc, rowY + 4.0f * sc), handPoison.doses, sc);
+                ImGui::SetWindowFontScale(1.0f);
+            }
+
+            float textY = list ? rowY + 6.0f * sc : rowY + cardH + 4.0f * sc;
 
             ImGui::SetWindowFontScale(FontBody());
             static std::string s_emptyLabel;
             if (s_emptyLabel.empty()) s_emptyLabel = LocalizationManager::Get("CharacterSheet.empty");
             const char* nameStr = form ? form->GetName() : s_emptyLabel.c_str();
             ImU32 nameCol = form ? kTheme.textMain : kTheme.textMuted;
-            ImVec2 nameSz = ImGui::CalcTextSize(nameStr, nullptr, false, colW);
-            float nameX = alignLeft
-                ? colX
-                : colX + colW - std::min(nameSz.x, colW);
+            ImVec2 nameSz = ImGui::CalcTextSize(nameStr, nullptr, false, textW);
+            float nameX = list ? textX : textX + (textW - std::min(nameSz.x, textW)) * 0.5f;
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
-                ImVec2(nameX, textY), nameCol, nameStr, nullptr, colW);
+                ImVec2(nameX, textY), nameCol, nameStr, nullptr, textW);
             textY += nameSz.y + 2.0f * sc;
             ImGui::SetWindowFontScale(1.0f);
 
@@ -1987,54 +2354,75 @@ namespace PartySheetV2 {
             snprintf(slotLabelBuf, sizeof(slotLabelBuf), "%s", subLabel);
             for (char* p = slotLabelBuf; *p; ++p) *p = static_cast<char>(toupper(*p));
             ImVec2 slotSz = ImGui::CalcTextSize(slotLabelBuf);
-            float slotX = alignLeft
-                ? colX
-                : colX + colW - slotSz.x;
+            float slotX = list ? textX : textX + (textW - slotSz.x) * 0.5f;
             dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
                 ImVec2(slotX, textY), kTheme.textMuted, slotLabelBuf);
             textY += ImGui::GetTextLineHeight() + 2.0f * sc;
 
+            const WeaponStat* hoveredStat = nullptr;
+
             if (!chips.empty()) {
-                const float cp = 4.0f * sc, cg = 4.0f * sc;
-                const float chipH = ImGui::GetTextLineHeight() + 2.0f * sc;
-                float cx = colX;
-                textY += 2.0f * sc;
-                for (const auto& chip : chips) {
-                    const ImVec2 tsz = ImGui::CalcTextSize(chip.c_str());
-                    const float  w   = tsz.x + cp * 2.0f;
-                    if (cx > colX && cx + w > colX + colW) { cx = colX; textY += chipH + cg; }
-                    dl->AddRectFilled(ImVec2(cx, textY), ImVec2(cx + w, textY + chipH), IM_COL32(255, 255, 255, 14), 2.0f * sc);
-                    dl->AddRect(ImVec2(cx, textY), ImVec2(cx + w, textY + chipH), IM_COL32(255, 255, 255, 30), 2.0f * sc);
-                    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(cx + cp, textY + 1.0f * sc), kTheme.textMain, chip.c_str());
-                    cx += w + cg;
+                ImVec2 stripTL, stripBR;
+                if (list) { textY += 4.0f * sc; stripTL = ImVec2(textX, textY); stripBR = ImVec2(textX + textW, textY + stripH); textY += stripH; }
+                else      { stripTL = ImVec2(colX, rowY + cardH - stripH); stripBR = ImVec2(colX + colW, rowY + cardH); }
+                dl->AddRectFilled(stripTL, stripBR, IM_COL32(0, 0, 0, 120), list ? 2.0f * sc : 0.0f);
+                HUDDraw::DrawFadeRule(dl, stripTL.x, stripBR.x, stripTL.y, IM_COL32(212, 175, 55, 70));
+                const float cellW = (stripBR.x - stripTL.x) / static_cast<float>(chips.size());
+                const float icoSz = stripH - 6.0f * sc;
+                for (size_t i = 0; i < chips.size(); ++i) {
+                    const auto& st = chips[i];
+                    const float cx0 = stripTL.x + cellW * i;
+                    const ImVec2 vsz = ImGui::CalcTextSize(st.value.c_str());
+                    const float contentW = (st.tex ? icoSz + 4.0f * sc : 0.0f) + vsz.x;
+                    float x = cx0 + (cellW - contentW) * 0.5f;
+                    if (st.tex) {
+                        HUDDraw::DrawIconStyled(dl, ImVec2(x, stripTL.y + (stripH - icoSz) * 0.5f), icoSz,
+                            reinterpret_cast<ImTextureID>(st.tex), 0xFFDCDCDC, HUDDraw::IconFx{});
+                        x += icoSz + 4.0f * sc;
                 }
-                textY += chipH + 2.0f * sc;
+                    dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(), ImVec2(x, stripTL.y + (stripH - vsz.y) * 0.5f), kTheme.textMain, st.value.c_str());
+                    if (i > 0) HUDDraw::DrawRuleV(dl, cx0, stripTL.y + 4.0f * sc, stripBR.y - 4.0f * sc, IM_COL32(255, 255, 255, 25));
+                    if (ImGui::IsMouseHoveringRect(ImVec2(cx0, stripTL.y), ImVec2(cx0 + cellW, stripBR.y))) hoveredStat = &st;
+                }
             }
             ImGui::SetWindowFontScale(1.0f);
 
-            if (form && !anyModalOpen && ImGui::IsWindowHovered()) {
-                if (ImGui::IsMouseHoveringRect(ImVec2(colX, rowY), ImVec2(colX + colW, textY))) {
+            if (hoveredStat && !anyModalOpen && ImGui::IsWindowHovered())
+                Tip::DrawSumTooltip(hoveredStat->label + "  " + hoveredStat->value, {}, sc);
+
+            const ImVec4& ribbon = s_RecentRibbon[alignLeft ? 0 : 1];
+            const bool overRibbon = ribbon.z > ribbon.x &&
+                ImGui::IsMouseHoveringRect(ImVec2(ribbon.x, ribbon.y), ImVec2(ribbon.z, ribbon.w));
+            if (form && !hoveredStat && !overRibbon && !anyModalOpen && ImGui::IsWindowHovered()) {
+                if (ImGui::IsMouseHoveringRect(ImVec2(colX, rowY), ImVec2(colX + colW, rowY + cardH))) {
                     if (auto* spellForm = form->As<RE::SpellItem>()) {
-                        const auto sd = SpellDamageResolver::ResolveSpellDamage(actor, spellForm);
-                        if (sd.HasDamage()) Tip::DrawSpellTooltip(subLabel, spellForm, sd, sc);
-                        else if (auto d = Tip::SpellDescriptions(spellForm); !d.empty()) {
-                            std::vector<Tip::SumLine> school;
-                            if (const auto av = spellForm->GetAssociatedSkill(); av != RE::ActorValue::kNone)
-                                school.push_back({ EffectCategories::LocalizedAVName(av), {}, {}, Tip::kTextMuted });
-                            Tip::DrawSumTooltip(subLabel, school, sc, d);
-                        }
+                        Tip::DrawSpellHover(subLabel, actor, spellForm, sc);
                     } else {
                         const auto wd = form->As<RE::TESObjectWEAP>()
                             ? EquipmentStatResolver::ResolveWeaponDamage(actor, form, !alignLeft)
                             : EquipmentStatResolver::WeaponDamage{};
                         if (wd.valid) {
-                            Tip::DrawWeaponTooltip(subLabel, wd, sc);
+                            Tip::TipHero hero;
+                            hero.category = subLabel ? subLabel : "";
+                            hero.icon     = tex;
+                            hero.name     = form->GetName() ? form->GetName() : "";
+                            if (auto* w = form->As<RE::TESObjectWEAP>())
+                                hero.subtitle = EffectCategories::LocalizedAVName(w->weaponData.skill.get());
+                            Tip::DrawWeaponTooltip(subLabel, wd, sc, handPoison.poison, handPoison.doses,
+                                                   EquipmentStatResolver::GetWeaponEnchantment(actor, form, !alignLeft), hero);
                         } else {
-                DrawItemTooltip(actor, form, subLabel, tex, false, sc);
+                            ItemTooltipCopy worn;
+                            worn.poison = handPoison.poison;
+                            worn.poisonDoses = handPoison.doses;
+                            if (auto* shield = form->As<RE::TESObjectARMO>())
+                                worn.armorValue = WornGearStatResolver::ShownArmorValue(actor, shield);
+                            DrawItemTooltip(actor, form, subLabel, tex, false, sc, worn);
                         }
                     }
                 }
             }
+
+            if (list) textY = std::max(textY, rowY + cardH);
 
             return textY + rowGap;
         };
@@ -2084,11 +2472,11 @@ namespace PartySheetV2 {
             const float lhX    = origin.x + colW + colGapEquip;
 
             auto EnchantTex = [&](const std::string& t) -> ID3D11ShaderResourceView* {
-                if (t == "fire_resist"   || t == "resist_fire")   return TextureManager::GetPartyIcon("fire_resist");
-                if (t == "frost_resist"  || t == "resist_frost")  return TextureManager::GetPartyIcon("frost_resist");
-                if (t == "shock_resist"  || t == "resist_shock")  return TextureManager::GetPartyIcon("shock_resist");
-                if (t == "poison_resist" || t == "resist_poison") return TextureManager::GetPartyIcon("poison_resist");
-                if (t == "magic_resist"  || t == "resist_magic")  return TextureManager::GetPartyIcon("magic_resist");
+                if (t == "fire_resist"   || t == "resist_fire")   return TextureManager::GetPartyIcon("fire");
+                if (t == "frost_resist"  || t == "resist_frost")  return TextureManager::GetPartyIcon("frost");
+                if (t == "shock_resist"  || t == "resist_shock")  return TextureManager::GetPartyIcon("shock");
+                if (t == "poison_resist" || t == "resist_poison") return TextureManager::GetPartyIcon("poison");
+                if (t == "magic_resist"  || t == "resist_magic")  return TextureManager::GetPartyIcon("magic");
                 if (t == "stamina")                               return TextureManager::GetPartyIcon("stamina");
                 if (t == "magicka")                               return TextureManager::GetPartyIcon("magicka");
                 return nullptr;
@@ -2218,28 +2606,127 @@ namespace PartySheetV2 {
             if (auto* t = rhStatType.empty() ? nullptr : EnchantTex(rhStatType)) rhStatTex = t;
 
             auto WeaponChips = [](RE::TESForm* form) {
-                std::vector<std::string> chips;
+                std::vector<WeaponStat> chips;
                 auto* w = form ? form->As<RE::TESObjectWEAP>() : nullptr;
                 if (!w) return chips;
-                char buf[48];
-                snprintf(buf, sizeof(buf), "%s %.2f", LocalizationManager::Get("Stats.Speed").c_str(), w->GetSpeed());
-                chips.emplace_back(buf);
-                if (w->IsMelee()) {
-                    snprintf(buf, sizeof(buf), "%s %.2f", LocalizationManager::Get("Stats.Reach").c_str(), w->GetReach());
-                    chips.emplace_back(buf);
-                }
-                snprintf(buf, sizeof(buf), "%s %.2f", LocalizationManager::Get("Stats.Stagger").c_str(), w->GetStagger());
-                chips.emplace_back(buf);
+                const bool bow = !w->IsMelee();
+                auto Num = [](float v) { char b[16]; snprintf(b, sizeof(b), "%.2f", v); return std::string(b); };
+                chips.push_back({ TextureManager::GetPartyIcon(bow ? "bowspeed" : "attackspeed"), Num(w->GetSpeed()), LocalizationManager::Get("Stats.Speed") });
+                if (!bow)
+                    chips.push_back({ TextureManager::GetPartyIcon("reach"), Num(w->GetReach()), LocalizationManager::Get("Stats.Reach") });
+                chips.push_back({ TextureManager::GetPartyIcon(bow ? "bowstagger" : "stagger"), Num(w->GetStagger()), LocalizationManager::Get("Stats.Stagger") });
                 return chips;
             };
 
+            auto DrawRecentStrip = [&](GearCatalog::Card card, ImVec2 tl, ImVec2 br) -> bool {
+                const bool leftHand = card == GearCatalog::Card::LeftHand;
+                RE::TESForm* heldNow = actor->GetEquippedObject(leftHand);
+                RecentEquips::Observe(actor->GetFormID(), leftHand, heldNow ? heldNow->GetFormID() : 0);
+
+                auto recent = RecentEquips::Get(actor->GetFormID(), leftHand);
+                ImVec4& ribbon = s_RecentRibbon[leftHand ? 1 : 0];
+                ribbon = ImVec4(0, 0, 0, 0);
+                if (recent.empty()) return false;
+
+                const auto  gear = GearCatalog::Get(actor);
+                const bool  list = Settings::GetSingleton()->psV2SlotLayout == 1;
+                constexpr std::size_t kCardsMaxRecent = 4;
+                if (!list)
+                    while (recent.size() > kCardsMaxRecent) {
+                        auto drop = std::find_if(recent.rbegin(), recent.rend(), [](const RecentEquips::Entry& r) { return !r.held; });
+                        recent.erase(std::next(drop).base());
+                    }
+                const auto* st = Settings::GetSingleton();
+                const float side = std::round(static_cast<float>(list ? st->psV2IconRecentList : st->psV2IconRecentCards) * sc);
+                const float gap  = 7.0f * sc;
+                const float pad  = 6.0f * sc;
+                float x = list ? br.x - pad - side * static_cast<float>(recent.size()) - gap * static_cast<float>(recent.size() - 1)
+                               : br.x - 4.0f * sc - side;
+                float y = list ? br.y - 2.0f * pad - side : tl.y + 4.0f * sc;
+                if (!list && heldNow && heldNow->As<RE::TESObjectWEAP>() && EquippedPoison(actor, card).poison) {
+                    ImGui::SetWindowFontScale(FontSmall());
+                    y += PoisonMarkHeight(sc) + gap;
+                    ImGui::SetWindowFontScale(1.0f);
+                }
+                auto step = [&] { if (list) x += side + gap; else y += side + gap; };
+                {
+                    const float n = static_cast<float>(recent.size());
+                    const float m = 3.0f * sc;
+                    const float w = list ? n * side + (n - 1.0f) * gap : side;
+                    const float h = list ? side : n * side + (n - 1.0f) * gap;
+                    ribbon = ImVec4(x - m, y - m, x + w + m, y + h + m + 1.0f * sc);
+                }
+                bool anyHover = false;
+
+                for (const auto& entry : recent) {
+                    const RE::FormID id = entry.id;
+                    auto* form = RE::TESForm::LookupByID(id);
+                    if (!form) { step(); continue; }
+
+                    const GearCatalog::InventoryItem* copy = nullptr;
+                    if (gear && !form->Is(RE::FormType::Spell))
+                        for (const auto& it : gear->items)
+                            if (it.key.baseID == id && (!copy || !it.worn)) copy = &it;
+                    const bool usable = !entry.held && (form->Is(RE::FormType::Spell) || copy != nullptr);
+
+                    const ImVec2 a(x, y), b(x + side, y + side);
+                    const bool hovered = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(a, b);
+                    anyHover |= hovered;
+
+                    const ImVec2 plateA(a.x - 2.0f * sc, a.y - 2.0f * sc), plateB(b.x + 2.0f * sc, b.y + 2.0f * sc);
+                    if (hovered && usable) {
+                        dl->AddRectFilled(plateA, plateB, IM_COL32(60, 52, 30, 200), 3.0f * sc);
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    } else {
+                        dl->AddRectFilled(plateA, plateB, IM_COL32(255, 255, 255, 18), 3.0f * sc);
+                        dl->AddRect(plateA, plateB, IM_COL32(255, 255, 255, 28), 3.0f * sc, 0, 1.0f);
+                    }
+                    if (auto* tex = ResolveEquipIcon(form, copy ? copy->iconHint.c_str() : nullptr)) {
+                        float tw = 1.0f, th = 1.0f;
+                        if (!TextureManager::GetTextureSize(tex, tw, th)) tw = th = 1.0f;
+                        const float fit = side / (std::max)(tw, th);
+                        const float dw = std::round(tw * fit), dh = std::round(th * fit);
+                        const ImVec2 ia(std::round(a.x + (side - dw) * 0.5f), std::round(a.y + (side - dh) * 0.5f));
+                        if (dw == dh) tex = TextureManager::GetIconAtPixelSize(tex, static_cast<int>(side));
+                        const ImU32 tint = hovered && usable ? IM_COL32(255, 255, 255, 255)
+                                         : usable || entry.held ? IM_COL32(255, 255, 255, 220) : IM_COL32(255, 255, 255, 80);
+                        dl->AddImage(reinterpret_cast<ImTextureID>(tex), ia, ImVec2(ia.x + dw, ia.y + dh),
+                                     ImVec2(0, 0), ImVec2(1, 1), tint);
+                    }
+                    if (entry.held)
+                        dl->AddRectFilled(ImVec2(a.x + 3.0f * sc, b.y + 1.0f * sc), ImVec2(b.x - 3.0f * sc, b.y + 3.0f * sc),
+                                          kTheme.accent, 1.0f * sc);
+
+                    if (hovered) {
+                        const char* nm = form->GetName();
+                        ImGui::BeginTooltip();
+                        ImGui::TextUnformatted(nm && nm[0] ? nm : "?");
+                        Tip::NoteHover(std::string("recent|") + (nm ? nm : "") + std::to_string(form->GetFormID()));
+                        ImGui::EndTooltip();
+                        if (usable && ImGui::IsMouseClicked(0)) {
+                            if (form->Is(RE::FormType::Spell)) GearSwitcher::EquipSpell(actor, id, card);
+                            else GearSwitcher::Equip(actor, copy->key, card);
+                        }
+                    }
+                    step();
+                }
+                return anyHover || ImGui::IsMouseHoveringRect(ImVec2(ribbon.x, ribbon.y), ImVec2(ribbon.z, ribbon.w));
+            };
+
             std::string rhLabelStr = LocalizationManager::Get("CharacterSheet.slot_right_hand");
-            float rhBot = DrawEquipRow(curY, rh,     rhHint, rhLabelStr.c_str(), rhDmg,  rhStatTex,   rhEnch, rhX, colW, true,
+            const bool  listRows = Settings::GetSingleton()->psV2SlotLayout == 1;
+            const float rowW = listRows ? size.x : colW;
+            const float lhColX = listRows ? origin.x : lhX;
+            const float rhColX = listRows ? origin.x : rhX;
+            float rhBot = DrawEquipRow(curY, rh,     rhHint, rhLabelStr.c_str(), rhDmg,  rhStatTex,   rhEnch, rhColX, rowW, true,
                                        WeaponChips(rh), rhDmgSeconds);
-            float lhBot = DrawEquipRow(curY, lhForm, lhHint, lhLabel,            lhDmg,  lhStatTex,   lhEnch, lhX, colW, false,
+            const float lhY = listRows ? rhBot : curY;
+            float lhBot = DrawEquipRow(lhY,  lhForm, lhHint, lhLabel,            lhDmg,  lhStatTex,   lhEnch, lhColX, rowW, false,
                                        WeaponChips(lhForm), lhDmgSeconds, lhDmgSettled);
-            OpenCardOnClick(GearCatalog::Card::RightHand, ImVec2(rhX, curY), ImVec2(rhX + colW, rhBot));
-            OpenCardOnClick(GearCatalog::Card::LeftHand,  ImVec2(lhX, curY), ImVec2(lhX + colW, lhBot));
+            const bool rhRecentHover = DrawRecentStrip(GearCatalog::Card::RightHand, ImVec2(rhColX, curY), ImVec2(rhColX + rowW, rhBot));
+            const bool lhRecentHover = DrawRecentStrip(GearCatalog::Card::LeftHand,  ImVec2(lhColX, lhY),  ImVec2(lhColX + rowW, lhBot));
+            if (!rhRecentHover) OpenCardOnClick(GearCatalog::Card::RightHand, ImVec2(rhColX, curY), ImVec2(rhColX + rowW, rhBot));
+            if (!lhRecentHover) OpenCardOnClick(GearCatalog::Card::LeftHand,  ImVec2(lhColX, lhY),  ImVec2(lhColX + rowW, lhBot));
             curY = std::max(rhBot, lhBot);
         }
 
@@ -2267,9 +2754,20 @@ namespace PartySheetV2 {
         const float armorColGap  = 10.0f * sc;
         const float armorColW    = (size.x - armorColGap * 2.0f) / 3.0f;
         const float armorTextGap = 8.0f * sc;
-        const float armorRowGap  = 30.0f * sc;
+        float       armorRowGap  = 30.0f * sc;
 
-        const float armorIconSz  = Settings::GetSingleton()->psV2IconArmor * sc;
+        ImGui::SetWindowFontScale(FontBody());
+        const float armorNameH = ImGui::GetTextLineHeight();
+        ImGui::SetWindowFontScale(1.0f);
+        const float armorFullH = armorColW * Settings::GetSingleton()->psV2ArmorCardScale / 100.0f;
+        const float armorRoom  = origin.y + size.y - curY;
+        const float armorTextH = 2.0f * (2.0f * armorTextGap + armorNameH);
+        if (2.0f * armorFullH + armorTextH + armorRowGap > armorRoom)
+            armorRowGap = std::max(armorTextGap, armorRoom - 2.0f * armorFullH - armorTextH);
+        const float armorFrameH = std::clamp((armorRoom - armorTextH - armorRowGap) * 0.5f, armorFullH * 0.4f, armorFullH);
+        const float armorFit    = armorFrameH / armorFullH;
+
+        const float armorIconSz  = Settings::GetSingleton()->psV2IconArmor * sc * armorFit;
 
         auto DrawArmorCell = [&](float cellX, float cellY, RE::TESObjectARMO* arm,
                                  const char* hint, const char* label,
@@ -2277,28 +2775,27 @@ namespace PartySheetV2 {
                                  const WornGearStatResolver::WornGearSlotData& slotData) -> float
         {
             const float frameSz  = armorColW;
+            const float frameH   = armorFrameH;
             const float frameOffX = 0.0f;
             ImVec2 fTL = ImVec2(cellX + frameOffX, cellY);
-            ImVec2 fBR = ImVec2(cellX + frameOffX + frameSz, cellY + frameSz);
+            ImVec2 fBR = ImVec2(cellX + frameOffX + frameSz, cellY + frameH);
 
             float iconOffX = (frameSz - armorIconSz) * 0.5f;
-            float iconOffY = (frameSz - armorIconSz) * 0.5f;
+            float iconOffY = (frameH - armorIconSz) * 0.5f;
             ImVec2 iTL = ImVec2(cellX + iconOffX, cellY + iconOffY);
             ImVec2 iBR = ImVec2(iTL.x + armorIconSz, iTL.y + armorIconSz);
 
             bool hasEnchant = slotData.enchantBadgeCount > 0;
 
-            static ID3D11ShaderResourceView* s_ArmorSlotFrame = nullptr;
-            if (!s_ArmorSlotFrame) s_ArmorSlotFrame = TextureManager::GetFrameTexture("frame-4");
-            if (s_ArmorSlotFrame)
-                dl->AddImage(reinterpret_cast<ImTextureID>(s_ArmorSlotFrame), fTL, fBR,
-                    ImVec2(0,0), ImVec2(1,1), IM_COL32(110, 110, 115, 255));
+            const SlotFx fx = SlotFeel(std::string("ar_") + (label ? label : ""), fTL,
+                ImVec2(fBR.x, fBR.y + armorTextGap + ImGui::GetTextLineHeight()));
+            HUDDraw::DrawChip(dl, fTL, fBR,
+                HUDDraw::PanelChipFromColor(HUDDraw::PackedToArgb(LiveBackingColor(actor)), arm ? kSlotDarken : kSlotDarkenEmpty, fx.hover, 3.0f * sc));
+            DrawPressFlash(fTL, fBR, fx.press);
 
             auto* tex = arm ? ResolveEquipIcon(arm, hint) : nullptr;
             if (tex) {
-                char zkey[64];
-                snprintf(zkey, sizeof(zkey), "ar_%s", label ? label : "");
-                float z = HoverZoomUV(zkey, iTL, iBR);
+                const float z = fx.zoom;
                 HUDDraw::DrawIconStyled(dl, iTL, ImVec2(iBR.x - iTL.x, iBR.y - iTL.y),
                     reinterpret_cast<ImTextureID>(tex),
                     HUDDraw::PackedToArgb(arm ? IM_COL32(255,255,255,255) : IM_COL32(255,255,255,60)),
@@ -2322,7 +2819,7 @@ namespace PartySheetV2 {
                     float  badgeH = iconSz + bp * 2.0f;
                     ImVec2 bgTL   = ImVec2(cellX + 2.0f * sc, badgeY);
                     ImVec2 bgBR   = ImVec2(bgTL.x + badgeW, bgTL.y + badgeH);
-                    dl->AddRectFilled(bgTL, bgBR, bgColors.fill);
+                    HUDDraw::DrawChip(dl, bgTL, bgBR, HUDDraw::PanelChipFromColor(HUDDraw::PackedToArgb(bgColors.fill), 1.0f, 0.0f, 2.0f * sc));
                     float textX    = bgTL.x + bp;
                     float iconOffY = (badgeH - iconSz) * 0.5f;
                     float textOffY = (badgeH - tsz.y)  * 0.5f;
@@ -2341,11 +2838,11 @@ namespace PartySheetV2 {
                 if (armorVal >= 0.0f) {
                     char slotKey[48];
                     snprintf(slotKey, sizeof(slotKey), "armor_%s", label ? label : "");
-                    const RolledStat stat = RollStat(slotKey, armorVal, slotData.armorValueSettled);
+                    const RolledStat stat = RollStat(actor, slotKey, armorVal, slotData.armorValueSettled);
                     char buf[16];
                     snprintf(buf, sizeof(buf), "%.0f", stat.shown);
                     const ImVec2 edge = DrawStatBadgeCell(s_TexArmor, buf, BadgeStyle::TextColor::Neutral(), BadgeStyle::Theme::NeutralGrey(), stat.tint);
-                    DrawChangeChip(edge, stat.sinceOpen);
+                    DrawChangeChip(dl, sc, edge, stat.sinceOpen, stat.chipAlpha);
                 }
 
                 for (std::size_t badgeIndex = 0; badgeIndex < slotData.enchantBadgeCount; ++badgeIndex) {
@@ -2361,7 +2858,7 @@ namespace PartySheetV2 {
                 ImGui::SetWindowFontScale(1.0f);
             }
 
-            float textY = cellY + frameSz + armorTextGap;
+            float textY = cellY + frameH + armorTextGap;
             ImGui::SetWindowFontScale(FontBody());
             const char* nameStr = arm ? arm->GetName() : label;
             ImU32 nameCol = arm ? kTheme.textMain : kTheme.textMuted;
@@ -2374,7 +2871,11 @@ namespace PartySheetV2 {
 
             if (arm && !anyModalOpen && ImGui::IsWindowHovered() &&
                 ImGui::IsMouseHoveringRect(fTL, ImVec2(fBR.x, textY)))
-                DrawItemTooltip(actor, arm, label, tex, std::strcmp(hint, "type_cuirass") == 0, sc);
+            {
+                ItemTooltipCopy worn;
+                worn.armorValue = armorVal;
+                DrawItemTooltip(actor, arm, label, tex, std::strcmp(hint, "type_cuirass") == 0, sc, worn);
+            }
 
             return textY + armorTextGap;
         };
@@ -2402,7 +2903,6 @@ namespace PartySheetV2 {
                 slotData);
             OpenCardOnClick(static_cast<GearCatalog::Card>(2 + i), ImVec2(cellX, rowStartY), ImVec2(cellX + armorColW, cellBot));
             rowMaxY = std::max(rowMaxY, cellBot);
-            if (rowMaxY > origin.y + size.y) break;
         }
         curY = rowMaxY;
 
@@ -2563,6 +3063,47 @@ namespace PartySheetV2 {
         return IM_COL32((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF, 255);
     }
 
+    static void DrawLiveOpeningRight(ImDrawList* dl, ImVec2 canvasMin, ImVec2 canvasMax, ImVec2 displaySize,
+                                     ImU32 base) {
+        const auto* set = Settings::GetSingleton();
+        const float canvasH = canvasMax.y - canvasMin.y;
+        const float fadeH   = canvasH * set->psV2LiveBottomFade * 0.01f;
+        const float openW   = (canvasMax.x - canvasMin.x) * set->psV2LiveOpenW * 0.01f;
+        const float x0      = std::round(canvasMax.x - openW);
+        const float x1      = std::round(x0 + openW * set->psV2LiveSoftness * 0.01f);
+        const ImU32 clear   = base & ~IM_COL32_A_MASK;
+
+        const ImU32 dim = IM_COL32(0, 0, 0, 140);
+        dl->AddRectFilled(ImVec2(0, 0), ImVec2(displaySize.x, canvasMin.y), dim);
+        dl->AddRectFilled(ImVec2(0, canvasMax.y), displaySize, dim);
+        dl->AddRectFilled(ImVec2(0, canvasMin.y), ImVec2(canvasMin.x, canvasMax.y), dim);
+        dl->AddRectFilled(ImVec2(canvasMax.x, canvasMin.y), ImVec2(displaySize.x, canvasMax.y), dim);
+
+        dl->PushClipRect(canvasMin, canvasMax, true);
+        if (set->psV2LiveDim > 0)
+            dl->AddRectFilled(ImVec2(x0, canvasMin.y), canvasMax,
+                              IM_COL32(0, 0, 0, static_cast<int>(set->psV2LiveDim * 2.55f)));
+        dl->AddRectFilled(canvasMin, ImVec2(x0, canvasMax.y), base);
+
+        constexpr int kStrips = 16;
+        const float baseA = static_cast<float>((base >> IM_COL32_A_SHIFT) & 0xFF);
+        auto alphaAt = [&](float t) {
+            t = std::clamp(t, 0.0f, 1.0f);
+            const float a = 1.0f - t * t * (3.0f - 2.0f * t);
+            return clear | (static_cast<ImU32>(baseA * a + 0.5f) << IM_COL32_A_SHIFT);
+        };
+        for (int i = 0; i < kStrips; ++i) {
+            const float ta = static_cast<float>(i) / kStrips, tb = static_cast<float>(i + 1) / kStrips;
+            const float xa = std::round(x0 + (x1 - x0) * ta), xb = std::round(x0 + (x1 - x0) * tb);
+            if (xb <= xa) continue;
+            const ImU32 ca = alphaAt(ta), cb = alphaAt(tb);
+            dl->AddRectFilledMultiColor(ImVec2(xa, canvasMin.y), ImVec2(xb, canvasMax.y), ca, cb, cb, ca);
+        }
+        if (fadeH > 0.0f)
+            dl->AddRectFilledMultiColor(ImVec2(x0, canvasMax.y - fadeH), canvasMax, clear, clear, base, base);
+        dl->PopClipRect();
+    }
+
     static void DrawLiveOpening(ImDrawList* dl, ImVec2 canvasMin, ImVec2 canvasMax,
                                 ImVec2 displaySize, float centerX, ImU32 base) {
         const auto* set = Settings::GetSingleton();
@@ -2593,6 +3134,14 @@ namespace PartySheetV2 {
         auto col = [&](float a) {
             return rgb | (static_cast<ImU32>(baseA * std::clamp(a, 0.0f, 1.0f) + 0.5f) << IM_COL32_A_SHIFT);
         };
+        constexpr bool  kRectOpening  = true;
+        constexpr float kRectExponent = 10.0f;
+        auto shapeDir = [&](float ang) {
+            const float c = std::cos(ang), s = std::sin(ang);
+            if (!kRectOpening) return ImVec2(c, s);
+            constexpr float e = 2.0f / kRectExponent;
+            return ImVec2(std::copysign(std::pow(std::abs(c), e), c), std::copysign(std::pow(std::abs(s), e), s));
+        };
         auto ringScale = [&](int r) {
             if (r < kInner) return (1.0f - soft) * static_cast<float>(r + 1) / kInner;
             if (r < kInner + kFade) return (1.0f - soft) + soft * static_cast<float>(r - kInner + 1) / kFade;
@@ -2610,8 +3159,8 @@ namespace PartySheetV2 {
             const ImU32 tint = IM_COL32(0, 0, 0, static_cast<int>(set->psV2LiveDim * 2.55f));
             std::array<ImVec2, kSeg> pts;
             for (int i = 0; i < kSeg; ++i) {
-                const float ang = 6.2831853f * i / kSeg;
-                pts[i] = ImVec2(centerX + std::cos(ang) * rx, cy + std::sin(ang) * ry);
+                const ImVec2 d = shapeDir(6.2831853f * i / kSeg);
+                pts[i] = ImVec2(centerX + d.x * rx, cy + d.y * ry);
             }
             dl->AddConvexPolyFilled(pts.data(), kSeg, tint);
         }
@@ -2625,8 +3174,8 @@ namespace PartySheetV2 {
         for (int r = 0; r < kRings; ++r) {
             const float f = ringScale(r), a = ringA(r);
             for (int i = 0; i < kSeg; ++i) {
-                const float ang = 6.2831853f * i / kSeg;
-                const ImVec2 p(centerX + std::cos(ang) * rx * f, cy + std::sin(ang) * ry * f);
+                const ImVec2 d = shapeDir(6.2831853f * i / kSeg);
+                const ImVec2 p(centerX + d.x * rx * f, cy + d.y * ry * f);
                 dl->PrimWriteVtx(p, uv, col((std::max)(a, bottomA(p.y))));
             }
         }
@@ -2641,6 +3190,42 @@ namespace PartySheetV2 {
             }
 
         dl->PopClipRect();
+    }
+
+    static void FadeTipVertices(ImDrawList* dl, float alpha, float dropY) {
+        for (auto& v : dl->VtxBuffer) {
+            const ImU32 a = static_cast<ImU32>(((v.col >> IM_COL32_A_SHIFT) & 0xFF) * alpha);
+            v.col = (v.col & ~IM_COL32_A_MASK) | (a << IM_COL32_A_SHIFT);
+            v.pos.y += dropY;
+        }
+        for (auto& cmd : dl->CmdBuffer) {
+            cmd.ClipRect.y += dropY;
+            cmd.ClipRect.w += dropY;
+        }
+    }
+
+    static void AnimateHoverTip() {
+        constexpr float kRestSeconds = 0.15f;
+        constexpr float kNextSeconds = 0.07f;
+        constexpr float kWarmSeconds = 0.30f;
+        constexpr float kFadeSeconds = 0.09f;
+        constexpr float kDrop        = 6.0f;
+        static bool s_wasShown = false;
+
+        ImDrawList* dl = Tip::g_hoverList;
+        Tip::g_hoverList = nullptr;
+        if (IsEffectsModalOpen() || IsInventoryModalOpen() || IsStatusModalOpen()) dl = nullptr;
+
+        const bool  warm  = UIAnimation::Step("psv2_tip_warm", s_wasShown, 0.001f, kWarmSeconds) > 0.0f;
+        const float rest  = UIAnimation::Swap("psv2_tip_rest", dl ? Tip::g_hoverId : 0, warm ? kNextSeconds : kRestSeconds);
+        const bool  shown = dl && rest >= 1.0f;
+        const float fade  = UIAnimation::Step("psv2_tip_fade", shown, kFadeSeconds, kFadeSeconds);
+        if (!shown) UIAnimation::Snap("psv2_tip_fade", 0.0f);
+        s_wasShown = shown;
+
+        if (!dl) return;
+        const float eased = shown ? UIAnimation::SmoothStep(fade) : 0.0f;
+        if (eased < 1.0f) FadeTipVertices(dl, eased, (1.0f - eased) * kDrop * s_EffectiveScale);
     }
 
     void Render() {
@@ -2680,9 +3265,21 @@ namespace PartySheetV2 {
         ImGuiRenderer::FlushScrollDelta();
 
         ImGui::NewFrame();
+        DrawBody(false);
+        ImGuiRenderer::DrawSkyrimCursor();
+        ImGui::Render();
+        AnimateHoverTip();
+        ImGuiRenderer::RenderToBoundTarget(ImGui::GetDrawData());
+    }
+
+    void DrawBody(bool layered) {
+        if (!s_Visible) return;
+
+        auto& io = ImGui::GetIO();
 
         static bool s_LeftWasDown  = false;
         static bool s_RightWasDown = false;
+        if (!layered) {
         const bool leftDown  = (GetAsyncKeyState(VK_LEFT)  & 0x8000) != 0
                             || (GetAsyncKeyState(VK_UP)    & 0x8000) != 0;
         const bool rightDown = (GetAsyncKeyState(VK_RIGHT) & 0x8000) != 0
@@ -2691,6 +3288,7 @@ namespace PartySheetV2 {
         if (rightDown && !s_RightWasDown) NextSubject();
         s_LeftWasDown  = leftDown;
         s_RightWasDown = rightDown;
+        }
 
         const ImVec2 displaySize = io.DisplaySize;
 
@@ -2721,8 +3319,14 @@ namespace PartySheetV2 {
             ImGuiWindowFlags_NoScrollbar       |
             ImGuiWindowFlags_NoCollapse        |
             ImGuiWindowFlags_NoFocusOnAppearing;
+        if (layered) flags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+        if (layered) ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
+        const ImVec2 realMousePos = io.MousePos;
+        if (layered) io.MousePos = ImVec2(-FLT_MAX, -FLT_MAX);
 
         bool open = ImGui::Begin("##PartySheetV2", nullptr, flags);
+        if (layered) ImGui::BringWindowToDisplayBack(ImGui::GetCurrentWindow());
         ImGui::PopStyleColor();
         ImGui::PopStyleVar();
 
@@ -2738,10 +3342,15 @@ namespace PartySheetV2 {
                 if (!bgTex)
                     bgTex = GetClassBgTexture(GetClassBgName(subject));
                 ApplyPause(Settings::GetSingleton()->psV2PauseGame);
+                PartySheetV2Camera::FollowLiveSetting();
                 PartySheetV2Camera::RetryPending();
                 const bool live = PartySheetV2Camera::ShowSubject(subject);
-                if (live) PartySheetV2Camera::Nudge(ImGui::GetIO().DeltaTime);
-                if (live) {
+                PartySheetV2Light::Follow(live ? subject : nullptr);
+                if (live && !layered) PartySheetV2Camera::Nudge(ImGui::GetIO().DeltaTime);
+                if (live && Settings::GetSingleton()->psV2CharacterRight) {
+                    DrawLiveOpeningRight(ImGui::GetBackgroundDrawList(), canvasMin, canvasMax, displaySize,
+                                         LiveBackingColor(subject));
+                } else if (live) {
                     const float hx0 = canvasMin.x + (kPad + kSidebarW + kGap + kLeftColW + kGap) * sc0;
                     DrawLiveOpening(ImGui::GetBackgroundDrawList(), canvasMin, canvasMax, displaySize,
                                     hx0 + kCenterW * sc0 * 0.5f, LiveBackingColor(subject));
@@ -2801,10 +3410,12 @@ namespace PartySheetV2 {
             // ── Row 1: Header (spans left col + center + right) ───────────────
             const float fullColH = usableH;
 
+            const float sidebarDrawW = sidebarW + gap * 0.5f;
+
             ImGui::SetCursorPos(ImVec2(pad, pad));
-            ImGui::BeginChild("##psv2_sidebar", ImVec2(sidebarW, fullColH), false,
+            ImGui::BeginChild("##psv2_sidebar", ImVec2(sidebarDrawW, fullColH), false,
                 ImGuiWindowFlags_NoScrollbar);
-            RenderSidebar(ImVec2(sidebarW, fullColH));
+            RenderSidebar(ImVec2(sidebarDrawW, fullColH));
             ImGui::EndChild();
 
             const float headerX = pad + sidebarW + gap;
@@ -2834,13 +3445,17 @@ namespace PartySheetV2 {
             RenderLeftColumn(ImVec2(leftColW, mainH));
             ImGui::EndChild();
 
-            ImGui::SetCursorPos(ImVec2(headerX + leftColW + gap, mainY));
+            const bool  charRight  = Settings::GetSingleton()->psV2CharacterRight;
+            const float centerColX = charRight ? headerX + leftColW + rightW + gap * 2.0f : headerX + leftColW + gap;
+            const float equipColX  = charRight ? headerX + leftColW + gap : headerX + leftColW + centerW + gap * 2.0f;
+
+            ImGui::SetCursorPos(ImVec2(centerColX, mainY));
             ImGui::BeginChild("##psv2_center", ImVec2(centerW, mainH), false,
                 ImGuiWindowFlags_NoScrollbar);
             RenderCenter(ImVec2(centerW, mainH));
             ImGui::EndChild();
 
-            ImGui::SetCursorPos(ImVec2(headerX + leftColW + centerW + gap * 2.0f, mainY));
+            ImGui::SetCursorPos(ImVec2(equipColX, mainY));
             ImGui::BeginChild("##psv2_right", ImVec2(rightW, mainH), false,
                 ImGuiWindowFlags_NoScrollbar);
             RenderRightPanel(ImVec2(rightW, mainH));
@@ -2853,8 +3468,6 @@ namespace PartySheetV2 {
             RenderFooter(ImVec2(headerW, footerH));
             ImGui::EndChild();
         }
-
-        ImGui::End();
 
         {
             static ID3D11ShaderResourceView* s_CornerTL = nullptr;
@@ -2872,7 +3485,7 @@ namespace PartySheetV2 {
                 const float T   = canvasMin.y;
                 const float R   = canvasMax.x;
                 const float B   = canvasMax.y;
-                ImDrawList* fdl = ImGui::GetForegroundDrawList();
+                ImDrawList* fdl = layered ? ImGui::GetWindowDrawList() : ImGui::GetForegroundDrawList();
                 const ImU32 tint = IM_COL32(255, 255, 255, 179);
 
                 if (s_CornerTL) fdl->AddImage(reinterpret_cast<ImTextureID>(s_CornerTL),
@@ -2885,6 +3498,8 @@ namespace PartySheetV2 {
                     ImVec2(R - csz, B - csz), ImVec2(R,       B      ), ImVec2(0,0), ImVec2(1,1), tint);
             }
         }
+
+        ImGui::End();
 
         {
             auto modalSubjects = BuildSubjectList();
@@ -2899,9 +3514,11 @@ namespace PartySheetV2 {
             { PerfStats::PerfZone _z("V2:StatusModal");    RenderStatusModal(modalActor); }
         }
 
-        ImGuiRenderer::DrawSkyrimCursor();
-        ImGui::Render();
-        ImGuiRenderer::RenderToBoundTarget(ImGui::GetDrawData());
+        if (layered) {
+            io.MousePos = realMousePos;
+            ImGui::PopItemFlag();
     }
+
+}
 
 }

@@ -7,6 +7,7 @@
 #include "../includes/TextureManager.h"
 #include "../includes/Utils/EffectIconRenderer.h"
 #include "../includes/Utils/HUDDraw.h"
+#include "../includes/Utils/HUDFlow.h"
 #include "../includes/Utils/BarRenderer.h"
 #include "../includes/Utils/ColorUtils.h"
 #include "../includes/Utils/PathUtils.h"
@@ -326,14 +327,19 @@ namespace FollowerHUD {
         g_SummonWindow.forcePosition = true;
     }
 
-    // Called by the Grow Upward checkbox AFTER the value flips. Converts the saved Y
-    void OnGrowUpwardToggled(bool summonWindow) {
+    void OnAnchorChanged(int previousCorner, bool summonWindow) {
         auto* settings = Settings::GetSingleton();
         auto& state = summonWindow ? g_SummonWindow : g_FollowerWindow;
+        auto& posX = summonWindow ? settings->hudSummonPosX : settings->hudPosX;
         auto& posY = summonWindow ? settings->hudSummonPosY : settings->hudPosY;
-        const bool growUpward = summonWindow ? settings->hudSummonGrowUpward : settings->hudGrowUpward;
-        const long height = std::lround(state.cachedHeight);
-        posY += growUpward ? height : -height;
+        const int newCorner = summonWindow ? settings->hudSummonAnchor : settings->hudAnchor;
+        const ImVec2 size(state.cachedWidth, state.cachedHeight);
+        const ImVec2 topLeft = HUDFlow::TopLeftFromAnchor(
+            ImVec2(static_cast<float>(posX), static_cast<float>(posY)), size,
+            static_cast<HUDFlow::Corner>(previousCorner));
+        const ImVec2 anchor = HUDFlow::AnchorFromTopLeft(topLeft, size, static_cast<HUDFlow::Corner>(newCorner));
+        posX = static_cast<int>(std::lround(anchor.x));
+        posY = static_cast<int>(std::lround(anchor.y));
         state.forcePosition = true;
     }
     
@@ -765,6 +771,11 @@ namespace FollowerHUD {
             char labelBuf[32];
             snprintf(labelBuf, sizeof(labelBuf), "%s", keyStr);
 
+            int mod = settings->qhModifier;
+            if (mod >= 4 && mod <= 9) mod = 1 + (mod - 4) / 2;
+            const char* modName = mod == 1 ? "alt" : mod == 2 ? "ctrl" : mod == 3 ? "shift" : nullptr;
+            ID3D11ShaderResourceView* modTex = modName ? TextureManager::GetPartyIcon(modName) : nullptr;
+
             const float bannerH  = ScalePx(22.0f);
             const float winScale = ImGui::GetCurrentWindow()->FontWindowScale;
             auto bs = MakeBadgeStyle(0xB9000000u /* old black 185 */, 0xE6FFFFFF,
@@ -772,6 +783,7 @@ namespace FollowerHUD {
             bs.iconSize = bannerH - ScalePx(8.0f);
             bs.iconTint = 0xFF50DC64;
             if (s_TexHeart) bs.icon = reinterpret_cast<ImTextureID>(s_TexHeart);
+            if (modTex)     bs.textIcon = reinterpret_cast<ImTextureID>(modTex);
             bs.rounding = ScalePx(4.0f);  // banner, not a pill
 
             float bannerX = pPos.x + ScalePx(static_cast<float>(settings->qhBannerOffsetX));
@@ -1190,6 +1202,10 @@ namespace FollowerHUD {
                 procedureType == RE::PACKAGE_TYPE::kEscort ||
                 procedureType == RE::PACKAGE_TYPE::kTravel ||
                 procedureType == RE::PACKAGE_TYPE::kAccompany) {
+                return true;
+            }
+
+            if (g_WhitelistFormIDs.count(currentPackage->GetFormID())) {
                 return true;
             }
         }
@@ -1808,8 +1824,9 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
         auto& state = summonWindow ? g_SummonWindow : g_FollowerWindow;
         auto& posX = summonWindow ? settings->hudSummonPosX : settings->hudPosX;
         auto& posY = summonWindow ? settings->hudSummonPosY : settings->hudPosY;
-        const bool growUpward = summonWindow ? settings->hudSummonGrowUpward : settings->hudGrowUpward;
-        const bool anchorRight = summonWindow ? settings->hudSummonAnchorRight : settings->hudAnchorRight;
+        const auto corner = static_cast<HUDFlow::Corner>(summonWindow ? settings->hudSummonAnchor : settings->hudAnchor);
+        const bool growUpward = !HUDFlow::IsTop(corner);
+        const bool anchorRight = !HUDFlow::IsLeft(corner);
         if (allies.empty()) {
             state.stackT = 0.0f;
             state.stackTickInit = false;
@@ -1881,15 +1898,10 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
-        
-        // Position from settings: with optional upward growth (both orientations:
-        ImVec2 targetPos(static_cast<float>(posX), static_cast<float>(posY));
-        if (growUpward) {
-            targetPos.y -= state.cachedHeight;
-        }
-        if (anchorRight) {
-            targetPos.x -= state.cachedWidth;
-        }
+
+        const ImVec2 targetPos = HUDFlow::TopLeftFromAnchor(
+            ImVec2(static_cast<float>(posX), static_cast<float>(posY)),
+            ImVec2(state.cachedWidth, state.cachedHeight), corner);
         const bool forcedThisFrame = !allowDrag || state.forcePosition;
         if (forcedThisFrame) {
             ImGui::SetNextWindowPos(targetPos, ImGuiCond_Always);
@@ -2500,7 +2512,9 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
                     int magnitude = static_cast<int>(effect.magnitude);
                     
                     char timeStr[32];
-                    if (timeRemaining >= 60) {
+                    if (effect.duration <= 0.0f) {
+                        snprintf(timeStr, sizeof(timeStr), "\xe2\x88\x9e");
+                    } else if (timeRemaining >= 60) {
                         int minutes = timeRemaining / 60;
                         int seconds = timeRemaining % 60;
                         snprintf(timeStr, sizeof(timeStr), "%dm%ds", minutes, seconds);
@@ -2705,11 +2719,9 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
 
             if (allowDrag && !forcedThisFrame && !sizeChanged) {
                 ImVec2 pos = ImGui::GetWindowPos();
-                // Right anchor saves the right edge; growUpward saves the bottom edge
-                posX = static_cast<int>(std::lround(
-                    anchorRight ? pos.x + winSize.x : pos.x));
-                posY = static_cast<int>(std::lround(
-                    growUpward ? pos.y + winSize.y : pos.y));
+                const ImVec2 anchor = HUDFlow::AnchorFromTopLeft(pos, winSize, corner);
+                posX = static_cast<int>(std::lround(anchor.x));
+                posY = static_cast<int>(std::lround(anchor.y));
             }
         }
 

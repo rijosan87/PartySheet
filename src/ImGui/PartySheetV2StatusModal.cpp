@@ -300,9 +300,6 @@ namespace PartySheetV2 {
         ImGui::PopStyleVar(2);
         ImGui::PopStyleColor(5);
         ImGui::End();
-
-        if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-            CloseStatusModal();
     }
 
 }

@@ -1,3 +1,4 @@
+#include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/ImGui/RendererSections.h"
 #include "../../includes/Settings.h"
 #include "../../includes/SettingsIni.h"
@@ -40,12 +41,9 @@ namespace ImGuiRenderer::SettingsUI {
                 static int presetIndex = 0;
                 if (presetIndex < 0 || presetIndex >= (int)PinnedItemsPresets::kPresets.size())
                     presetIndex = 0;
-                const char* presetNames[] = {
-                    PinnedItemsPresets::kPresets[0].name,
-                    PinnedItemsPresets::kPresets[1].name,
-                    PinnedItemsPresets::kPresets[2].name,
-                    PinnedItemsPresets::kPresets[3].name
-                };
+                const char* presetNames[PinnedItemsPresets::kPresets.size()];
+                for (std::size_t i = 0; i < PinnedItemsPresets::kPresets.size(); ++i)
+                    presetNames[i] = PinnedItemsPresets::kPresets[i].name;
                 if (SettingsWidgets::SegmentedPicker("##ptPreset", &presetIndex, presetNames, (int)PinnedItemsPresets::kPresets.size()))
                     PinnedItemsPresets::ApplyPreset(*settings, (std::size_t)presetIndex);
             }
@@ -78,115 +76,108 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::Spacing();
             }
 
-            ImGui::Text("Show / Hide");
-            ImGui::Separator();
+            auto ColorArgb = [](const char* label, std::uint32_t* argb) {
+                ImVec4 col = ColorUtils::ArgbToVec4(*argb);
+                if (ImGui::ColorEdit4(label, reinterpret_cast<float*>(&col),
+                        ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview))
+                    *argb = ColorUtils::Vec4ToArgb(col);
+            };
+            auto ColorRgb = [](const char* label, std::uint32_t* rgb) {
+                ImVec4 col = ColorUtils::RgbToVec4(*rgb);
+                if (ImGui::ColorEdit3(label, reinterpret_cast<float*>(&col), ImGuiColorEditFlags_NoInputs))
+                    *rgb = ColorUtils::Vec4ToRgb(col);
+            };
 
-            if (ImGui::BeginTable("PTShowHide", 2, ImGuiTableFlags_SizingStretchSame)) {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::Checkbox("Show Label##ptShowLabel", &settings->ptShowLabel);
-                ImGui::TableSetColumnIndex(1);
-
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::Checkbox("Icon Glow##ptIconGlowEnabled", &settings->ptIconGlowEnabled);
-
-                ImGui::EndTable();
-            }
-
-            ImGui::Spacing();
-
-            if (ImGui::BeginTable("PTColorsStyle", 2, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV)) {
-                ImGui::TableSetupColumn("Colors", ImGuiTableColumnFlags_WidthStretch, 0.3f);
-                ImGui::TableSetupColumn("Style",  ImGuiTableColumnFlags_WidthStretch, 0.7f);
-
-                ImGui::TableNextRow();
-                ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, IM_COL32(255, 255, 255, 12));
-                ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("Colors");
-                ImGui::TableSetColumnIndex(1); ImGui::TextDisabled("Style");
-
-                ImGui::TableNextRow();
-
-                ImGui::TableSetColumnIndex(0);
-
-                {
-                    ImVec4 col = ColorUtils::ArgbToVec4(settings->ptIconBgColor);
-                    if (ImGui::ColorEdit4("Icon Bg##ptIconBgColor", reinterpret_cast<float*>(&col),
-                            ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview))
-                        settings->ptIconBgColor = ColorUtils::Vec4ToArgb(col);
-                }
-                {
-                    ImVec4 col = ColorUtils::ArgbToVec4(settings->ptIconBorderColor);
-                    if (ImGui::ColorEdit4("Icon Border##ptIconBorderColor", reinterpret_cast<float*>(&col),
-                            ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview))
-                        settings->ptIconBorderColor = ColorUtils::Vec4ToArgb(col);
-                }
-                {
-                    ImVec4 col = ColorUtils::ArgbToVec4(settings->ptBadgeBgColor);
-                    if (ImGui::ColorEdit4("Badge##ptBadgeBgColor", reinterpret_cast<float*>(&col),
-                            ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview))
-                        settings->ptBadgeBgColor = ColorUtils::Vec4ToArgb(col);
-                }
-                {
-                    ImVec4 col = ColorUtils::RgbToVec4(settings->ptTextColor);
-                    if (ImGui::ColorEdit3("Text##ptTextColor", reinterpret_cast<float*>(&col),
-                            ImGuiColorEditFlags_NoInputs))
-                        settings->ptTextColor = ColorUtils::Vec4ToRgb(col);
-                }
-                {
-                    ImVec4 col = ColorUtils::RgbToVec4(settings->ptGoalMetColor);
-                    if (ImGui::ColorEdit3("Goal Met##ptGoalMetColor", reinterpret_cast<float*>(&col),
-                            ImGuiColorEditFlags_NoInputs))
-                        settings->ptGoalMetColor = ColorUtils::Vec4ToRgb(col);
-                }
-                ImGui::TableSetColumnIndex(1);
-
-                {
-                    const char* dirItems[] = { "Column", "Row" };
-                    SettingsWidgets::SegmentedPicker("Direction##ptDirection", &settings->ptDirection, dirItems, 2);
-                }
-                {
-                    const char* styleItems[] = { "Inline", "Stacked" };
-                    if (settings->ptDirection == 1) ImGui::BeginDisabled();
-                    SettingsWidgets::SegmentedPicker("Card Style##ptCardStyle", &settings->ptCardStyle, styleItems, 2);
-                    if (settings->ptDirection == 1) ImGui::EndDisabled();
-                }
-                {
-                    const char* countStyles[] = { "Count", "Badge" };
-                    SettingsWidgets::SegmentedPicker("Count Style##ptCountStyle", &settings->ptCountStyle, countStyles, 2);
-                }
-                ImGui::SliderInt("Icon Size##ptIconSize", &settings->ptIconSize, 48, 128);
-                ImGui::SliderInt("Icon Border##ptIconBorderWidth", &settings->ptIconBorderWidth, 0, 6);
-                ImGui::SliderInt("Border Radius##ptIconBorderRadius", &settings->ptIconBorderRadius, 0, 50);
-                ImGui::SliderFloat("Icon Zoom##ptIconZoom", &settings->ptIconZoom, 1.0f, 4.0f, "%.2f");
-                ImGui::SliderFloat("Icon Focus X##ptIconFocusU", &settings->ptIconFocusU, 0.0f, 1.0f, "%.2f");
-                ImGui::SliderFloat("Icon Focus Y##ptIconFocusV", &settings->ptIconFocusV, 0.0f, 1.0f, "%.2f");
+            if (ImGui::CollapsingHeader("Layout##ptSecLayout", ImGuiTreeNodeFlags_DefaultOpen)) {
+                const char* anchorItems[] = { "Top Left", "Top Right", "Bottom Left", "Bottom Right" };
+                SettingsWidgets::SegmentedPicker("Anchor##ptAnchor", &settings->ptAnchor, anchorItems, 4);
+                const char* dirItems[] = { "Column", "Row" };
+                SettingsWidgets::SegmentedPicker("Direction##ptDirection", &settings->ptDirection, dirItems, 2);
+                const char* placeItems[] = { "Below", "Above", "Left", "Right" };
+                SettingsWidgets::SegmentedPicker("Label Placement##ptLabelPlacement", &settings->ptLabelPlacement, placeItems, 4);
                 ImGui::SliderInt("Item Width##ptItemWidth", &settings->ptItemWidth, 20, 400);
                 ImGui::SliderInt("Spacing##ptRowSpacing", &settings->ptRowSpacing, -20, 20);
-                ImGui::SliderInt("Padding Bottom##ptPaddingBottom", &settings->ptPaddingBottom, -20, 40);
-                ImGui::SliderFloat("Label Scale##ptLabelScale", &settings->ptLabelScale, 0.5f, 2.0f, "%.2f");
-                ImGui::SliderFloat("Count Scale##ptCountScale", &settings->ptCountScale, 0.5f, 2.0f, "%.2f");
-                ImGui::SliderInt("Badge Offset X##ptBadgeOffsetX", &settings->ptBadgeOffsetX, -50, 100);
-                ImGui::SliderInt("Badge Offset Y##ptBadgeOffsetY", &settings->ptBadgeOffsetY, 0, 100);
-
-                ImGui::EndTable();
             }
 
-            ImGui::Spacing();
-            ImGui::Text("Quick-Consume Hotkey Badge");
-            ImGui::Separator();
-            ImGui::Checkbox("Show Hotkey Badge##ptShowHotkeyBadge", &settings->ptShowHotkeyBadge);
-            if (settings->ptShowHotkeyBadge) {
-                ImGui::SliderFloat("Badge Scale##ptHotkeyBadgeScale", &settings->ptHotkeyBadgeScale, 0.3f, 2.0f, "%.2f");
-                ImGui::SliderInt("Hotkey Badge X##ptHotkeyBadgeOffsetX", &settings->ptHotkeyBadgeOffsetX, -50, 100);
-                ImGui::SliderInt("Hotkey Badge Y##ptHotkeyBadgeOffsetY", &settings->ptHotkeyBadgeOffsetY, -20, 100);
+            if (ImGui::CollapsingHeader("Icon##ptSecIcon")) {
+                ImGui::SliderInt("Size##ptIconSize", &settings->ptIconSize, 48, 128);
+                ImGui::SliderFloat("Zoom##ptIconZoom", &settings->ptIconZoom, 0.5f, 4.0f, "%.2f");
+                ColorArgb("Background##ptIconBgColor", &settings->ptIconBgColor);
+                ColorArgb("Border Colour##ptIconBorderColor", &settings->ptIconBorderColor);
+                ImGui::SliderInt("Border Width##ptIconBorderWidth", &settings->ptIconBorderWidth, 0, 6);
+                ImGui::SliderInt("Corner Radius##ptIconBorderRadius", &settings->ptIconBorderRadius, 0, 50);
+                ImGui::Checkbox("Glow##ptIconGlowEnabled", &settings->ptIconGlowEnabled);
+            }
+
+            if (ImGui::CollapsingHeader("Label##ptSecLabel")) {
+                ImGui::Checkbox("Show Label##ptShowLabel", &settings->ptShowLabel);
+                ImGui::BeginDisabled(!settings->ptShowLabel);
+                ImGui::SliderFloat("Label Scale##ptLabelScale", &settings->ptLabelScale, 0.5f, 2.0f, "%.2f");
+                ImGui::EndDisabled();
+                ColorRgb("Text Colour##ptTextColor", &settings->ptTextColor);
+                ImGui::SetItemTooltip("Label and plain count text.");
+
+                const bool sideLabel = settings->ptShowLabel && settings->ptLabelPlacement >= 2;
+                ImGui::BeginDisabled(!sideLabel);
+                SettingsWidgets::SegmentedPicker("Strip##ptStripStyle", &settings->ptStripStyle,
+                                                 HUDDraw::kStripStyleNames, HUDDraw::StripStyle_Count);
+                if (!sideLabel) ImGui::SetItemTooltip("Needs a label to the Left or Right of the icon.");
+                if (settings->ptStripStyle > 0) {
+                    ImGui::SliderInt("Strip Width##ptStripWidth", &settings->ptStripWidth, 0, 400);
+                    ImGui::SetItemTooltip("0 fits the text. Set a width to make every row the same length.");
+                    ColorArgb("Strip Colour##ptStripTint", &settings->ptStripTint);
+            }
+                ImGui::EndDisabled();
+            }
+
+            if (ImGui::CollapsingHeader("Count##ptSecCount")) {
+
                 {
-                    ImVec4 col = ColorUtils::ArgbToVec4(settings->ptHotkeyBadgeBgColor);
-                    if (ImGui::ColorEdit4("Hotkey Badge BG##ptHotkeyBadgeBgColor", reinterpret_cast<float*>(&col),
-                            ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_AlphaPreview))
-                        settings->ptHotkeyBadgeBgColor = ColorUtils::Vec4ToArgb(col);
+                    const char* posItems[] = { "On Icon", "Before Name", "Strip End" };
+                    SettingsWidgets::SegmentedPicker("Position##ptCountPosition", &settings->ptCountPosition, posItems, 3);
+                    ImGui::SetItemTooltip("Before Name and Strip End need Show Label, Strip End a side label.");
                 }
-                ImGui::TextDisabled("Only the Health/Magicka/Stamina potion cards.");
+                SettingsWidgets::SegmentedPicker("Style##ptCountStyle", &settings->ptCountStyle,
+                                                 HUDDraw::kBadgePresetNames, HUDDraw::BadgePreset_Count);
+                if (settings->ptCountStyle != HUDDraw::BadgePreset_Text) {
+                    ColorArgb("Tint##ptBadgeTint", &settings->ptBadgeTint);
+                    ImGui::SetItemTooltip("Alpha 0 keeps the style's own colours.");
+                }
+                {
+                    const char* spotItems[] = { "Top Left", "Top Right", "Center", "Bottom Left", "Bottom Right" };
+                    const int   spotValues[] = { 0, 2, 4, 6, 8 };
+                    int pick = 0;
+                    for (int i = 0; i < 5; ++i) if (spotValues[i] == settings->ptCountAnchor) pick = i;
+                    if (SettingsWidgets::SegmentedPicker("Anchor##ptCountAnchor", &pick, spotItems, 5))
+                        settings->ptCountAnchor = spotValues[pick];
+                }
+                ImGui::SliderFloat("Scale##ptCountScale", &settings->ptCountScale, 0.5f, 2.0f, "%.2f");
+                ImGui::SliderInt("Offset X##ptBadgeOffsetX", &settings->ptBadgeOffsetX, -50, 100);
+                ImGui::SliderInt("Offset Y##ptBadgeOffsetY", &settings->ptBadgeOffsetY, 0, 100);
+                ColorRgb("Goal Met Colour##ptGoalMetColor", &settings->ptGoalMetColor);
+            }
+
+            if (ImGui::CollapsingHeader("Hotkey Badge##ptSecHotkey")) {
+                ImGui::TextDisabled("Only the Health, Magicka and Stamina potion cards.");
+                {
+                    const char* posItems[] = { "On Icon", "Strip End" };
+                    SettingsWidgets::SegmentedPicker("Position##ptHotkeyPosition", &settings->ptHotkeyPosition, posItems, 2);
+                    ImGui::SetItemTooltip("Strip End shows the key as text at the end of a side label.");
+                }
+                const char* hotkeyStyles[HUDDraw::BadgePreset_Count + 1] = { "Off" };
+                for (int i = 0; i < HUDDraw::BadgePreset_Count; ++i) hotkeyStyles[i + 1] = HUDDraw::kBadgePresetNames[i];
+                int pick = settings->ptHotkeyBadgeStyle + 1;
+                if (SettingsWidgets::SegmentedPicker("Style##ptHotkeyBadgeStyle", &pick, hotkeyStyles, HUDDraw::BadgePreset_Count + 1))
+                    settings->ptHotkeyBadgeStyle = pick - 1;
+                if (settings->ptHotkeyBadgeStyle >= 0) {
+                    if (settings->ptHotkeyBadgeStyle != HUDDraw::BadgePreset_Text) {
+                        ColorArgb("Tint##ptHotkeyBadgeTint", &settings->ptHotkeyBadgeTint);
+                        ImGui::SetItemTooltip("Alpha 0 keeps the style's own colours.");
+                }
+                    ImGui::SliderFloat("Scale##ptHotkeyBadgeScale", &settings->ptHotkeyBadgeScale, 0.3f, 2.0f, "%.2f");
+                    ImGui::SliderInt("Offset X##ptHotkeyBadgeOffsetX", &settings->ptHotkeyBadgeOffsetX, -50, 100);
+                    ImGui::SliderInt("Offset Y##ptHotkeyBadgeOffsetY", &settings->ptHotkeyBadgeOffsetY, -20, 100);
+                }
             }
 
             ImGui::Spacing();

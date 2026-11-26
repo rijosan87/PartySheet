@@ -6,9 +6,11 @@
 #include "../../includes/HUDVisibility.h"
 #include "../../includes/LocalizationManager.h"
 #include "../../includes/Utils/HUDDraw.h"
-#include "../../includes/SurvivalSymptoms.h"
+#include "../../includes/HUDSymptoms.h"
 #include "../../includes/ImGui/WidgetDrawHelpers.h"
 #include "../../includes/UIAnimation.h"
+#include "../../includes/Utils/WeatherDisplay.h"
+#include "../../includes/ImGui/PlayerHUDEnvironment.h"
 
 #include <imgui.h>
 #include <imgui_impl_dx11.h>
@@ -57,103 +59,6 @@ namespace PlayerHUDResources {
         return static_cast<int>(std::lround(ScalePx(static_cast<float>(value))));
     }
 
-    enum class WeatherKind : std::uint8_t {
-        kUnknown = 0,
-        kInterior,
-        kClear,
-        kCloudy,
-        kRain,
-        kSnow
-    };
-
-    struct WeatherDisplay {
-        WeatherKind kind = WeatherKind::kUnknown;
-        RE::FormID identityFormID = 0;
-        std::string label;
-        const char* primaryIcon = nullptr;
-        const char* fallbackIcon = nullptr;
-    };
-
-    struct InteriorIconRule {
-        const char* keywordEditorID;
-        const char* iconName;
-    };
-
-    static RE::BGSKeyword* LookupKeyword(const char* editorID) {
-        return editorID ? RE::TESForm::LookupByEditorID<RE::BGSKeyword>(editorID) : nullptr;
-    }
-
-    static bool LocationIsInteriorLike(RE::BGSLocation* location);
-
-    static const char* GetInteriorIconName(RE::BGSLocation* location) {
-        if (!location) {
-            return "interior_generic";
-        }
-
-        static const InteriorIconRule rules[] = {
-            { "LocTypeInn",               "interior_inn" },
-            { "LocTypeCastle",            "interior_palace" },
-            { "LocTypeJail",              "interior_jail" },
-            { "LocTypeTemple",            "interior_temple" },
-            { "LocTypeStore",             "interior_generic" },
-            { "LocTypeCave",              "interior_cave" },
-            { "LocTypeDungeon",           "interior_dungeon" },
-            { "LocTypeDraugrCrypt",       "interior_dungeon" },
-            { "LocTypeVampireLair",       "interior_dungeon" },
-            { "LocTypeDragonPriestLair",  "interior_dungeon" },
-            { "LocTypeMilitaryFort",      "interior_fort" },
-            { "LocTypePlayerHouse",       "interior_home" },
-            { "LocTypeDwelling",          "interior_home" }
-        };
-
-        static RE::BGSKeyword* cachedKeywords[std::size(rules)] = {};
-        static bool initialized = false;
-        if (!initialized) {
-            initialized = true;
-            for (std::size_t i = 0; i < std::size(rules); ++i) {
-                cachedKeywords[i] = LookupKeyword(rules[i].keywordEditorID);
-            }
-        }
-
-        for (std::size_t i = 0; i < std::size(rules); ++i) {
-            if (cachedKeywords[i] && location->HasKeyword(cachedKeywords[i])) {
-                return rules[i].iconName;
-            }
-        }
-
-        return "interior_generic";
-    }
-
-    static bool LocationIsInteriorLike(RE::BGSLocation* location) {
-        static const char* const kEnclosedBuildingKeywords[] = {
-            "LocTypeInn",
-            "LocTypeStore",
-            "LocTypeDwelling",
-            "LocTypePlayerHouse",
-            "LocTypeTemple",
-            "LocTypeJail",
-        };
-
-        static RE::BGSKeyword* cached[std::size(kEnclosedBuildingKeywords)] = {};
-        static bool initialized = false;
-        if (!initialized) {
-            initialized = true;
-            for (std::size_t i = 0; i < std::size(kEnclosedBuildingKeywords); ++i) {
-                cached[i] = LookupKeyword(kEnclosedBuildingKeywords[i]);
-            }
-        }
-
-        if (!location) {
-            return false;
-        }
-        for (std::size_t i = 0; i < std::size(cached); ++i) {
-            if (cached[i] && location->HasKeyword(cached[i])) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     static int ReadPlayerGold(RE::PlayerCharacter* player) {
         if (auto* goldForm = RE::TESForm::LookupByID(0x0000000F))
             if (auto* goldObj = goldForm->As<RE::TESBoundObject>())
@@ -168,77 +73,6 @@ namespace PlayerHUDResources {
         g_GoldRollTint = 0;
         if (std::fabs(g_ShownGold - gold) >= 0.5f)
             g_GoldRollTint = g_ShownGold < gold ? IM_COL32(125, 220, 122, 255) : IM_COL32(232, 103, 106, 255);
-    }
-
-    static WeatherDisplay GetCurrentWeatherDisplay(RE::PlayerCharacter* player) {
-        if (!player) {
-            return {};
-        }
-
-        auto* cell = player->GetParentCell();
-
-        auto buildLocationDisplay = [](RE::TESObjectCELL* c, RE::BGSLocation* location) -> WeatherDisplay {
-            std::string label;
-            if (const char* cellName = c->GetFullName(); cellName && cellName[0] != '\0') {
-                label = cellName;
-            } else if (location) {
-                if (const char* locationName = location->GetFullName(); locationName && locationName[0] != '\0') {
-                    label = locationName;
-                }
-            }
-
-            if (label.empty()) {
-                label = LocalizationManager::Get("interior_fallback");
-            }
-
-            int maxChars = Settings::GetSingleton()->presLocMaxChars;
-            if (maxChars > 3 && label.size() > static_cast<std::size_t>(maxChars)) {
-                label.resize(static_cast<std::size_t>(maxChars) - 3);
-                label += "...";
-            }
-
-            RE::FormID identity = location ? location->GetFormID() : c->GetFormID();
-            return { WeatherKind::kInterior, identity, std::move(label), GetInteriorIconName(location), nullptr };
-        };
-
-        if (cell && cell->IsInteriorCell()) {
-            return buildLocationDisplay(cell, cell->GetLocation());
-        }
-
-        if (cell) {
-            auto* location = cell->GetLocation();
-            if (LocationIsInteriorLike(location)) {
-                return buildLocationDisplay(cell, location);
-            }
-        }
-
-        auto* sky = RE::Sky::GetSingleton();
-        if (!sky) {
-            return {};
-        }
-
-        auto* w = sky->currentWeather ? sky->currentWeather : sky->lastWeather;
-        if (!w) {
-            return {};
-        }
-
-        RE::FormID identity = w->GetFormID();
-        using Flag = RE::TESWeather::WeatherDataFlag;
-        auto flags = w->data.flags;
-
-        if (flags.any(Flag::kSnow)) {
-            return { WeatherKind::kSnow, identity, LocalizationManager::Get("weather_snow"), "weather_snow", nullptr };
-        }
-
-        if (flags.any(Flag::kRainy)) {
-            return { WeatherKind::kRain, identity, LocalizationManager::Get("weather_rain"), "weather_rain", nullptr };
-        }
-
-        if (flags.any(Flag::kCloudy)) {
-            return { WeatherKind::kCloudy, identity, LocalizationManager::Get("weather_cloudy"), "weather_cloudy", "cloud" };
-        }
-
-        return { WeatherKind::kClear, identity, LocalizationManager::Get("weather_clear"), "weather_clear", "sun" };
     }
 
     static void DrawWindowBackground(std::uint32_t argb, int bgStyle = 0, int fadeMode = 0,
@@ -272,10 +106,14 @@ namespace PlayerHUDResources {
         }
     }
 
-    static WeatherDisplay g_LastWeatherDisplay;
+    static WeatherDisplay::Display g_LastWeatherDisplay;
+
+    static bool WeatherShownElsewhere() {
+        return PlayerHUDEnvironment::HidesResourcesWeather() && g_LastWeatherDisplay.kind != WeatherDisplay::Kind::kInterior;
+    }
 
     static void DetectWeatherLocationChange(RE::PlayerCharacter* player) {
-        g_LastWeatherDisplay = GetCurrentWeatherDisplay(player);
+        g_LastWeatherDisplay = WeatherDisplay::Current(player, Settings::GetSingleton()->presLocMaxChars);
 
         std::uint8_t currentWeatherKind = static_cast<std::uint8_t>(g_LastWeatherDisplay.kind);
         if (g_PrevWeatherKind == 0xFF) {
@@ -368,7 +206,7 @@ namespace PlayerHUDResources {
 
         auto* iconGold   = TextureManager::GetPartyIcon("gold");
         auto* iconWeight = TextureManager::GetPartyIcon("weight");
-        const WeatherDisplay& weatherDisplay = g_LastWeatherDisplay;
+        const WeatherDisplay::Display& weatherDisplay = g_LastWeatherDisplay;
 
         char buf[64];
         bool firstItem = true;
@@ -421,7 +259,7 @@ namespace PlayerHUDResources {
         }
 
         if (settings->presShowCarryWeight) {
-            if (SurvivalSymptoms::GetCarryWeight(player).on) {
+            if (HUDSymptoms::GetCarryWeight(player).on) {
                 char maxBuf[16];
                 snprintf(buf, sizeof(buf), "%.0f / ", carryWeight);
                 snprintf(maxBuf, sizeof(maxBuf), "%.0f", carryWeightMax);
@@ -453,8 +291,8 @@ namespace PlayerHUDResources {
             }
         }
 
-        if (settings->presShowWeather && !settings->presLocSeparate &&
-            weatherDisplay.kind != WeatherKind::kUnknown) {
+        if (settings->presShowWeather && !settings->presLocSeparate && !WeatherShownElsewhere() &&
+            weatherDisplay.kind != WeatherDisplay::Kind::kUnknown) {
             auto* iconWeather = weatherDisplay.primaryIcon ? TextureManager::GetPartyIcon(weatherDisplay.primaryIcon) : nullptr;
             if (!iconWeather && weatherDisplay.fallbackIcon) {
                 iconWeather = TextureManager::GetPartyIcon(weatherDisplay.fallbackIcon);
@@ -480,15 +318,15 @@ namespace PlayerHUDResources {
     static void RenderLocationWindow(bool allowDrag, bool visible = true, float alpha = 1.0f) {
         auto* settings = Settings::GetSingleton();
         if (!settings->enablePlayerHud || !settings->enablePlayerResourcesWidget) return;
-        if (!settings->presLocSeparate || !settings->presShowWeather) return;
+        if (!settings->presLocSeparate || !settings->presShowWeather || WeatherShownElsewhere()) return;
         if (!visible) return;
 
         auto* player = RE::PlayerCharacter::GetSingleton();
         if (!player || !player->Is3DLoaded()) return;
         if (MenuUtils::ShouldBlockOverlay()) return;
 
-        const WeatherDisplay& wd = g_LastWeatherDisplay;
-        if (wd.kind == WeatherKind::kUnknown) return;
+        const WeatherDisplay::Display& wd = g_LastWeatherDisplay;
+        if (wd.kind == WeatherDisplay::Kind::kUnknown) return;
 
         float bgPad = (((settings->presLocBgColor >> 24) & 0xFF) != 0)
                           ? ScalePx(static_cast<float>(settings->presLocBgPadding)) : ScalePx(4.0f);
@@ -516,12 +354,10 @@ namespace PlayerHUDResources {
         }
 
         const ImVec2 targetPos(anchorLeftX, static_cast<float>(settings->presLocPosY));
-        if (!allowDrag || g_ForceLocPos) {
-            ImGui::SetNextWindowPos(targetPos, ImGuiCond_Always);
+        ImGuiWindow* locWindow = ImGui::FindWindowByName("##playerHUDlocation");
+        const bool userDragging = allowDrag && locWindow && GImGui->MovingWindow == locWindow;
+        if (!userDragging) ImGui::SetNextWindowPos(targetPos, ImGuiCond_Always);
             g_ForceLocPos = false;
-        } else {
-            ImGui::SetNextWindowPos(targetPos, ImGuiCond_FirstUseEver);
-        }
 
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar  |
                                  ImGuiWindowFlags_NoResize     |
@@ -629,7 +465,7 @@ namespace PlayerHUDResources {
 
         ImGui::SetWindowFontScale(1.0f);
 
-        if (allowDrag) {
+        if (userDragging) {
             ImVec2 winPos = ImGui::GetWindowPos();
             float anchorX = alignR ? (winPos.x + ImGui::GetWindowWidth()) : winPos.x;
             settings->presLocPosX = static_cast<int>(std::lround(anchorX));

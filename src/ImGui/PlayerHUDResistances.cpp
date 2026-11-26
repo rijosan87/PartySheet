@@ -8,8 +8,10 @@
 #include "../../includes/TextureManager.h"
 #include "../../includes/HUDVisibility.h"
 #include "../../includes/Utils/ColorUtils.h"
+#include "../../includes/LocalizationManager.h"
 #include "../../includes/Utils/HUDDraw.h"
-#include "../../includes/SurvivalSymptoms.h"
+#include "../../includes/Utils/HudItem.h"
+#include "../../includes/HUDSymptoms.h"
 #include "../../includes/ImGui/WidgetDrawHelpers.h"
 #include "../../includes/UIAnimation.h"
 
@@ -19,13 +21,31 @@
 
 #include <RE/Skyrim.h>
 #include <array>
+#include <cmath>
+#include <cstdio>
+#include <string>
 #include <vector>
 
 namespace PlayerHUDResistances {
 
     static bool g_ForcePos = false;
 
+    static ImVec2 g_WindowSize(0.0f, 0.0f);
+
     void ForceReposition() { g_ForcePos = true; }
+
+    static HUDFlow::Corner AnchorCorner() { return static_cast<HUDFlow::Corner>(Settings::GetSingleton()->prAnchor); }
+
+    void KeepPlaceOnAnchorChange(int oldAnchor)
+    {
+        auto* settings = Settings::GetSingleton();
+        const ImVec2 oldPos(static_cast<float>(settings->prPosX), static_cast<float>(settings->prPosY));
+        const ImVec2 topLeft = HUDFlow::TopLeftFromAnchor(oldPos, g_WindowSize, static_cast<HUDFlow::Corner>(oldAnchor));
+        const ImVec2 newPos = HUDFlow::AnchorFromTopLeft(topLeft, g_WindowSize, AnchorCorner());
+        settings->prPosX = static_cast<int>(std::lround(newPos.x));
+        settings->prPosY = static_cast<int>(std::lround(newPos.y));
+        g_ForcePos = true;
+    }
 
     static float MasterScale()
     {
@@ -104,6 +124,112 @@ namespace PlayerHUDResistances {
         return states;
     }
 
+    struct ListRow {
+        std::string   name;
+        std::string   value;
+        ImTextureID   icon = 0;
+        std::uint32_t color = 0;
+        ResistState   state = ResistState::Idle;
+        bool          symptom = false;
+    };
+
+    static std::string RowName(const char* key, const char* english)
+    {
+        const std::string text = LocalizationManager::Get(key);
+        return (text.empty() || text == key) ? std::string(english) : text;
+    }
+
+    static HUDFlow::Options FlowOptions()
+    {
+        const auto* settings = Settings::GetSingleton();
+        HUDFlow::Options flow;
+        flow.corner = AnchorCorner();
+        flow.axis = settings->prLayout == 0 ? HUDFlow::Axis::Vertical : HUDFlow::Axis::Horizontal;
+        flow.wrapCount = settings->prWrapAfter;
+        flow.gapX = flow.gapY = ScalePx(static_cast<float>(settings->prSpacing));
+        return flow;
+    }
+
+    static HudItem::Style ListStyle(const HUDDraw::IconFx& iconFx, const HUDDraw::TextFx& textFx)
+    {
+        const auto* settings = Settings::GetSingleton();
+        const HUDFlow::Options flow = FlowOptions();
+        HudItem::Style style;
+        style.font = ImGui::GetFont();
+        style.fontSize = ScalePx(style.font->LegacySize * settings->prFontScale);
+        style.iconSize = ScalePx(static_cast<float>(settings->prIconSize));
+        style.showCount = settings->prShowValue;
+        style.pulseBad = false;
+        style.padX = ScalePx(10.0f);
+        style.padY = ScalePx(3.0f);
+        style.discColor = settings->prDiscColor;
+        style.stripColor = settings->prStripColor;
+        style.discBorderColor = settings->prDiscBorderColor;
+        style.discBorderWidth = settings->prDiscBorderWidth > 0
+            ? (std::max)(1.0f, ScalePx(static_cast<float>(settings->prDiscBorderWidth))) : 0.0f;
+        style.discRounding = static_cast<float>(settings->prDiscRadius) / 100.0f;
+        style.iconFx = iconFx;
+        style.textFx = textFx;
+
+        constexpr std::uint32_t kNameColor = 0xFFF0F0F0;
+        constexpr std::uint32_t kCountPlateTint = 0xE7444341;
+        style.normalColor = kNameColor;
+        style.countBadge = HUDDraw::BadgePresetStyle(HUDDraw::BadgePreset_Plain);
+        HUDDraw::TintBadge(style.countBadge, kCountPlateTint);
+
+        constexpr int kPennantStyle = 2;
+        if (settings->prStyle == kPennantStyle) {
+            style.pennant = true;
+            style.clothDirection = settings->prClothDir > 0
+                ? static_cast<HUDDraw::PennantDir>(settings->prClothDir - 1)
+                : HudItem::AutoClothDirection(flow.corner, flow.axis);
+            style.discSize = style.iconSize * (40.0f / 18.0f);
+            style.clothWidth = style.iconSize * (26.0f / 18.0f);
+            style.clothLength = style.iconSize * (50.0f / 18.0f);
+        } else {
+            style.discSize = style.iconSize * (46.0f / 30.0f);
+            if (flow.axis == HUDFlow::Axis::Vertical) style.stripMinWidth = style.discSize * 2.5f;
+        }
+        return style;
+    }
+
+    static HudItem::Content ListItem(const ListRow& row)
+    {
+        HudItem::Content item;
+        item.icon = row.icon;
+        item.color = row.color;
+        item.value = row.value.c_str();
+        item.label = Settings::GetSingleton()->prShowNames ? row.name.c_str() : "";
+        if (row.state == ResistState::Debuff) item.status = HudItem::Status::Bad;
+        if (row.state == ResistState::Buff) item.status = HudItem::Status::Good;
+        return item;
+    }
+
+    static void DrawList(ImDrawList* dl, const std::vector<ListRow>& rows, const HudItem::Style& style)
+    {
+        const HUDFlow::Options flow = FlowOptions();
+        std::vector<HudItem::Content> items;
+        std::vector<ImVec2> sizes;
+        for (const ListRow& row : rows) {
+            items.push_back(ListItem(row));
+            sizes.push_back(HudItem::Measure(items.back(), style));
+        }
+        const ImVec2 size = HUDFlow::Arrange(sizes, flow).size;
+        const ImVec2 topLeft = ImGui::GetCursorScreenPos();
+        const HudItem::ListResult list = HudItem::DrawList(dl, HUDFlow::AnchorFromTopLeft(topLeft, size, flow.corner), items, style, flow);
+
+        const float arrowH = style.iconSize * 0.7f;
+        const float arrowW = arrowH * 0.55f;
+        const float radius = style.discSize * 0.5f;
+        const float side = HUDFlow::AwayFromAnchor(flow.corner).x;
+        for (std::size_t i = 0; i < list.discCenters.size(); ++i) {
+            if (!rows[i].symptom) continue;
+            const ImVec2 center = list.discCenters[i];
+            WidgetDraw::DrawSymptomArrow(dl, ImVec2(center.x + side * radius * 0.8f - arrowW * 0.5f, center.y - radius), arrowH);
+        }
+        ImGui::Dummy(size);
+    }
+
     static void RenderWindow(bool allowDrag) {
         auto* settings = Settings::GetSingleton();
         if (!settings->enablePlayerHud || !settings->enablePlayerResistWidget) return;
@@ -129,12 +255,11 @@ namespace PlayerHUDResistances {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,   ImVec2(ScalePx(4.0f), ScalePx(3.0f)));
 
         const ImVec2 targetPos(static_cast<float>(settings->prPosX), static_cast<float>(settings->prPosY));
-        if (!allowDrag || g_ForcePos) {
-            ImGui::SetNextWindowPos(targetPos, ImGuiCond_Always);
+        const HUDFlow::Corner corner = AnchorCorner();
+        const ImVec2 pivot(HUDFlow::IsLeft(corner) ? 0.0f : 1.0f, HUDFlow::IsTop(corner) ? 0.0f : 1.0f);
+        const bool forcedThisFrame = g_ForcePos;
+        ImGui::SetNextWindowPos(targetPos, (!allowDrag || forcedThisFrame) ? ImGuiCond_Always : ImGuiCond_FirstUseEver, pivot);
             g_ForcePos = false;
-        } else {
-            ImGui::SetNextWindowPos(targetPos, ImGuiCond_FirstUseEver);
-        }
 
         ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar  |
                                  ImGuiWindowFlags_NoResize     |
@@ -146,7 +271,28 @@ namespace PlayerHUDResistances {
         ImGui::Begin("##playerHUDresist", nullptr, flags);
         ImGui::SetWindowFontScale(settings->prFontScale);
 
-        if (settings->prLayout != 2) {
+        const ImVec2 windowSize = ImGui::GetWindowSize();
+        const bool sizeChanged = windowSize.x != g_WindowSize.x || windowSize.y != g_WindowSize.y;
+        g_WindowSize = windowSize;
+        if (sizeChanged) g_ForcePos = true;
+
+        const bool classic = settings->prStyle == 0;
+
+        auto EndWindow = [&]() {
+            ImGui::SetWindowFontScale(1.0f);
+            if (allowDrag && !forcedThisFrame && !sizeChanged) {
+                const ImVec2 dragged = HUDFlow::AnchorFromTopLeft(ImGui::GetWindowPos(), windowSize, corner);
+                if (std::fabs(dragged.x - targetPos.x) > 1.5f || std::fabs(dragged.y - targetPos.y) > 1.5f) {
+                    settings->prPosX = static_cast<int>(std::lround(dragged.x));
+                    settings->prPosY = static_cast<int>(std::lround(dragged.y));
+                }
+            }
+            ImGui::End();
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor(2);
+        };
+
+        if (classic && settings->prLayout != 2) {
             ImU32 ribbonCol = ImGui::ColorConvertFloat4ToU32(ColorUtils::ArgbToVec4(settings->prRibbonColor));
             if (ribbonCol & IM_COL32_A_MASK) {
                 ImDrawList* rdl  = ImGui::GetWindowDrawList();
@@ -170,12 +316,12 @@ namespace PlayerHUDResistances {
 
         auto* iconArmor     = TextureManager::GetPartyIcon("block");
         auto* iconDmgResist = TextureManager::GetPartyIcon("damage_resist");
-        auto* iconFire      = TextureManager::GetPartyIcon("fire_resist");
-        auto* iconFrost     = TextureManager::GetPartyIcon("frost_resist");
-        auto* iconShock     = TextureManager::GetPartyIcon("shock_resist");
-        auto* iconMagic     = TextureManager::GetPartyIcon("magic_resist");
-        auto* iconPoison    = TextureManager::GetPartyIcon("poison_resist");
-        auto* iconDisease   = TextureManager::GetPartyIcon("disease_resist");
+        auto* iconFire      = TextureManager::GetPartyIcon("fire");
+        auto* iconFrost     = TextureManager::GetPartyIcon("frost");
+        auto* iconShock     = TextureManager::GetPartyIcon("shock");
+        auto* iconMagic     = TextureManager::GetPartyIcon("magic");
+        auto* iconPoison    = TextureManager::GetPartyIcon("poison");
+        auto* iconDisease   = TextureManager::GetPartyIcon("disease");
 
         struct ResistEntry {
             const char*                  label;
@@ -205,8 +351,8 @@ namespace PlayerHUDResistances {
         }
 
         {
-            const auto& sr = SurvivalSymptoms::GetResist(player);
-            const SurvivalSymptoms::Mark* marks[] = { &sr.armor, nullptr, &sr.fire, &sr.frost, &sr.shock,
+            const auto& sr = HUDSymptoms::GetResist(player);
+            const HUDSymptoms::Mark* marks[] = { &sr.armor, nullptr, &sr.fire, &sr.frost, &sr.shock,
                                                       &sr.magic, &sr.poison, &sr.disease, &sr.speed };
             for (std::size_t i = 0; i < entries.size() && i < std::size(marks); ++i) {
                 if (!marks[i] || !marks[i]->on) continue;
@@ -217,10 +363,7 @@ namespace PlayerHUDResistances {
         const float symArrowH = iconSz * 0.7f;
         const float symArrowW = symArrowH * 0.55f;
         const ImU32 symRed    = IM_COL32(0xE0, 0x5A, 0x4A, 0xFF);
-
-        float spacing = ScalePx(static_cast<float>(settings->prSpacing));
         bool  horiz   = (settings->prLayout == 1);
-        float textOff = (iconSz - ImGui::GetTextLineHeight()) * 0.5f;
 
         ImDrawList* dl = ImGui::GetWindowDrawList();
 
@@ -279,13 +422,11 @@ namespace PlayerHUDResistances {
 
             cs.accentColor = settings->prChipAccent ? (0xC8000000u | (resistColor & 0x00FFFFFFu)) : 0;
             if (st == ResistState::Debuff) {
-                float pulse = UIAnimation::Pulse(3.5f, 0.0f, 1.0f);
-                auto a8  = [](float a) { return static_cast<std::uint32_t>(a) << 24; };
-                cs.accentColor = a8(160.0f + 95.0f * pulse) | 0x00DC3C3Cu;
-                cs.glowColor   = a8(60.0f + 90.0f * pulse)  | 0x00DC3C3Cu;
+                cs.accentColor = 0xDCDC3C3Cu;
+                cs.outerBorder = 0xFFFF5A5Au;
             } else if (st == ResistState::Buff) {
                 cs.accentColor = 0xDC3CD25Au;
-                cs.glowColor   = 0x5A3CD25Au;
+                cs.outerBorder = 0xFF5AFF78u;
             }
 
             HUDDraw::DrawChip(dl,
@@ -319,11 +460,6 @@ namespace PlayerHUDResistances {
             }
         };
 
-        auto DrawIconDuotone = [&](ID3D11ShaderResourceView* icon, float size, std::uint32_t argb, float frac) {
-            DrawIconMeter(ImGui::GetCursorScreenPos(), icon, size, argb, frac);
-            ImGui::Dummy(ImVec2(size, size));
-        };
-
         HUDDraw::TextFx textFx;
         textFx.shadow         = settings->prTextShadow;
         textFx.outline        = settings->prTextOutline;
@@ -333,6 +469,23 @@ namespace PlayerHUDResistances {
         auto DrawValueText = [&](const ImVec2& tp, ImU32 baseCol, const char* txt) {
             HUDDraw::DrawTextStyled(dl, tp, baseCol, txt, textFx);
         };
+
+        if (!classic) {
+            static constexpr const char* kNameKeys[] = { "Armor", "dmg_resist", "Fire", "Frost", "Shock",
+                                                         "Magic", "Poison", "Disease", "Move" };
+            std::vector<ListRow> rows;
+            for (std::size_t i = 0; i < entries.size() && i < std::size(kNameKeys); ++i) {
+                const ResistEntry& e = entries[i];
+                char value[16];
+                snprintf(value, sizeof(value), e.fmt, e.value);
+                rows.push_back({ settings->prShowNames ? RowName(kNameKeys[i], e.label) : std::string(), value,
+                                 reinterpret_cast<ImTextureID>(e.icon), e.color, e.state, e.symptom });
+            }
+            DrawList(dl, rows, ListStyle(iconFx, textFx));
+            dl->PopClipRect();
+            EndWindow();
+            return;
+        }
 
         if (settings->prLayout == 2) {
             const int   N          = static_cast<int>(entries.size());
@@ -404,24 +557,35 @@ namespace PlayerHUDResistances {
             }
 
             dl->PopClipRect();
-            ImGui::SetWindowFontScale(1.0f);
-
-            if (allowDrag) {
-                ImVec2 winPos = ImGui::GetWindowPos();
-                settings->prPosX = static_cast<int>(winPos.x);
-                settings->prPosY = static_cast<int>(winPos.y);
-            }
-
-            ImGui::End();
-            ImGui::PopStyleVar(2);
-            ImGui::PopStyleColor(2);
+            EndWindow();
             return;
         }
 
         dl->ChannelsSplit(2);
 
-        bool firstItem = true;
-        for (auto& e : entries) {
+        const bool  showValue = settings->prShowValue;
+        const float lineH = ImGui::GetTextLineHeight();
+        const float columnTextGap = ScalePx(4.0f);
+        const float rowTextGap = ScalePx(3.0f);
+
+        std::vector<ImVec2> cellSizes;
+        for (const auto& e : entries) {
+            char valBuf[16];
+            snprintf(valBuf, sizeof(valBuf), e.fmt, e.value);
+            const float textW = showValue ? ImGui::CalcTextSize(valBuf).x : 0.0f;
+            if (horiz)
+                cellSizes.emplace_back((std::max)(iconSz, textW), showValue ? iconSz + rowTextGap + lineH : iconSz);
+            else
+                cellSizes.emplace_back(showValue ? iconSz + columnTextGap + textW : iconSz,
+                                       showValue ? (std::max)(iconSz, lineH) : iconSz);
+        }
+        HUDFlow::Options flow = FlowOptions();
+        if (!horiz) flow.gapY += rowTextGap;
+        const HUDFlow::Result layout = HUDFlow::Arrange(cellSizes, flow);
+        const ImVec2 listPos = ImGui::GetCursorScreenPos();
+
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            const auto& e = entries[i];
             ImU32  col    = IM_COL32((e.color >> 16) & 0xFF, (e.color >> 8) & 0xFF,
                                       e.color & 0xFF, (e.color >> 24) & 0xFF);
             ImVec4 colV4  = ImGui::ColorConvertU32ToFloat4(col);
@@ -435,54 +599,27 @@ namespace PlayerHUDResistances {
 
             dl->ChannelsSetCurrent(1);
 
-            const bool showValue = settings->prShowValue;
-
             const float fillFrac = (e.rangeMax > 0.0f)
                                        ? std::clamp(e.value / e.rangeMax, 0.0f, 1.0f)
                                        : 0.0f;
 
+            const ImVec2 itemMin(listPos.x + layout.offsets[i].x, listPos.y + layout.offsets[i].y);
+            const ImVec2 itemMax(itemMin.x + cellSizes[i].x, itemMin.y + cellSizes[i].y);
+            const float textW = ImGui::CalcTextSize(valBuf).x;
+            ImVec2 iconPos, textPos;
+
             if (horiz) {
-                if (!firstItem) ImGui::SameLine(0.0f, spacing);
-                ImGui::BeginGroup();
-                float textW     = showValue ? ImGui::CalcTextSize(valBuf).x : 0.0f;
-                float cellW     = (std::max)(iconSz, textW);
-                float cellStart = ImGui::GetCursorPosX();
-
-                float iconIndent = (cellW - iconSz) * 0.5f;
-                if (iconIndent > 0.0f) ImGui::SetCursorPosX(cellStart + iconIndent);
-                if (e.icon)
-                    DrawIconDuotone(e.icon, iconSz, e.color, fillFrac);
-                else
-                    ImGui::Dummy(ImVec2(iconSz, iconSz));
-
-                if (showValue) {
-                    float textIndent = (cellW - textW) * 0.5f;
-                    ImGui::SetCursorPosX(cellStart + textIndent);
-                    ImVec2 textPos = ImGui::GetCursorScreenPos();
-                    DrawValueText(textPos, valueTextCol, valBuf);
-                    ImGui::Dummy(ImVec2(textW, ImGui::GetTextLineHeight()));
-                }
-                ImGui::EndGroup();
+                const float midX = (itemMin.x + itemMax.x) * 0.5f;
+                iconPos = ImVec2(midX - iconSz * 0.5f, itemMin.y);
+                textPos = ImVec2(midX - textW * 0.5f, itemMin.y + iconSz + rowTextGap);
             } else {
-                if (!firstItem) ImGui::SetCursorPosY(ImGui::GetCursorPosY() + spacing);
-                ImGui::BeginGroup();
-                if (e.icon)
-                    DrawIconDuotone(e.icon, iconSz, e.color, fillFrac);
-                else
-                    ImGui::Dummy(ImVec2(iconSz, iconSz));
-                if (showValue) {
-                    ImGui::SameLine(0.0f, ScalePx(4.0f));
-                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + textOff);
-                    ImVec2 textPos = ImGui::GetCursorScreenPos();
-                    float textW2 = ImGui::CalcTextSize(valBuf).x;
-                    DrawValueText(textPos, valueTextCol, valBuf);
-                    ImGui::Dummy(ImVec2(textW2, ImGui::GetTextLineHeight()));
+                const float midY = (itemMin.y + itemMax.y) * 0.5f;
+                const bool  left = HUDFlow::IsLeft(corner);
+                iconPos = ImVec2(left ? itemMin.x : itemMax.x - iconSz, midY - iconSz * 0.5f);
+                textPos = ImVec2(left ? itemMin.x + iconSz + columnTextGap : itemMin.x, midY - lineH * 0.5f);
                 }
-                ImGui::EndGroup();
-            }
-
-            ImVec2 itemMin = ImGui::GetItemRectMin();
-            ImVec2 itemMax = ImGui::GetItemRectMax();
+            if (e.icon) DrawIconMeter(iconPos, e.icon, iconSz, e.color, fillFrac);
+            if (showValue) DrawValueText(textPos, valueTextCol, valBuf);
             if (e.symptom) {
                 const float inset = settings->prBgTintEnabled ? ScalePx(2.0f) : 0.0f;
                 const float edge  = settings->prBgTintEnabled ? pad : 0.0f;
@@ -497,24 +634,13 @@ namespace PlayerHUDResistances {
                     DrawBgTint(e.color, e.state, itemMin, itemMax);
                 dl->ChannelsSetCurrent(1);
             }
-
-            firstItem = false;
         }
+        ImGui::Dummy(layout.size);
 
         dl->ChannelsMerge();
         dl->PopClipRect();
 
-        ImGui::SetWindowFontScale(1.0f);
-
-        if (allowDrag) {
-            ImVec2 winPos = ImGui::GetWindowPos();
-            settings->prPosX = static_cast<int>(winPos.x);
-            settings->prPosY = static_cast<int>(winPos.y);
-        }
-
-        ImGui::End();
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor(2);
+        EndWindow();
     }
 
     void RenderHUD() {

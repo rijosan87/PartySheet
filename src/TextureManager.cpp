@@ -1,4 +1,5 @@
 #include "../includes/TextureManager.h"
+#include "../includes/SpellIconManager.h"
 #include <RE/Skyrim.h>
 #include <DirectXTex.h>
 #include <algorithm>
@@ -6,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <lunasvg.h>
 #include <spdlog/spdlog.h>
 #include <Windows.h>
@@ -31,12 +33,10 @@ namespace TextureManager {
     }
     
     static constexpr const char* PORTRAIT_PATH = "Data\\Interface\\PartySheet\\Portraits\\";
-    static constexpr const char* ICON_PATH     = "Data\\Interface\\PartySheet\\Icons\\";
     static constexpr const char* ITEMS_PATH    = "Data\\Interface\\PartySheet\\Items\\";
     static constexpr const char* PARTY_PATH    = "Data\\Interface\\PartySheet\\Party\\";
     static constexpr const char* FRAMES_PATH   = "Data\\Interface\\PartySheet\\Frames\\";
 
-    
     static std::wstring UTF8ToWide(const std::string& utf8) {
         if (utf8.empty()) return L"";
         
@@ -54,9 +54,11 @@ namespace TextureManager {
         }
         return true;
     }
-    
-    // PNGII's shipped glyph pack is all SVG. 128 px plus the mip chain covers every Equipment slot size.
-    static constexpr int SVG_RASTER_PX = 128;
+
+    static constexpr int SVG_RASTER_PX = 256;
+
+    static std::unordered_map<ID3D11ShaderResourceView*, std::string> g_SvgSourceBySrv;
+    static std::map<std::pair<ID3D11ShaderResourceView*, int>, ID3D11ShaderResourceView*> g_ExactBySize;
 
     static bool IsSVGPath(const std::string& path) {
         if (path.size() < 4) return false;
@@ -65,11 +67,7 @@ namespace TextureManager {
         return ext == ".svg";
     }
 
-    // Square canvas, art fitted with a margin and centered (PNGII RasterizeSVG math): the glyph draws into a square,
-    static HRESULT RasterizeSVGFile(const std::wstring& wpath, int side, DirectX::ScratchImage& out) {
-        std::ifstream file(wpath, std::ios::binary);
-        if (!file) return E_FAIL;
-        const std::string bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    static HRESULT RasterizeSVG(const std::string& bytes, int side, DirectX::ScratchImage& out) {
         const auto doc = lunasvg::Document::loadFromData(bytes.data(), bytes.size());
         if (!doc || doc->width() <= 0.0f || doc->height() <= 0.0f) return E_FAIL;
 
@@ -77,10 +75,29 @@ namespace TextureManager {
         const float docH = doc->height();
         // 8% clear border per side: PNGII packs crop the viewBox tight to the art, and art touching the
         const float scale = static_cast<float>(side) * 0.84f / (std::max)(docW, docH);
+        const int ss = side <= 128 ? 4 : 2;
+        lunasvg::Bitmap hi(side * ss, side * ss);
+        if (hi.isNull()) return E_FAIL;
+        hi.clear(0x00000000);
+        const float offX = (side - docW * scale) / 2;
+        const float offY = (side - docH * scale) / 2;
+        doc->render(hi, lunasvg::Matrix(scale * ss, 0, 0, scale * ss, offX * ss, offY * ss));
         lunasvg::Bitmap bitmap(side, side);
         if (bitmap.isNull()) return E_FAIL;
-        bitmap.clear(0x00000000);
-        doc->render(bitmap, lunasvg::Matrix(scale, 0, 0, scale, (side - docW * scale) / 2, (side - docH * scale) / 2));
+        const unsigned n = static_cast<unsigned>(ss * ss);
+        for (int y = 0; y < side; ++y) {
+            std::uint8_t* o = bitmap.data() + y * bitmap.stride();
+            for (int x = 0; x < side; ++x, o += 4) {
+                unsigned acc[4] = {};
+                for (int sy = 0; sy < ss; ++sy) {
+                    const std::uint8_t* p = hi.data() + (y * ss + sy) * hi.stride() + x * ss * 4;
+                    for (int sx = 0; sx < ss; ++sx, p += 4) {
+                        acc[0] += p[0]; acc[1] += p[1]; acc[2] += p[2]; acc[3] += p[3];
+                    }
+                }
+                for (int c = 0; c < 4; ++c) o[c] = static_cast<std::uint8_t>((acc[c] + n / 2) / n);
+            }
+        }
         // lunasvg renders premultiplied ARGB32; straight RGBA matches what WIC hands the PNG path.
         bitmap.convertToRGBA();
         if (FAILED(out.Initialize2D(DXGI_FORMAT_R8G8B8A8_UNORM, side, side, 1, 1))) return E_FAIL;
@@ -89,6 +106,22 @@ namespace TextureManager {
             std::memcpy(img->pixels + y * img->rowPitch, bitmap.data() + y * bitmap.stride(), static_cast<size_t>(side) * 4);
         }
         return S_OK;
+    }
+
+    static HRESULT BuildMipChain(const DirectX::ScratchImage& image, DirectX::ScratchImage& mipChain) {
+        const DirectX::Image& base = image.GetImages()[0];
+        DirectX::ScratchImage premul;
+        if (!DirectX::HasAlpha(base.format) ||
+            FAILED(DirectX::PremultiplyAlpha(base, DirectX::TEX_PMALPHA_IGNORE_SRGB, premul))) {
+            return DirectX::GenerateMipMaps(base, DirectX::TEX_FILTER_LINEAR, 0, mipChain);
+        }
+        DirectX::ScratchImage mipsPM;
+        const HRESULT hr = DirectX::GenerateMipMaps(*premul.GetImages(), DirectX::TEX_FILTER_LINEAR, 0, mipsPM);
+        if (FAILED(hr)) return hr;
+        auto md = mipsPM.GetMetadata();
+        md.SetAlphaMode(DirectX::TEX_ALPHA_MODE_PREMULTIPLIED);
+        return DirectX::PremultiplyAlpha(mipsPM.GetImages(), mipsPM.GetImageCount(), md,
+            DirectX::TEX_PMALPHA_REVERSE | DirectX::TEX_PMALPHA_IGNORE_SRGB, mipChain);
     }
 
     void Init(ID3D11Device* device) {
@@ -103,9 +136,33 @@ namespace TextureManager {
             }
         }
         g_TextureCache.clear();
+        for (auto& [key, srv] : g_ExactBySize) {
+            if (srv) srv->Release();
+        }
+        g_ExactBySize.clear();
+        g_SvgSourceBySrv.clear();
         g_TotalVramBytes = 0;
         g_Device = nullptr;
         logger::info("TextureManager shutdown");
+    }
+
+    bool GetTextureSize(ID3D11ShaderResourceView* srv, float& width, float& height) {
+        width = height = 0.0f;
+        if (!srv) return false;
+        ID3D11Resource* res = nullptr;
+        srv->GetResource(&res);
+        if (!res) return false;
+        ID3D11Texture2D* tex = nullptr;
+        res->QueryInterface(__uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&tex));
+        if (tex) {
+            D3D11_TEXTURE2D_DESC d{};
+            tex->GetDesc(&d);
+            width  = static_cast<float>(d.Width);
+            height = static_cast<float>(d.Height);
+            tex->Release();
+        }
+        res->Release();
+        return width > 0.0f && height > 0.0f;
     }
     
     ID3D11ShaderResourceView* GetTexture(const std::string& path) {
@@ -116,7 +173,6 @@ namespace TextureManager {
             return it->second;
         }
         
-
         if (!std::filesystem::exists(UTF8ToWide(path))) {
             // logger::warn("TextureManager: File not found: {}", path);  // Too verbose
             g_TextureCache[path] = nullptr;
@@ -126,8 +182,14 @@ namespace TextureManager {
         DirectX::ScratchImage image;
         std::wstring wpath = UTF8ToWide(path);
 
-        HRESULT hr = IsSVGPath(path)
-            ? RasterizeSVGFile(wpath, SVG_RASTER_PX, image)
+        const bool isSvg = IsSVGPath(path);
+        std::string svgBytes;
+        if (isSvg) {
+            std::ifstream file(wpath, std::ios::binary);
+            if (file) svgBytes.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        }
+        HRESULT hr = isSvg
+            ? RasterizeSVG(svgBytes, SVG_RASTER_PX, image)
             : DirectX::LoadFromWICFile(
                 wpath.c_str(),
                 DirectX::WIC_FLAGS_IGNORE_SRGB,
@@ -157,12 +219,7 @@ namespace TextureManager {
         const DirectX::ScratchImage* imageToUse = &image;
 
         if (generateMipmaps && image.GetImageCount() > 0) {
-            hr = DirectX::GenerateMipMaps(
-                image.GetImages()[0],
-                DirectX::TEX_FILTER_LINEAR,
-                0,
-                mipChain
-            );
+            hr = BuildMipChain(image, mipChain);
             if (SUCCEEDED(hr)) {
                 imageToUse = &mipChain;
             } else {
@@ -204,6 +261,37 @@ namespace TextureManager {
         
         g_TextureCache[path] = srv;
         g_TotalVramBytes += ComputeImageVramBytes(imageToUse->GetMetadata());
+        if (isSvg) g_SvgSourceBySrv[srv] = std::move(svgBytes);
+        return srv;
+    }
+
+    ID3D11ShaderResourceView* GetIconAtPixelSize(ID3D11ShaderResourceView* base, int px) {
+        if (!base || !g_Device || px < 8 || px > 128) return base;
+        const auto src = g_SvgSourceBySrv.find(base);
+        if (src == g_SvgSourceBySrv.end()) return base;
+        const auto key = std::make_pair(base, px);
+        if (const auto it = g_ExactBySize.find(key); it != g_ExactBySize.end()) {
+            return it->second ? it->second : base;
+        }
+        g_ExactBySize[key] = nullptr;
+
+        DirectX::ScratchImage image;
+        if (FAILED(RasterizeSVG(src->second, px, image))) return base;
+        ID3D11Resource* texture = nullptr;
+        if (FAILED(DirectX::CreateTexture(g_Device, image.GetImages(), image.GetImageCount(),
+                                          image.GetMetadata(), &texture))) {
+            return base;
+        }
+        ID3D11ShaderResourceView* srv = nullptr;
+        D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+        srvDesc.Format = image.GetMetadata().format;
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Texture2D.MipLevels = 1;
+        const HRESULT hr = g_Device->CreateShaderResourceView(texture, &srvDesc, &srv);
+        texture->Release();
+        if (FAILED(hr)) return base;
+        g_ExactBySize[key] = srv;
+        g_TotalVramBytes += ComputeImageVramBytes(image.GetMetadata());
         return srv;
     }
     
@@ -276,7 +364,8 @@ namespace TextureManager {
         bool isCreature = false;
         if (race) {
             auto npcKeyword = RE::TESForm::LookupByEditorID<RE::BGSKeyword>("ActorTypeNPC");
-            isCreature = npcKeyword && !race->HasKeyword(npcKeyword);
+            bool npcHasKeyword = actorBase && actorBase->HasKeyword(npcKeyword);
+            isCreature = npcKeyword && !race->HasKeyword(npcKeyword) && !npcHasKeyword;
         }
         
         bool isSummonedActor = actor->IsSummoned() || actor->IsCommandedActor();
@@ -291,7 +380,6 @@ namespace TextureManager {
             if (auto srv = TryLoadPortrait("summon")) return srv;
             return TryLoadPortrait("default");
         }
-        
         
         if (auto npc = actorBase ? actorBase->As<RE::TESNPC>() : nullptr) {
              if (auto npcClass = npc->npcClass) {
@@ -317,8 +405,8 @@ namespace TextureManager {
     
     ID3D11ShaderResourceView* GetEffectIcon(const std::string& iconId) {
         if (iconId.empty()) return nullptr;
-        
-        std::string iconPath = std::string(ICON_PATH) + iconId + ".png";
+
+        std::string iconPath = std::string(PARTY_PATH) + iconId + ".png";
         return GetTexture(iconPath);
     }
     
@@ -341,6 +429,13 @@ namespace TextureManager {
         if (baseName.empty()) return nullptr;
         std::string path = std::string(ITEMS_PATH) + baseName + ".png";
         return GetTexture(path);
+    }
+
+    ID3D11ShaderResourceView* GetHeldIcon(RE::TESForm* form, const char* hint) {
+        if (!form) return nullptr;
+        if (auto* spell = form->As<RE::SpellItem>())
+            if (auto* icon = SpellIconManager::GetSpellIcon(spell)) return icon;
+        return GetItemIcon(form, hint ? hint : "");
     }
     
     ID3D11ShaderResourceView* GetItemIcon(RE::TESForm* item, const std::string& slotType) {
@@ -603,6 +698,10 @@ namespace TextureManager {
                     kwClCirclet = RE::TESForm::LookupByEditorID<RE::BGSKeyword>("ClothingCirclet");
                 }
                 if (kwClothing && armor->HasKeyword(kwClothing)) {
+                    if ((kwClBody && armor->HasKeyword(kwClBody)) ||
+                        armor->HasPartOf(RE::BIPED_MODEL::BipedObjectSlot::kBody)) {
+                        if (auto srv = TryLoadItemIcon("type_robe")) return srv;
+                    }
                     if ((kwClHead && armor->HasKeyword(kwClHead)) ||
                         armor->HasPartOf(RE::BIPED_MODEL::BipedObjectSlot::kHead) ||
                         armor->HasPartOf(RE::BIPED_MODEL::BipedObjectSlot::kHair)) {
@@ -616,10 +715,6 @@ namespace TextureManager {
                     }
                     if (kwClFeet && armor->HasKeyword(kwClFeet)) {
                         if (auto srv = TryLoadItemIcon("type_shoes")) return srv;
-                    }
-                    if ((kwClBody && armor->HasKeyword(kwClBody)) ||
-                        armor->HasPartOf(RE::BIPED_MODEL::BipedObjectSlot::kBody)) {
-                        if (auto srv = TryLoadItemIcon("type_robe")) return srv;
                     }
                 }
             }
@@ -770,7 +865,6 @@ namespace TextureManager {
         return TryLoadItemIcon("slot_" + slotType);
     }
     
-
     void PreloadPortraits() {
     }
     

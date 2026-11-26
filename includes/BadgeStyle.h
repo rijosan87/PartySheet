@@ -3,7 +3,6 @@
 // STATUS: Working
 // Visual style config for badges and pills.
 
-
 #include <imgui.h>
 #include <string>
 

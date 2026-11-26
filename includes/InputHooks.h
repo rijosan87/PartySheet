@@ -3,7 +3,6 @@
 // STATUS: Working
 // Installs game input/keyboard hooks.
 
-
 #include <functional>
 
 namespace InputHooks {

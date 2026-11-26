@@ -1,4 +1,5 @@
 #include "../../includes/ImGui/PlayerHUDSurvival.h"
+#include "../../includes/ImGui/PlayerHUDEnvironment.h"
 #include "../../includes/ImGui/Renderer.h"
 #include "../../includes/Settings.h"
 #include "../../includes/TextureManager.h"
@@ -14,6 +15,7 @@
 #include <imgui_impl_dx11.h>
 #include <imgui_impl_win32.h>
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -90,7 +92,8 @@ static const AxisDef kSunHelmAxes[] = {
 
 static const AxisDef kFrostfallAxes[] = {
     { Axis::Exposure, "exposure", ReadMode::GlobalVar, 6, 0, false,
-      { 0x068119 }, {}, kFrostfallESP, nullptr },
+      { 0x068119 },
+      { 0x012C12, 0x004E56, 0x004E57, 0x004E5A, 0x004E5C, 0x004E5E }, kFrostfallESP, nullptr },
     { Axis::Wetness,  "wetness",  ReadMode::GlobalVar, 3, 0, false,
       { 0x06458D }, {}, kFrostfallESP, nullptr },
 };
@@ -112,6 +115,80 @@ static const AxisDef kRndAxes[] = {
     { Axis::Fatigue, "fatigue", ReadMode::SpellArray, 4, 0, false,
       { 0x00BACD, 0x00231E, 0x002320, 0x001DB3, 0x001DB5, 0 }, {}, kRndESP, nullptr },
 };
+
+static constexpr const char* kSmiESP = "SurvivalModeImproved.esp";
+
+struct RawDef {
+    const char* key;
+    RE::FormID  value;
+    RE::FormID  max;
+    const char* plugin;
+    RE::FormID  stageIds[5];
+    const char* stagePlugin;
+    float       steps[5];
+    float       fixedMax;
+};
+
+static const RawDef kCcRaw[] = {
+    { "hunger",  0x81A, 0x80C, kSurvivalESL, { 0x806, 0x802, 0x803, 0x804, 0x805 }, kSurvivalESL, {}, 0 },
+    { "fatigue", 0x816, 0x84A, kSurvivalESL, { 0xA17, 0xA18, 0xA19, 0xA1A, 0xA1B }, kSmiESP, {}, 0 },
+    { "cold",    0x81B, 0x84B, kSurvivalESL, { 0xD20, 0xD21, 0xD22, 0xD23, 0xD24 }, kSmiESP, {}, 0 },
+};
+
+static const RawDef kSunHelmRaw[] = {
+    { "hunger",  0x00EAAE, 0, kSunHelmESP, {}, nullptr, { 40, 80, 140, 240, 360 }, 360 },
+    { "thirst",  0x05C472, 0, kSunHelmESP, {}, nullptr, { 40, 60, 120, 180, 300 }, 300 },
+    { "fatigue", 0x021E3F, 0, kSunHelmESP, {}, nullptr, { 80, 160, 240, 360, 480 }, 480 },
+    { "cold",    0x6A13C5, 0, kSunHelmESP, {}, nullptr, { 25, 150, 250, 450, 700 }, 700 },
+};
+
+static const RawDef kLastSeedRaw[] = {
+    { "hunger",  0x0029CD, 0, kLastSeedESP, {}, nullptr, { 20, 40, 60, 80, 100 }, 120 },
+    { "thirst",  0x0029CE, 0, kLastSeedESP, {}, nullptr, { 20, 40, 60, 80, 100 }, 120 },
+    { "fatigue", 0x0029CF, 0, kLastSeedESP, {}, nullptr, { 20, 40, 60, 80, 100 }, 120 },
+};
+
+static const RawDef kRndRaw[] = {
+    { "hunger",  0x002884, 0x002DEE, kRndESP, { 0x002DEA, 0x002DEB, 0x002DEC, 0x002DED, 0x002DEE }, kRndESP, {}, 0 },
+    { "thirst",  0x002E07, 0x002E0E, kRndESP, { 0x002E0B, 0x002E0C, 0x002E0D, 0x002E0E, 0 }, kRndESP, {}, 0 },
+    { "fatigue", 0x00BAC2, 0x00BAC8, kRndESP, { 0x00BAC5, 0x00BAC6, 0x00BAC7, 0x00BAC8, 0 }, kRndESP, {}, 0 },
+};
+
+struct ResolvedRaw {
+    const RawDef*  def      = nullptr;
+    RE::TESGlobal* value    = nullptr;
+    RE::TESGlobal* max      = nullptr;
+    RE::TESGlobal* stage[5] = {};
+};
+static std::vector<ResolvedRaw> g_raw;
+static RE::TESGlobal* g_smiAmbientTemp = nullptr;
+static RE::TESGlobal* g_compassTempLevel = nullptr;
+static RE::BGSListForm* g_smiHeatObjects = nullptr;
+static std::atomic<bool> g_smiNearHeat{ false };
+
+struct SunHelmAmbient {
+    RE::TESGlobal* temperature  = nullptr;
+    RE::TESGlobal* nearHeat     = nullptr;
+    RE::TESGlobal* interiorType = nullptr;
+    RE::TESGlobal* coldActive   = nullptr;
+    RE::TESGlobal* inWater      = nullptr;
+};
+static SunHelmAmbient g_shAmbient;
+
+struct FrostfallAmbient {
+    RE::TESGlobal* nearFire    = nullptr;
+    RE::TESGlobal* shelter     = nullptr;
+    RE::TESGlobal* temperature = nullptr;
+    RE::TESGlobal* exposure    = nullptr;
+    RE::TESGlobal* target      = nullptr;
+    RE::TESGlobal* heatSize    = nullptr;
+    RE::TESGlobal* wetness     = nullptr;
+};
+static FrostfallAmbient g_ffAmbient;
+static RE::TESGlobal* g_vitalityValue  = nullptr;
+static RE::TESGlobal* g_vitalityTarget = nullptr;
+static constexpr std::uint32_t kVitalityColor = 0xFFD24B46;
+static constexpr ImU32 kVitalityIconColor = IM_COL32(100, 200, 120, 255);
 
 // Selected backend state. Set once at the end of Init(), read everywhere else.
 static Backend   g_backend   = Backend::None;
@@ -236,6 +313,7 @@ static bool BuildAxes(RE::TESDataHandler* dh, const AxisDef* defs, int count,
                         auto form = dh->LookupForm(def.ids[0], def.plugin);
                         ra.global = form ? form->As<RE::TESGlobal>() : nullptr;
                     }
+                    ra.spells[i] = LookupSpell(dh, def.idsAlt[i], def.plugin);
                     break;
             }
         }
@@ -248,6 +326,91 @@ static bool BuildAxes(RE::TESDataHandler* dh, const AxisDef* defs, int count,
         if (a.def->mode == ReadMode::GlobalVar  && a.global)    return true;
     }
     return false;
+}
+
+static RE::TESGlobal* LookupGlobal(RE::TESDataHandler* dh, RE::FormID id, const char* plugin)
+{
+    if (!id || !plugin || !dh->LookupModByName(plugin)) return nullptr;
+    auto form = dh->LookupForm(id, plugin);
+    return form ? form->As<RE::TESGlobal>() : nullptr;
+}
+
+static void BuildRaw(RE::TESDataHandler* dh)
+{
+    g_raw.clear();
+    const RawDef* defs = nullptr;
+    int count = 0;
+    if (g_backend == Backend::VanillaCC || g_backend == Backend::Starfrost) {
+        defs = kCcRaw; count = static_cast<int>(std::size(kCcRaw));
+    } else if (g_backend == Backend::SunHelm) {
+        defs = kSunHelmRaw; count = static_cast<int>(std::size(kSunHelmRaw));
+    } else if (g_backend == Backend::LastSeed) {
+        defs = kLastSeedRaw; count = static_cast<int>(std::size(kLastSeedRaw));
+    } else if (g_backend == Backend::RND) {
+        defs = kRndRaw; count = static_cast<int>(std::size(kRndRaw));
+    }
+    for (int i = 0; i < count; ++i) {
+        ResolvedRaw r;
+        r.def   = &defs[i];
+        r.value = LookupGlobal(dh, defs[i].value, defs[i].plugin);
+        r.max   = LookupGlobal(dh, defs[i].max, defs[i].plugin);
+        for (int s = 0; s < 5; ++s)
+            r.stage[s] = LookupGlobal(dh, defs[i].stageIds[s], defs[i].stagePlugin);
+        if (r.value && (r.max || defs[i].fixedMax > 0.0f)) g_raw.push_back(r);
+    }
+    g_smiAmbientTemp = (g_backend == Backend::VanillaCC || g_backend == Backend::Starfrost)
+        ? LookupGlobal(dh, 0xD1D, kSmiESP) : nullptr;
+    auto* heatObjects = g_smiAmbientTemp ? dh->LookupForm(0x8AA, kSurvivalESL) : nullptr;
+    g_smiHeatObjects = heatObjects ? heatObjects->As<RE::BGSListForm>() : nullptr;
+    g_smiNearHeat = false;
+    g_compassTempLevel = (g_backend == Backend::VanillaCC || g_backend == Backend::Starfrost) ? LookupGlobal(dh, 0x2EDD, "Update.esm")
+                       : g_backend == Backend::SunHelm ? LookupGlobal(dh, 0x6B57CE, "SunHelmSurvival.esp") : nullptr;
+    g_shAmbient = {};
+    if (g_backend == Backend::SunHelm) {
+        g_shAmbient.temperature  = LookupGlobal(dh, 0x989757, kSunHelmESP);
+        g_shAmbient.nearHeat     = LookupGlobal(dh, 0x88743B, kSunHelmESP);
+        g_shAmbient.interiorType = LookupGlobal(dh, 0x98975B, kSunHelmESP);
+        g_shAmbient.coldActive   = LookupGlobal(dh, 0x79441D, kSunHelmESP);
+        g_shAmbient.inWater      = LookupGlobal(dh, 0x88743C, kSunHelmESP);
+    }
+    g_ffAmbient = {};
+    if (g_frostfallActive) {
+        g_ffAmbient.nearFire    = LookupGlobal(dh, 0x064AFD, kFrostfallESP);
+        g_ffAmbient.shelter     = LookupGlobal(dh, 0x068118, kFrostfallESP);
+        g_ffAmbient.temperature = LookupGlobal(dh, 0x0665F9, kFrostfallESP);
+        g_ffAmbient.exposure    = LookupGlobal(dh, 0x00183D, kFrostfallESP);
+        g_ffAmbient.target      = LookupGlobal(dh, 0x0805E4, kFrostfallESP);
+        g_ffAmbient.heatSize    = LookupGlobal(dh, 0x064AFC, kFrostfallESP);
+        g_ffAmbient.wetness     = LookupGlobal(dh, 0xCC0E04, "Update.esm");
+    }
+    logger::debug("PlayerHUDSurvival: {} raw need values resolved.", g_raw.size());
+}
+
+static float RawNeedFill(const char* key)
+{
+    if (!strcmp(key, "exposure")) return g_ffAmbient.exposure ? std::clamp(g_ffAmbient.exposure->value / 120.0f, 0.0f, 1.0f) : -1.0f;
+    if (!strcmp(key, "wetness"))  return g_ffAmbient.wetness  ? std::clamp(g_ffAmbient.wetness->value / 750.0f, 0.0f, 1.0f) : -1.0f;
+    for (const auto& r : g_raw) {
+        if (strcmp(r.def->key, key) != 0) continue;
+        const float maxV = r.max ? r.max->value : r.def->fixedMax;
+        return maxV > 0.0f ? std::clamp(r.value->value / maxV, 0.0f, 1.0f) : -1.0f;
+    }
+    return -1.0f;
+}
+
+static void FillFromRaw(PlayerHUDSurvival::NeedStatus& ns)
+{
+    ns.fill = RawNeedFill(ns.key);
+    for (const auto& r : g_raw) {
+        if (strcmp(r.def->key, ns.key) != 0) continue;
+        const float maxV = r.max ? r.max->value : r.def->fixedMax;
+        if (maxV <= 0.0f) return;
+        if (ns.stage < 0 || ns.stage >= ns.maxStage || ns.stage >= 5) return;
+        float next = r.def->steps[ns.stage];
+        if (r.stage[ns.stage] && r.stage[ns.stage]->value > 0.0f) next = r.stage[ns.stage]->value;
+        if (next > 0.0f) ns.nextFill = std::clamp(next / maxV, 0.0f, 1.0f);
+        return;
+    }
 }
 
 namespace PlayerHUDSurvival {
@@ -312,6 +475,8 @@ void Init()
             if (g_vitalitySpells[i]) ++resolved;
         }
         logger::debug("PlayerHUDSurvival: Vitality tiers resolved {}/8.", resolved);
+        g_vitalityValue  = LookupGlobal(dh, 0x004FC4, kLastSeedESP);
+        g_vitalityTarget = LookupGlobal(dh, 0x44B08A, kLastSeedESP);
     }
 
     std::vector<ResolvedAxis> ffAxes;
@@ -334,11 +499,13 @@ void Init()
 
     if (axes.empty()) {
         g_backend = Backend::None;
+        g_raw.clear();
         logger::debug("PlayerHUDSurvival: no survival backend found - survival cluster disabled.");
         return;
     }
 
     g_axes = std::move(axes);
+    BuildRaw(dh);
 
     logger::debug("PlayerHUDSurvival: backend={} ({} axes, modeGlobal={}).",
                   BackendName(), g_axes.size(), g_modeEnabled ? "ok" : "null");
@@ -637,6 +804,222 @@ static void LogNeedsBaseline(const std::vector<NeedStatus>& needs,
     logger::info("{}", line);
 }
 
+static void FillColdScale(AmbientCold& out, const ResolvedRaw& cold, float ambient)
+{
+    const float max = cold.max ? cold.max->value : cold.def->fixedMax;
+    if (max <= 0.0f) return;
+    out.selfFill = std::clamp(cold.value->value / max, 0.0f, 1.0f);
+    out.areaFill = std::clamp(ambient / max, 0.0f, 1.0f);
+}
+
+static void FillStageRange(AmbientCold& out, const ResolvedRaw& cold)
+{
+    const float max = cold.max ? cold.max->value : cold.def->fixedMax;
+    if (max <= 0.0f || out.areaFill < 0.0f) return;
+    out.stageStart = 0.0f;
+    out.stageEnd = 1.0f;
+    for (int i = 0; i < 5; ++i) {
+        const float step = (cold.stage[i] ? cold.stage[i]->value : cold.def->steps[i]) / max;
+        if (step <= 0.0f) continue;
+        if (out.areaFill >= step) out.stageStart = (std::min)(step, 1.0f);
+        else { out.stageEnd = step; break; }
+    }
+}
+
+static std::optional<AmbientCold> GetSunHelmAmbient(int compassLevel)
+{
+    if (g_shAmbient.coldActive && g_shAmbient.coldActive->value == 0.0f) return std::nullopt;
+
+    AmbientCold out;
+    out.nearFire = g_shAmbient.nearHeat && g_shAmbient.nearHeat->value > 0.0f;
+
+    const bool warmInterior = g_shAmbient.interiorType && g_shAmbient.interiorType->value == 0.0f;
+    const float ambient = warmInterior ? 0.0f : g_shAmbient.temperature->value;
+    out.selfStage = GetColdStage();
+    out.stage = 0;
+    for (const auto& r : g_raw) {
+        if (strcmp(r.def->key, "cold") != 0) continue;
+        for (float step : r.def->steps)
+            if (ambient >= step) ++out.stage;
+        FillColdScale(out, r, ambient);
+    }
+
+    constexpr float kFrostbiteAmbient = 600.0f;
+    constexpr int kFrigid = 5;
+    if (ambient >= kFrostbiteAmbient) {
+        out.stage = kFrigid;
+        if (out.areaFill >= 0.0f) out.areaFill = 1.0f;
+    }
+
+    constexpr int kFreezing = 4;
+    if (compassLevel == kFreezing) out.stage = (std::max)(out.stage, kFreezing);
+
+    out.inFreezingWater = g_shAmbient.inWater && g_shAmbient.inWater->value > 0.0f;
+    if (out.inFreezingWater && out.areaFill >= 0.0f) out.areaFill = 1.0f;
+
+    for (const auto& r : g_raw)
+        if (strcmp(r.def->key, "cold") == 0) FillStageRange(out, r);
+
+    out.coldHeld = warmInterior && !out.nearFire && !out.inFreezingWater;
+
+    if (out.selfFill >= 0.0f) {
+        constexpr float kLevel = 0.0015f;
+        const bool byFire = out.nearFire && !out.inFreezingWater;
+        const float diff = (byFire ? 0.0f : out.areaFill) - out.selfFill;
+        if (!out.coldHeld) out.trend = diff > kLevel ? 1 : (diff < -kLevel ? -1 : 0);
+    } else if (compassLevel == 1 || compassLevel == 2) {
+        out.trend = -1;
+    } else if (compassLevel >= 3 && !out.nearFire) {
+        out.trend = 1;
+    }
+    if (out.trend > 0 && out.stage == 0 && out.selfStage <= 0 && !out.inFreezingWater) out.trend = 0;
+    return out;
+}
+
+static bool ScanForSmiHeat()
+{
+    constexpr float kSmiHeatRange = 580.0f;
+    auto* tes = RE::TES::GetSingleton();
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    if (!tes || !player || !player->GetParentCell() || !g_smiHeatObjects) return false;
+    auto* state = player->AsActorState();
+    if (player->IsRunning() || state->IsSprinting() || state->IsSwimming()) return false;
+
+    bool found = false;
+    auto checkRef = [&](RE::TESObjectREFR* ref) {
+        auto* base = ref && !ref->IsDisabled() && ref->Is3DLoaded() ? ref->GetBaseObject() : nullptr;
+        if (!base || !g_smiHeatObjects->HasForm(base)) return RE::BSContainer::ForEachResult::kContinue;
+        found = true;
+        return RE::BSContainer::ForEachResult::kStop;
+    };
+
+    const auto origin = player->GetPosition();
+    auto* playerCell = player->GetParentCell();
+    if (playerCell->IsInteriorCell()) {
+        playerCell->ForEachReferenceInRange(origin, kSmiHeatRange, checkRef);
+        return found;
+    }
+
+    auto* grid = tes->gridCells;
+    if (!grid) return false;
+    constexpr float kCellSize = 4096.0f;
+    for (std::uint32_t x = 0; x < grid->length && !found; ++x) {
+        for (std::uint32_t y = 0; y < grid->length && !found; ++y) {
+            auto* cell = grid->GetCell(x, y);
+            const auto* coords = cell && cell->IsAttached() ? cell->GetCoordinates() : nullptr;
+            if (!coords) continue;
+            const bool inRange = coords->worldX < origin.x + kSmiHeatRange && coords->worldX + kCellSize > origin.x - kSmiHeatRange &&
+                                 coords->worldY < origin.y + kSmiHeatRange && coords->worldY + kCellSize > origin.y - kSmiHeatRange;
+            if (inRange) cell->ForEachReferenceInRange(origin, kSmiHeatRange, checkRef);
+        }
+    }
+    return found;
+}
+
+static void UpdateSmiNearHeat()
+{
+    constexpr int kHeldMisses = 3;
+    static int misses = 0;
+    if (ScanForSmiHeat()) {
+        misses = 0;
+        g_smiNearHeat = true;
+    } else if (++misses > kHeldMisses) {
+        g_smiNearHeat = false;
+    }
+}
+
+static bool IsNearSmiHeat()
+{
+    using Clock = std::chrono::steady_clock;
+    static Clock::time_point lastScan{};
+    const auto now = Clock::now();
+    if (now - lastScan >= std::chrono::seconds(1)) {
+        lastScan = now;
+        if (auto* tasks = SKSE::GetTaskInterface())
+            tasks->AddTask(UpdateSmiNearHeat);
+    }
+    return g_smiNearHeat;
+}
+
+static float SmiHeatFloor(const ResolvedRaw& cold, float ambient)
+{
+    constexpr float kSmiFreezingArea = 250.0f;
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    auto* cell = player ? player->GetParentCell() : nullptr;
+    const bool freezingOutdoors = ambient >= kSmiFreezingArea && cell && !cell->IsInteriorCell();
+    return freezingOutdoors && cold.stage[0] ? cold.stage[0]->value : 0.0f;
+}
+
+std::string GetColdStageName(int stage) { return ResolveNeedStageName(FrostfallLive() ? "exposure" : "cold", stage); }
+
+std::optional<AmbientCold> GetAmbientCold()
+{
+    if (FrostfallLive() && g_ffAmbient.temperature) {
+        AmbientCold out;
+        out.hasTemperature = true;
+        out.temperature = g_ffAmbient.temperature->value;
+        out.heatSize = g_ffAmbient.heatSize ? static_cast<int>(g_ffAmbient.heatSize->value) : 0;
+        out.nearFire = out.heatSize > 0;
+        constexpr float kFrostfallYes = 2.0f;
+        out.sheltered = g_ffAmbient.shelter && g_ffAmbient.shelter->value == kFrostfallYes;
+        out.shelterLevel = out.sheltered ? 2 : 0;
+        out.selfStage = GetExposureStage();
+        if (g_ffAmbient.exposure && g_ffAmbient.target) {
+            const float diff = g_ffAmbient.target->value - g_ffAmbient.exposure->value;
+            out.trend = diff > 0.25f ? 1 : (diff < -0.25f ? -1 : 0);
+            constexpr float kMaxExposure = 120.0f;
+            out.selfFill = std::clamp(g_ffAmbient.exposure->value / kMaxExposure, 0.0f, 1.0f);
+            out.areaFill = std::clamp(g_ffAmbient.target->value / kMaxExposure, 0.0f, 1.0f);
+            out.fireFill = out.areaFill;
+            out.stage = 0;
+            out.stageStart = 0.0f;
+            out.stageEnd = 1.0f;
+            for (float step : { 20.0f, 40.0f, 60.0f, 80.0f, 100.0f, kMaxExposure }) {
+                if (g_ffAmbient.target->value < step) {
+                    out.stageEnd = step / kMaxExposure;
+                    break;
+                }
+                ++out.stage;
+                out.stageStart = step / kMaxExposure;
+            }
+            if (out.trend > 0 && out.stage == 0 && out.selfStage <= 0) out.trend = 0;
+        }
+        return out;
+    }
+    if (!IsAvailable()) return std::nullopt;
+    constexpr int kCompassNearHeat = 1;
+    const int compassLevel = g_compassTempLevel ? static_cast<int>(g_compassTempLevel->value) : -1;
+    if (g_shAmbient.temperature) return GetSunHelmAmbient(compassLevel);
+    if (!g_smiAmbientTemp) {
+        if (compassLevel < 0) return std::nullopt;
+        AmbientCold out;
+        out.nearFire = compassLevel == kCompassNearHeat;
+        out.stage = compassLevel == 2 ? 0 : compassLevel == 3 ? 2 : compassLevel == 4 ? 4 : -1;
+        return out;
+    }
+    for (const auto& r : g_raw) {
+        if (strcmp(r.def->key, "cold") != 0) continue;
+        constexpr float kSmiCapAmbient = 600.0f;
+        float ambient = g_smiAmbientTemp->value;
+        if (ambient >= kSmiCapAmbient && r.max) ambient = (std::max)(ambient, r.max->value);
+        AmbientCold out;
+        out.nearFire = g_smiHeatObjects ? IsNearSmiHeat() : compassLevel == kCompassNearHeat;
+        out.stage = 0;
+        for (int i = 0; i < 5; ++i)
+            if (r.stage[i] && ambient >= r.stage[i]->value) out.stage = i + 1;
+        const float target = out.nearFire ? SmiHeatFloor(r, ambient) : ambient;
+        const float diff = target - r.value->value;
+        out.trend = diff > 1.0f ? 1 : (diff < -1.0f ? -1 : 0);
+        FillColdScale(out, r, ambient);
+        FillStageRange(out, r);
+        out.selfStage = GetColdStage();
+        const bool staysWarm = out.stage == 0 && out.selfStage == 0;
+        if (out.trend > 0 && (staysWarm || out.nearFire)) out.trend = 0;
+        return out;
+    }
+    return std::nullopt;
+}
+
 std::vector<NeedStatus> GetActiveNeeds()
 {
     std::vector<NeedStatus> out;
@@ -663,6 +1046,7 @@ std::vector<NeedStatus> GetActiveNeeds()
         ns.maxStage  = maxStage;
         ns.icon      = icon;
         ns.key       = key;
+        FillFromRaw(ns);
         out.push_back(std::move(ns));
     };
 
@@ -690,6 +1074,25 @@ bool IsVitalitySpell(RE::SpellItem* spell)
     return false;
 }
 
+ID3D11ShaderResourceView* GetNeedSpellIcon(RE::SpellItem* spell)
+{
+    if (!spell) return nullptr;
+    if (IsVitalitySpell(spell)) return g_iconVitality;
+    for (const auto& a : g_axes) {
+        if (std::find(std::begin(a.spells), std::end(a.spells), spell) == std::end(a.spells)) continue;
+        switch (a.def->axis) {
+            case Axis::Cold:     return g_iconCold;
+            case Axis::Hunger:   return g_iconHunger;
+            case Axis::Fatigue:  return g_iconFatigue;
+            case Axis::Thirst:   return g_iconThirst;
+            case Axis::Exposure: return g_iconExposure;
+            case Axis::Wetness:  return g_iconWetness;
+            default:             return nullptr;
+        }
+    }
+    return nullptr;
+}
+
 std::optional<VitalityStatus> GetVitality()
 {
     if (!LastSeedLive()) return std::nullopt;
@@ -709,6 +1112,11 @@ std::optional<VitalityStatus> GetVitality()
         vs.tier     = tier;
         vs.maxTier  = 7;
         vs.icon     = g_iconVitality;
+        if (g_vitalityValue) vs.fill = std::clamp(g_vitalityValue->value / 140.0f, 0.0f, 1.0f);
+        if (g_vitalityValue && g_vitalityTarget) {
+            const float diff = g_vitalityTarget->value - g_vitalityValue->value;
+            vs.trend = diff > 2.0f ? 1 : (diff < -2.0f ? -1 : 0);
+        }
         return vs;
     }
 
@@ -989,6 +1397,8 @@ static void RenderWindow(bool allowDrag)
         int                       maxStage;
         ID3D11ShaderResourceView* icon;
         const char*               key;
+        float                     meter  = -1.0f;
+        ImU32                     iconColor = 0;
     };
 
     const std::string needNameCold    = LocalizationManager::Get("need_cold");
@@ -1027,6 +1437,23 @@ static void RenderWindow(bool allowDrag)
     if (wetnessStage >= 0)
         needs.push_back({ needNameWetness.c_str(), wetnessStage, settings->phSurvivalColdColor,
                           kFfWetnessLabels, 3, g_iconWetness, "wetness" });
+
+    const auto vitality = PlayerHUDSurvival::GetVitality();
+    const char* vitalityLabels[8];
+    if (vitality) {
+        for (auto& l : vitalityLabels) l = vitality->tierName.c_str();
+        const int maxTier = (std::max)(1, (std::min)(vitality->maxTier, 7));
+        const float decline = vitality->fill >= 0.0f ? 1.0f - vitality->fill
+                            : 1.0f - static_cast<float>(vitality->tier) / maxTier;
+        needs.push_back({ vitality->name.c_str(), std::clamp(maxTier - vitality->tier, 0, maxTier), kVitalityColor,
+                          vitalityLabels, maxTier, g_iconVitality, "vitality", decline, kVitalityIconColor });
+    }
+
+    for (auto& need : needs)
+        if (need.meter < 0.0f && need.stage >= 0) need.meter = RawNeedFill(need.key);
+
+    if (PlayerHUDEnvironment::HidesColdNeed())
+        std::erase_if(needs, [](const NeedEntry& n) { return strcmp(n.key, "cold") == 0 || strcmp(n.key, "exposure") == 0; });
 
     const int needCount = static_cast<int>(needs.size());
     if (needCount == 0) { ImGui::End(); ImGui::PopStyleVar(2); ImGui::PopStyleColor(2); return; }
@@ -1130,11 +1557,18 @@ static void RenderWindow(bool allowDrag)
 
     ImU32 mutedCol = ImGui::ColorConvertFloat4ToU32(ColorUtils::ArgbToVec4(settings->phSurvivalLabelColor));
 
+    float cardMeter = -1.0f;
+    bool cardMeterPips = false;
+    auto LitFraction = [&](int stage, int maxStage) {
+        if (cardMeter >= 0.0f) return cardMeter;
+        return maxStage > 0 ? static_cast<float>(stage) / static_cast<float>(maxStage) : 0.0f;
+    };
+
     // Percentages describe stage severity, not a backend's continuous needs meter.
     auto DrawPercentage = [&](float centerX, float y, int stage, int maxStage, ImU32 color) {
         if (!settings->phSurvivalShowPercentage) return;
         char text[16];
-        const int percent = maxStage > 0 ? static_cast<int>(std::lround(100.0f * stage / maxStage)) : 0;
+        const int percent = static_cast<int>(std::lround(100.0f * LitFraction(stage, maxStage)));
         std::snprintf(text, sizeof(text), "%d%%", percent);
         const ImVec2 size = font->CalcTextSizeA(percentageSize, FLT_MAX, 0.0f, text);
         HUDDraw::TextFx fx = textFx;
@@ -1186,8 +1620,9 @@ static void RenderWindow(bool allowDrag)
             ps.glow     = settings->phSurvivalIndicatorGlow;
             ps.specular = settings->phSurvivalIndicatorHighlight;
             float pipTotalW = HUDDraw::MeasurePipRow(maxStage, ps);
+            const int lit = cardMeterPips && cardMeter >= 0.0f ? static_cast<int>(std::lround(cardMeter * maxStage)) : s;
             HUDDraw::DrawPipRow(dl, ImVec2(x + (w - pipTotalW) * 0.5f, y + h * 0.5f),
-                                s, maxStage, ps);
+                                lit, maxStage, ps);
             break;
         }
         case 1: {
@@ -1198,7 +1633,7 @@ static void RenderWindow(bool allowDrag)
             w -= inset * 2.0f;
             float barH   = standardBar ? ScalePx(8.0f) : (std::max)(ScalePx(4.0f), h * 0.35f);
             float barY   = y + (h - barH) * 0.5f;
-            float frac   = (maxStage > 0) ? static_cast<float>(s) / static_cast<float>(maxStage) : 0.0f;
+            float frac   = LitFraction(s, maxStage);
             HUDDraw::BarStyle bar;
             bar.width = w;
             bar.height = barH;
@@ -1222,7 +1657,7 @@ static void RenderWindow(bool allowDrag)
             HUDDraw::TimerArcStyle arc;
             arc.radius = arcRadius;
             arc.thickness = arcThickness;
-            arc.fraction = maxStage > 0 ? static_cast<float>(s) / maxStage : 0.0f;
+            arc.fraction = LitFraction(s, maxStage);
             arc.fillColor = HUDDraw::PackedToArgb(tintedCol);
             arc.startAngle = settings->phSurvivalArcRotation - settings->phSurvivalArcSweep * 0.5f;
             arc.sweepAngle = static_cast<float>(settings->phSurvivalArcSweep);
@@ -1252,7 +1687,7 @@ static void RenderWindow(bool allowDrag)
                     ImVec2(iconX, iconY), ImVec2(iconX + iconSz, iconY + iconSz),
                     ImVec2(0, 0), ImVec2(1, 1), ghostCol);
 
-                float frac     = (maxStage > 0) ? static_cast<float>(s) / static_cast<float>(maxStage) : 0.0f;
+                float frac     = LitFraction(s, maxStage);
                 float clipTop  = iconY + iconSz * (1.0f - frac);
                 if (frac > 0.0f) {
                     dl->PushClipRect(ImVec2(iconX, clipTop), ImVec2(iconX + iconSz, iconY + iconSz), true);
@@ -1292,6 +1727,8 @@ static void RenderWindow(bool allowDrag)
             const auto& need = needs[n];
             if (cardAlpha[n] <= 0.004f) continue;
             const int   s    = std::clamp(need.stage, 0, need.maxStage);
+            cardMeter       = need.meter;
+            cardMeterPips   = strcmp(need.key, "vitality") == 0;
             ImU32 tintedCol  = StageColor(need.baseColor, s, need.maxStage);
 
             const int cardV0 = dl->VtxBuffer.Size;
@@ -1305,7 +1742,8 @@ static void RenderWindow(bool allowDrag)
 
             // Icon Fill needs a faint base so the clipped fill remains visible.
             bool  iconIsGhost = settings->phSurvivalIconFill;
-            ImU32 iconDrawCol = iconIsGhost ? ((tintedCol & 0x00FFFFFF) | 0x26000000) : tintedCol;
+            const ImU32 iconCol = (need.iconColor && s < need.maxStage) ? need.iconColor : tintedCol;
+            ImU32 iconDrawCol = iconIsGhost ? ((iconCol & 0x00FFFFFF) | 0x26000000) : iconCol;
             float bounceY = UIAnimation::GetBounceOffsetY(std::string("surv_bounce_") + need.key) * MasterScale();
             const int iconV0 = dl->VtxBuffer.Size;
             if (need.icon) {
@@ -1359,6 +1797,8 @@ static void RenderWindow(bool allowDrag)
             const auto& need = needs[n];
             if (cardAlpha[n] <= 0.004f) continue;
             const int   s    = std::clamp(need.stage, 0, need.maxStage);
+            cardMeter       = need.meter;
+            cardMeterPips   = strcmp(need.key, "vitality") == 0;
             ImU32 tintedCol  = StageColor(need.baseColor, s, need.maxStage);
 
             const int cardV0 = dl->VtxBuffer.Size;
@@ -1374,7 +1814,8 @@ static void RenderWindow(bool allowDrag)
             if (need.icon) {
                 // Icon Fill uses a faint base; the clipped pass below adds the lit portion.
                 bool  iconIsGhost = settings->phSurvivalIconFill;
-                ImU32 iconDrawCol = iconIsGhost ? ((tintedCol & 0x00FFFFFF) | 0x26000000) : tintedCol;
+                const ImU32 iconCol = (need.iconColor && s < need.maxStage) ? need.iconColor : tintedCol;
+            ImU32 iconDrawCol = iconIsGhost ? ((iconCol & 0x00FFFFFF) | 0x26000000) : iconCol;
                 // Bounce shifts only the icon draw, not drawY (text stays put).
                 float bounceY = UIAnimation::GetBounceOffsetY(std::string("surv_bounce_") + need.key) * MasterScale();
                 if (iconIsGhost)

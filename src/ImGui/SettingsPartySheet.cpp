@@ -1,8 +1,10 @@
 #include "../../includes/ImGui/RendererSections.h"
 
 #include "../../includes/ImGui/Renderer.h"
+#include "../../includes/PNGIIBridge.h"
 #include "../../includes/Settings.h"
 #include "../../includes/Utils/ColorUtils.h"
+#include "../../includes/Utils/SettingsWidgets.h"
 #include <imgui.h>
 
 namespace ImGuiRenderer::SettingsUI {
@@ -22,21 +24,57 @@ namespace ImGuiRenderer::SettingsUI {
         ImGui::Indent(10);
 
         ImGui::Spacing();
+        if (ImGui::CollapsingHeader("General##PSGeneral", ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::Checkbox("Fullscreen Mode (V2)##PSV2Mode", &settings->psUseFullscreenMode);
+            if (settings->psUseFullscreenMode) {
+                ImGui::Checkbox("Pause game while open##PSV2Pause", &settings->psV2PauseGame);
+                ImGui::Checkbox("Show live character##PSV2Live", &settings->psV2LiveCharacter);
+                {
+                    static constexpr const char* kSides[] = { "Center", "Right" };
+                    int side = settings->psV2CharacterRight ? 1 : 0;
+                    if (SettingsWidgets::SegmentedPicker("Character side##PSV2CharSide", &side, kSides, 2))
+                        settings->psV2CharacterRight = side == 1;
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Right puts the character on the right edge and moves the equipment to the middle.");
+                }
+                static constexpr const char* kPanelStyles[] = { "Chip", "Plaque" };
+                SettingsWidgets::SegmentedPicker("Panel style##PSV2PanelStyle", &settings->psV2PanelStyle, kPanelStyles, 2);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Look of the Skills and Defense rows.");
+                static constexpr const char* kSlotLayouts[] = { "Cards", "List" };
+                SettingsWidgets::SegmentedPicker("Equipped layout##PSV2SlotLayout", &settings->psV2SlotLayout, kSlotLayouts, 2);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Hands side by side as cards, or stacked as rows with the text beside the icon.");
+
+                ImGui::BeginDisabled(!PNGIIBridge::Available());
+                ImGui::Checkbox("Inventory pictograms##PSV2InvPictograms", &settings->psV2InvPictograms);
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip(PNGIIBridge::Available() ? "Inventory items use PNG Icon Injector icons."
+                                                               : "Needs PNG Icon Injector.");
+                ImGui::Indent(20);
+                ImGui::BeginDisabled(!settings->psV2InvPictograms);
+                ImGui::Checkbox("Keep item art for weapons, armor and arrows##PSV2InvKeepItemArt", &settings->psV2InvKeepItemArt);
+                ImGui::EndDisabled();
+                ImGui::Unindent(20);
+                ImGui::EndDisabled();
+                ImGui::SliderInt("Inventory item art size##PSV2InvItemArtScale", &settings->psV2InvItemArtScale, 80, 160, "%d%%");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Size of item art in inventory tiles. Pictograms keep their size.");
+            }
         ImGui::Spacing();
-        ImGui::Separator();
+        }
 
         if (settings->psUseFullscreenMode) {
-            ImGui::Spacing();
-            ImGui::Checkbox("Pause game while open (V2)##PSV2Pause", &settings->psV2PauseGame);
-            ImGui::Checkbox("Show live character (V2)##PSV2Live", &settings->psV2LiveCharacter);
-            if (settings->psV2LiveCharacter) {
-                ImGui::Spacing();
-                ImGui::TextDisabled("Camera (applies on next open)");
+            if (settings->psV2LiveCharacter && ImGui::CollapsingHeader("Live character##PSV2LiveGrp")) {
+                ImGui::Indent(10);
+                ImGui::TextDisabled("Camera");
                 if (ImGui::BeginTable("##PSV2LiveCamTable", 2, ImGuiTableFlags_SizingStretchSame)) {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
                     ImGui::SetNextItemWidth(-FLT_MIN);
+                    if (settings->psV2CharacterRight)
+                        ImGui::SliderInt("##PSV2LiveCamXRight", &settings->psV2LiveCamXRight, -150, 150, "Side %d");
+                    else
                     ImGui::SliderInt("##PSV2LiveCamX", &settings->psV2LiveCamX, -60, 60, "Side %d");
                     ImGui::TableSetColumnIndex(1);
                     ImGui::SetNextItemWidth(-FLT_MIN);
@@ -44,23 +82,36 @@ namespace ImGuiRenderer::SettingsUI {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##PSV2LiveCamDist", &settings->psV2LiveCamDist, 0, 400, "Distance %d");
+                    ImGui::SliderInt("##PSV2LiveCamDist", &settings->psV2LiveCamDist, -120, 400, "Distance %d");
+                    if (settings->psV2CharacterRight) {
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::SetNextItemWidth(-FLT_MIN);
+                        ImGui::SliderInt("##PSV2LiveCamYawRight", &settings->psV2LiveCamYawRight, -45, 45, "Turn %d deg");
+                    }
                     ImGui::EndTable();
                 }
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextDisabled("In the sheet, A/D turns the camera, Q/E moves it up or down and W/S zooms. "
+                                    "Height and distance are saved when you let go of the key.");
+                ImGui::PopTextWrapPos();
+                ImGui::Spacing();
+                ImGui::TextDisabled("Light");
+                ImGui::SliderInt("##PSV2LiveLight", &settings->psV2LiveLight, 0, 100,
+                                 settings->psV2LiveLight > 0 ? "Face light %d" : "Face light off");
                 ImGui::Spacing();
                 ImGui::TextDisabled("Opening");
                 if (ImGui::BeginTable("##PSV2LiveOpenTable", 2, ImGuiTableFlags_SizingStretchSame)) {
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##PSV2LiveOpenW", &settings->psV2LiveOpenW, 20, 60, "Width %d%%");
+                    ImGui::SliderInt("##PSV2LiveOpenW", &settings->psV2LiveOpenW, 20, 100, "Width %d%%");
                     ImGui::TableSetColumnIndex(1);
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##PSV2LiveOpenH", &settings->psV2LiveOpenH, 40, 100, "Height %d%%");
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    ImGui::SliderInt("##PSV2LiveSoft", &settings->psV2LiveSoftness, 5, 60, "Edge softness %d%%");
+                    ImGui::SliderInt("##PSV2LiveSoft", &settings->psV2LiveSoftness, 5, 100, "Edge softness %d%%");
                     ImGui::TableSetColumnIndex(1);
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     ImGui::SliderInt("##PSV2LiveBottom", &settings->psV2LiveBottomFade, 0, 70, "Bottom fade %d%%");
@@ -97,12 +148,10 @@ namespace ImGuiRenderer::SettingsUI {
                             std::copy(std::begin(kDefaults), std::end(kDefaults), settings->psV2LiveClassColors);
                     }
                 }
+                ImGui::Unindent(10);
             }
-            ImGui::Spacing();
-            ImGui::TextDisabled("V2 Font Scales");
-            ImGui::Spacing();
 
-            if (ImGui::BeginTable("##PSV2FontTable", 2, ImGuiTableFlags_SizingStretchSame)) {
+            if (ImGui::CollapsingHeader("Fonts##PSV2FontGrp") && ImGui::BeginTable("##PSV2FontTable", 2, ImGuiTableFlags_SizingStretchSame)) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 {
@@ -141,18 +190,13 @@ namespace ImGuiRenderer::SettingsUI {
                 ImGui::EndTable();
             }
 
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::TextDisabled("V2 Icon Sizes");
-            ImGui::Spacing();
-
-            if (ImGui::BeginTable("##PSV2IconTable", 2, ImGuiTableFlags_SizingStretchSame)) {
+            if (ImGui::CollapsingHeader("Icon sizes##PSV2IconGrp") && ImGui::BeginTable("##PSV2IconTable", 2, ImGuiTableFlags_SizingStretchSame)) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 {
                     int v = static_cast<int>(settings->psV2IconSkill);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSV2IconSkill", &v, 12, 48, "Skill %dpx"))
+                    if (ImGui::SliderInt("##PSV2IconSkill", &v, 12, 100, "Skill %dpx"))
                         settings->psV2IconSkill = static_cast<float>(v);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Skill icons in the Skills section");
@@ -160,7 +204,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psV2IconStat);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSV2IconStat", &v, 12, 48, "Stat %dpx"))
+                    if (ImGui::SliderInt("##PSV2IconStat", &v, 12, 100, "Stat %dpx"))
                         settings->psV2IconStat = static_cast<float>(v);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Defense/Combat stat icons");
@@ -168,7 +212,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psV2IconCard);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSV2IconCard", &v, 16, 64, "Card %dpx"))
+                    if (ImGui::SliderInt("##PSV2IconCard", &v, 16, 100, "Card %dpx"))
                         settings->psV2IconCard = static_cast<float>(v);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Central card icons (race, class, faction)");
@@ -177,7 +221,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psV2IconTrait);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSV2IconTrait", &v, 16, 64, "Trait %dpx"))
+                    if (ImGui::SliderInt("##PSV2IconTrait", &v, 16, 100, "Trait %dpx"))
                         settings->psV2IconTrait = static_cast<float>(v);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Trait/perk icons in the central panel");
@@ -185,7 +229,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psV2IconBadge);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSV2IconBadge", &v, 12, 48, "Badge %dpx"))
+                    if (ImGui::SliderInt("##PSV2IconBadge", &v, 12, 100, "Badge %dpx"))
                         settings->psV2IconBadge = static_cast<float>(v);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Equipped weapon / armor badge icons");
@@ -193,7 +237,7 @@ namespace ImGuiRenderer::SettingsUI {
                 {
                     int v = static_cast<int>(settings->psV2IconFooter);
                     ImGui::SetNextItemWidth(-FLT_MIN);
-                    if (ImGui::SliderInt("##PSV2IconFooter", &v, 12, 48, "Footer %dpx"))
+                    if (ImGui::SliderInt("##PSV2IconFooter", &v, 12, 100, "Footer %dpx"))
                         settings->psV2IconFooter = static_cast<float>(v);
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Footer row icons (gold, carry weight, etc.)");
@@ -207,6 +251,20 @@ namespace ImGuiRenderer::SettingsUI {
                         ImGui::SetTooltip("Weapon card icon width (height scales to match 216x300 ratio)");
                 }
                 {
+                    int v = static_cast<int>(settings->psV2EquipCardH);
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    if (ImGui::SliderInt("##PSV2EquipCardH", &v, 80, 300, "Equip card %dpx"))
+                        settings->psV2EquipCardH = static_cast<float>(v);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Equipped card height. The icon shrinks to fit when taller.");
+                }
+                {
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2WeaponIconRotate", &settings->psV2WeaponIconRotate, -90, 90, "Weapon turn %d deg");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Turns weapon icons, 90 lays a tall weapon flat");
+                }
+                {
                     int v = static_cast<int>(settings->psV2IconArmor);
                     ImGui::SetNextItemWidth(-FLT_MIN);
                     if (ImGui::SliderInt("##PSV2IconArmor", &v, 64, 200, "Armor %dpx"))
@@ -214,12 +272,22 @@ namespace ImGuiRenderer::SettingsUI {
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip("Armor slot icon size (square)");
                 }
+                {
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2ArmorCardScale", &settings->psV2ArmorCardScale, 50, 130, "Armor card %d%%");
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("Armor card height as a percent of its column width");
+                }
+                {
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2IconRecentList", &settings->psV2IconRecentList, 16, 64, "Recent gear, list %dpx");
+                    ImGui::SetNextItemWidth(-FLT_MIN);
+                    ImGui::SliderInt("##PSV2IconRecentCards", &settings->psV2IconRecentCards, 16, 64, "Recent gear, cards %dpx");
+                }
                 ImGui::EndTable();
             }
 
-            ImGui::Spacing();
-            ImGui::TextDisabled("Icon Design");
-            ImGui::Spacing();
+            if (ImGui::CollapsingHeader("Icon design##PSV2IconDesignGrp")) {
 
             ImGui::Checkbox("Duotone##PSV2IconDuo", &settings->psV2IconDuotone);
             if (ImGui::IsItemHovered())
@@ -242,6 +310,7 @@ namespace ImGuiRenderer::SettingsUI {
                     settings->psV2IconOutlineColor = ColorUtils::Vec4ToArgb(oc);
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Alpha channel = outline opacity.");
+            }
             }
         } else {
 

@@ -3,17 +3,19 @@
 #include "../../includes/Settings.h"
 #include "../../includes/TextureManager.h"
 #include "../../includes/BackgroundManager.h"
-#include "../../includes/SpellIconManager.h"
 #include "../../includes/MenuUtils.h"
 #include "../../includes/Utils/ColorUtils.h"
 #include "../../includes/Utils/EquipmentStatResolver.h"
 #include "../../includes/Utils/HUDDraw.h"
+#include "../../includes/Utils/HUDFlow.h"
 #include "../../includes/HUDVisibility.h"
 #include "../../includes/LocalizationManager.h"
 #include "../../includes/UIAnimation.h"
 #include "../../includes/PNGIIBridge.h"
-#include "../../includes/SurvivalSymptoms.h"
+#include "../../includes/HUDSymptoms.h"
 #include "../../includes/ImGui/WidgetDrawHelpers.h"
+#include "../../includes/Utils/EffectIconRenderer.h"
+#include "../../includes/Utils/EffectBadges.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -23,6 +25,7 @@
 #include <RE/Skyrim.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <vector>
 
@@ -43,6 +46,8 @@ namespace PlayerHUDEquipment {
     };
     static constexpr int k_SlotCount = static_cast<int>(std::size(k_Slots));
 
+    using EffectBadge = EffectBadges::Badge;
+
     struct SlotData {
         std::string                       name;
         RE::TESForm*                      form          = nullptr;
@@ -60,6 +65,7 @@ namespace PlayerHUDEquipment {
         std::string                       enchantType;
         int                               auraType      = 0;
         bool                              symptom       = false;
+        std::vector<EffectBadge>          effects;
     };
 
     static HUDDraw::BadgeStyle MakeBadgeStyle(std::uint32_t textColor) {
@@ -127,14 +133,7 @@ namespace PlayerHUDEquipment {
 
     static ID3D11ShaderResourceView* ResolveIcon(RE::TESForm* form, const char* hint)
     {
-        if (!form) return nullptr;
-        if (auto* spell = form->As<RE::SpellItem>()) {
-            using ST = RE::MagicSystem::SpellType;
-            auto t = spell->GetSpellType();
-            if (t != ST::kPower && t != ST::kLesserPower)
-                if (auto* i = SpellIconManager::GetSpellIcon(spell)) return i;
-        }
-        return TextureManager::GetItemIcon(form, hint);
+        return TextureManager::GetHeldIcon(form, hint);
     }
 
     static int GetAmmoInfo(RE::PlayerCharacter* player, RE::TESForm* weaponForm,
@@ -377,7 +376,7 @@ namespace PlayerHUDEquipment {
                     if (lh) {
                         auto stats = EquipmentStatResolver::ResolveHandWeaponStats(player, lh, true);
                         d.weaponDamage  = stats.hitDamage;
-                        d.enchantDamage = stats.enchantDamage;
+                        d.enchantDamage = stats.enchantTotal;
                         d.enchantType   = stats.enchantType;
                         d.auraType      = ResolveWeaponAura(player, lh, true);
                     }
@@ -394,7 +393,7 @@ namespace PlayerHUDEquipment {
                 if (rh) {
                     auto stats = EquipmentStatResolver::ResolveHandWeaponStats(player, rh, false);
                     d.weaponDamage  = stats.hitDamage;
-                    d.enchantDamage = stats.enchantDamage;
+                    d.enchantDamage = stats.enchantTotal;
                     d.enchantType   = stats.enchantType;
                     d.auraType      = ResolveWeaponAura(player, rh, false);
                 }
@@ -411,7 +410,7 @@ namespace PlayerHUDEquipment {
                             t == RE::MagicSystem::SpellType::kLesserPower)
                             hint = "power";
                     }
-                    d.icon = ResolveIcon(power, hint);
+                    d.icon = TextureManager::GetItemIcon(power, hint ? hint : "");
                 } else {
                     d.name.clear(); d.icon = nullptr;
                 }
@@ -468,24 +467,173 @@ namespace PlayerHUDEquipment {
         return ScalePx(static_cast<float>(s->peIconSize) * scale);
     }
 
+    static int SlotShape(const Settings* s, SlotType type) {
+        int shape = -1;
+        switch (type) {
+        case SlotType::RightHand: shape = s->peSlotShape0; break;
+        case SlotType::LeftHand:  shape = s->peSlotShape1; break;
+        case SlotType::Shout:     shape = s->peSlotShape2; break;
+        }
+        return std::clamp(shape < 0 ? s->peIconBgShape : shape, 0, 2);
+    }
+
+    static ImRect AnchorRect(ImVec2 pos, float w, float h, int shape)
+    {
+        if (shape != 1 && shape != 2)
+            return ImRect(pos, ImVec2(pos.x + w, pos.y + h));
+        const float top = pos.y + (h - w) * 0.5f;
+        return ImRect(ImVec2(pos.x, top), ImVec2(pos.x + w, top + w));
+    }
+
+    static float ShapeHeight(float w, float h, int shape) { return (shape == 1 || shape == 2) ? w : h; }
+
+    static ImVec2 OnCircle(ImVec2 c, float dist, float deg)
+    {
+        const float a = deg * 3.14159265f / 180.0f;
+        return ImVec2(c.x + std::cos(a) * dist, c.y + std::sin(a) * dist);
+    }
+
+    static ImVec2 BoxFromCenter(ImVec2 c, float w, float h) { return ImVec2(c.x - w * 0.5f, c.y - h * 0.5f); }
+
+    static void LayoutCluster(const float w[3], const float h[3], float gap, float ang1, float ang2, ImVec2 out[3])
+    {
+        const ImVec2 c(0.0f, 0.0f);
+        out[0] = BoxFromCenter(c, w[0], h[0]);
+        out[1] = BoxFromCenter(OnCircle(c, w[0] * 0.5f + w[1] * 0.5f + gap, ang1), w[1], h[1]);
+        out[2] = BoxFromCenter(OnCircle(c, w[0] * 0.5f + w[2] * 0.5f + gap, ang2), w[2], h[2]);
+    }
+
+    static void LayoutCross(const float w[3], const float h[3], float gap, ImVec2 out[3])
+    {
+        const float maxR = (std::max)({ w[0], w[1], w[2] }) * 0.5f;
+        const float d    = maxR + gap * 0.5f;
+        out[0] = BoxFromCenter(ImVec2(0.0f, -d), w[0], h[0]);
+        out[1] = BoxFromCenter(ImVec2(-d, 0.0f), w[1], h[1]);
+        out[2] = BoxFromCenter(ImVec2(d, 0.0f), w[2], h[2]);
+    }
+
+    static void LayoutStack(const float w[3], const float h[3], const float shapeH[3],
+                            float overlapPct, float shiftX, float gap, ImVec2 out[3])
+    {
+        float centerY = 0.0f;
+        for (int i = 0; i < 3; ++i) {
+            if (i > 0)
+                centerY -= (shapeH[i - 1] * 0.5f + shapeH[i] * 0.5f) * (1.0f - overlapPct * 0.01f) + gap;
+            out[i] = BoxFromCenter(ImVec2(shiftX * i, centerY), w[i], h[i]);
+        }
+    }
+
+    static ImVec2 PlaceName(const ImRect& a, ImVec2 textSize, int placement, int align, float gap)
+    {
+        return HUDFlow::PlaceLabel(a.Min, a.Max, textSize, static_cast<HUDFlow::Side>(placement),
+                                   static_cast<HUDFlow::Align>(std::clamp(align, 0, 2)), gap);
+    }
+
+    static int NamePlacementFor(const Settings* s)
+    {
+        const int p = std::clamp(s->peNamePlacement, 0, 3);
+        return (s->peLayout == 2 && p >= 2) ? 0 : p;
+    }
+
+    static int SidePlacement(int placement, ImVec2 outward)
+    {
+        const Settings* s = Settings::GetSingleton();
+        if (placement < 2 || (s->peLayout != 3 && s->peLayout != 4)) return placement;
+        if (std::fabs(outward.x) < 0.5f) return s->peCenterNameSide == 0 ? 2 : 3;
+        if (s->peSatelliteNamesBelow) return outward.y < -0.5f ? 1 : 0;
+        return outward.x < 0.0f ? 2 : 3;
+    }
+
+    static float NameGap() { return ScalePx(static_cast<float>(std::clamp(Settings::GetSingleton()->peNameGap, -20, 60))); }
+
+    static float NameWrapWidth(const Settings* s, float slotW, float pitchW)
+    {
+        if (NamePlacementFor(s) >= 2)
+            return ScalePx(static_cast<float>(std::clamp(s->peNameSideWidth, 40, 240)));
+        return (pitchW > 0.0f) ? pitchW : slotW;
+    }
+
+    static std::string DisplayName(const SlotData& data, const Settings* s)
+    {
+        std::string name = data.name;
+        const int maxChars = s->peNameMaxChars;
+        if (maxChars > 3 && name.size() > static_cast<std::size_t>(maxChars)) {
+            name.resize(static_cast<std::size_t>(maxChars) - 3);
+            name += "...";
+        }
+        return name;
+    }
+
     static constexpr std::uint32_t kSymptomRed = WidgetDraw::kSymptomRedArgb;
 
-    static bool HandSymptom(const SurvivalSymptoms::Equip& e, RE::TESForm* form) {
-        if (!form) return false;
-        if (auto* arm = form->As<RE::TESObjectARMO>(); arm && arm->IsShield()) return e.shield.on;
+    using HandMarkList = std::array<const HUDSymptoms::Mark*, 3>;
+    static HandMarkList HandMarks(const HUDSymptoms::Equip& e, RE::TESForm* form) {
+        if (!form) return {};
+        if (auto* arm = form->As<RE::TESObjectARMO>(); arm && arm->IsShield()) return { &e.shield };
         auto* w = form->As<RE::TESObjectWEAP>();
-        if (!w) return false;
+        if (!w) return {};
         using WT = RE::WEAPON_TYPE;
         switch (w->GetWeaponType()) {
         case WT::kOneHandSword: case WT::kOneHandDagger: case WT::kOneHandAxe: case WT::kOneHandMace:
-            return e.oneHanded.on || e.melee.on || e.any.on;
+            return { &e.oneHanded, &e.melee, &e.any };
         case WT::kTwoHandSword: case WT::kTwoHandAxe:
-            return e.twoHanded.on || e.melee.on || e.any.on;
+            return { &e.twoHanded, &e.melee, &e.any };
         case WT::kBow: case WT::kCrossbow:
-            return e.ranged.on || e.any.on;
+            return { &e.ranged, &e.any };
         default:
+            return {};
+        }
+    }
+
+    static bool HandSymptom(const HUDSymptoms::Equip& e, RE::TESForm* form) {
+        for (const auto* m : HandMarks(e, form))
+            if (m && m->on) return true;
             return false;
         }
+
+    static void AddEffectBadges(std::vector<EffectBadge>& out, const HUDSymptoms::Causes& from, bool buff) {
+        EffectBadges::AddFromCauses(out, from, buff);
+    }
+
+    static std::uint32_t DamageColor(const SlotData& d) {
+        if (d.symptom) return kSymptomRed;
+        const bool buffed = std::any_of(d.effects.begin(), d.effects.end(), [](const EffectBadge& e) { return e.buff; });
+        return buffed ? EffectBadges::kBuffGreen : 0xFFFFEBA0;
+    }
+
+    static int DamageTrend(const SlotData& d) {
+        if (d.symptom) return -1;
+        const bool buffed = std::any_of(d.effects.begin(), d.effects.end(), [](const EffectBadge& e) { return e.buff; });
+        return buffed ? 1 : 0;
+    }
+
+    static EffectBadges::ShownGroups s_shownBadges;
+
+    bool ShowsAsBadge(const EffectAttribution::GroupKey& key) {
+        return s_shownBadges.Contains(key);
+    }
+
+    static void DrawEffectBadges(ImDrawList* dl, const ImRect& anchor, const ImRect& nameRect, const SlotData& data) {
+        const auto* s = Settings::GetSingleton();
+        if (!s->peShowEffectBadges || data.effects.empty()) return;
+
+        EffectBadges::RowStyle style;
+        style.preset    = s->peEffectBadgeStyle;
+        style.size      = (std::max)(anchor.GetWidth() * s->peEffectBadgeSize * 0.01f, ScalePx(12.0f));
+        style.max       = s->peEffectBadgeMax;
+        style.fontScale = s->peBadgeFontScale;
+        style.gap       = ScalePx(2.0f);
+        const auto row  = EffectBadges::Measure(data.effects, style);
+
+        const bool  onLabel = s->peEffectBadgePlace == 1 && nameRect.Min.x < nameRect.Max.x;
+        const ImRect host   = onLabel ? nameRect : anchor;
+        float x = host.GetCenter().x - row.total.x * 0.5f;
+        if (onLabel && s->peNameAlignment == 0) x = host.Min.x;
+        if (onLabel && s->peNameAlignment == 2) x = host.Max.x - row.total.x;
+        const float top = host.Min.y - style.gap - row.total.y;
+
+        EffectBadges::Draw(dl, ImVec2(x, top), data.effects, row, style,
+            [](const EffectBadge& e) { s_shownBadges.Remember(e.key); });
     }
 
     static float DrawSlot(
@@ -495,7 +643,8 @@ namespace PlayerHUDEquipment {
         const SlotDef&   def,
         const Settings*  s,
         float            nameMaxWidth = 0.0f,
-        float            slotW        = -1.0f)
+        float            slotW        = -1.0f,
+        ImVec2           outward      = ImVec2(-1.0f, 0.0f))
     {
         const float w  = (slotW > 0.0f) ? slotW : ScalePx(static_cast<float>(s->peIconSize));
         const float h  = w * (200.0f / 144.0f);
@@ -508,8 +657,52 @@ namespace PlayerHUDEquipment {
         if (shaking)
             screenPos.x += UIAnimation::GetShakeOffsetX("peq_shout_denied") * MasterScale();
         HUDDraw::ScopedTextNoSnap textGlide(dl, shaking);
+        const int    shape  = SlotShape(s, def.type);
+        const ImRect anchor = AnchorRect(screenPos, w, h, shape);
 
         float       contentBottom = screenPos.y + h;
+
+        if (s->peShowNames && s->peStripStyle > 0 && !data.isEmpty && !data.name.empty()) {
+            const int placement = SidePlacement(NamePlacementFor(s), outward);
+            const std::string displayName = DisplayName(data, s);
+            const float  wrapW    = NameWrapWidth(s, w, nameMaxWidth);
+            const ImVec2 textSize = ImGui::CalcTextSize(displayName.c_str(), nullptr, false, wrapW);
+            const ImVec2 namePos  = PlaceName(anchor, textSize, placement, s->peNameAlignment, NameGap());
+            if (placement < 2) {
+                const float pad   = ScalePx(8.0f);
+                const float half  = (std::max)(textSize.x * 0.5f + pad, ScalePx(static_cast<float>(s->peStripWidth)) * 0.5f);
+                const float midX  = namePos.x + textSize.x * 0.5f;
+                const float midY  = namePos.y + textSize.y * 0.5f;
+                const float halfH = textSize.y * 0.5f + ScalePx(3.0f);
+                if (s->peStripStyle == HUDDraw::StripStyle_Rounded) {
+                    HUDDraw::DrawStrip(dl, ImVec2(midX - half, midY - halfH), ImVec2(midX + half, midY + halfH),
+                                       s->peStripStyle, s->peStripTint, true);
+                } else {
+                    HUDDraw::DrawStrip(dl, ImVec2(midX - half, midY - halfH), ImVec2(midX, midY + halfH),
+                                       s->peStripStyle, s->peStripTint, false);
+                    HUDDraw::DrawStrip(dl, ImVec2(midX, midY - halfH), ImVec2(midX + half, midY + halfH),
+                                       s->peStripStyle, s->peStripTint, true);
+                }
+            } else {
+                const bool  toRight = placement == 3;
+                const float pad     = ScalePx(6.0f);
+                const float reach   = (std::max)(textSize.x + NameGap() + pad * 2.0f, ScalePx(static_cast<float>(s->peStripWidth)));
+                const float midY    = namePos.y + textSize.y * 0.5f;
+                const float halfH   = textSize.y * 0.5f + ScalePx(3.0f);
+                float tuck = ScalePx(2.0f);
+                if (shape == 2) {
+                    const float halfD = anchor.GetWidth() * 0.5f;
+                    const float dy    = std::fabs(midY - anchor.GetCenter().y) + halfH;
+                    tuck += halfD * (std::min)(1.0f, dy / halfD);
+                }
+                const float edge    = toRight ? anchor.Max.x - tuck : anchor.Min.x + tuck;
+                const float span    = reach + tuck;
+                HUDDraw::DrawStrip(dl,
+                    ImVec2(toRight ? edge : edge - span, midY - halfH),
+                    ImVec2(toRight ? edge + span : edge, midY + halfH),
+                    s->peStripStyle, s->peStripTint, toRight);
+            }
+        }
 
         static ID3D11ShaderResourceView* s_GlowTex = nullptr;
         static bool s_GlowTried = false;
@@ -543,8 +736,8 @@ namespace PlayerHUDEquipment {
                     HUDDraw::DrawFadeBg(dl, tl, br, fs);
                 };
 
-                auto DrawDefaultBg = [&](int shape) {
-                    if (shape == 0 && s->peIconBgStyle == 1) {
+                auto DrawDefaultBg = [&](int bgShape) {
+                    if (bgShape == 0 && s->peIconBgStyle == 1) {
                         DrawFadeFill();
                         return;
                     }
@@ -558,7 +751,7 @@ namespace PlayerHUDEquipment {
                     const float r = w * 0.5f;
 
                     auto FillShape = [&](ImVec2 off, ImU32 col, float grow) {
-                        switch (shape) {
+                        switch (bgShape) {
                         default:
                         case 0:
                             dl->AddRectFilled(ImVec2(tl.x - grow + off.x, tl.y - grow + off.y),
@@ -584,22 +777,21 @@ namespace PlayerHUDEquipment {
                     for (int i = 2; i >= 1; --i)
                         FillShape(ImVec2(1.0f, 2.0f), IM_COL32(0, 0, 0, 30), static_cast<float>(i));
 
-                    const float topY = (shape == 0) ? tl.y : center.y - r;
-                    const float botY = (shape == 0) ? br.y : center.y + r;
+                    const float topY = (bgShape == 0) ? tl.y : center.y - r;
+                    const float botY = (bgShape == 0) ? br.y : center.y + r;
                     int v0 = dl->VtxBuffer.Size;
                     FillShape(ImVec2(0, 0), IM_COL32(255, 255, 255, cA), 0.0f);
                     int v1 = dl->VtxBuffer.Size;
                     ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, v0, v1,
                         ImVec2(tl.x, topY), ImVec2(tl.x, botY), litCol, deepCol);
 
-                    // Top highlight: 1.5px light band clipped to the shape. The diamond's
-                    const float hlY = topY + (shape == 2 ? r * 0.35f : ScalePx(1.0f));
+                    const float hlY = topY + (bgShape == 2 ? r * 0.35f : ScalePx(1.0f));
                     dl->PushClipRect(ImVec2(tl.x - ScalePx(1.0f), hlY), ImVec2(br.x + ScalePx(1.0f), hlY + ScalePx(1.5f)), true);
                     FillShape(ImVec2(0, 0), IM_COL32(255, 255, 255, 30), 0.0f);
                     dl->PopClipRect();
                 };
 
-                switch (s->peIconBgShape) {
+                switch (shape) {
                 default:
                 case 0:
                     if (bgTex) dl->AddImageRounded(reinterpret_cast<ImTextureID>(bgTex), tl, br,
@@ -662,7 +854,7 @@ namespace PlayerHUDEquipment {
                 for (int p = 0; p < 3; ++p) {
                     const float e = ScalePx(expands[p]);
                     const ImU32 col = IM_COL32(aR, aG, aB, static_cast<int>(alphas[p] * pulse * aA));
-                    switch (s->peIconBgShape) {
+                    switch (shape) {
                     default:
                     case 0:
                         dl->AddRect(ImVec2(tl.x - e, tl.y - e), ImVec2(br.x + e, br.y + e),
@@ -760,6 +952,7 @@ namespace PlayerHUDEquipment {
                 bool  isSpell   = data.form && (data.form->As<RE::SpellItem>() || data.form->As<RE::TESShout>());
                 float fullZoom  = (std::max)(s->peIconZoom, 1.0f);
                 float zoom      = isSpell ? (1.0f + (fullZoom - 1.0f) * 0.5f) : fullZoom;
+                if (isSpell) baseW = baseH = std::min(baseW, baseH);
                 float imgW  = baseW * zoom;
                 float imgH  = baseH * zoom;
 
@@ -890,7 +1083,7 @@ namespace PlayerHUDEquipment {
             const ImU32 trackCol = IM_COL32(8, 7, 10, 170);
             ImVec2 center = ImVec2(screenPos.x + w * 0.5f, screenPos.y + h * 0.5f);
 
-            switch (s->peIconBgShape) {
+            switch (shape) {
             default:
             case 0: {
                 float radius = w * s->peIconBorderRadius * 0.01f;
@@ -941,7 +1134,6 @@ namespace PlayerHUDEquipment {
             const ImVec2 rectMin = screenPos;
             const ImVec2 rectMax = ImVec2(screenPos.x + w, screenPos.y + h);
             const ImVec2 center  = ImVec2(screenPos.x + w * 0.5f, screenPos.y + h * 0.5f);
-            const int   shape    = s->peIconBgShape;
             const float HALF_PI  = 1.57079633f;
             const float start    = -HALF_PI + 6.28318531f * progress;
             const float end      = -HALF_PI + 6.28318531f;
@@ -1020,7 +1212,7 @@ namespace PlayerHUDEquipment {
             const ImU32  red = IM_COL32(225, 45, 35, static_cast<int>(150.0f * k));
             const ImVec2 br(screenPos.x + w, screenPos.y + h);
             const ImVec2 center(screenPos.x + w * 0.5f, screenPos.y + h * 0.5f);
-            switch (s->peIconBgShape) {
+            switch (shape) {
             default:
             case 0:
                 dl->AddRectFilled(screenPos, br, red, w * s->peIconBorderRadius * 0.01f);
@@ -1052,9 +1244,28 @@ namespace PlayerHUDEquipment {
                 localizedBadge == "Equipment.BadgeRight" ||
                 localizedBadge == "Equipment.BadgeShout")
                 localizedBadge = def.badge;
-            HUDDraw::DrawBadge(dl,
-                ImVec2(screenPos.x + ScalePx(2.0f + s->peBadgeOffsetX), screenPos.y + ScalePx(2.0f + s->peBadgeOffsetY)),
-                0, localizedBadge.c_str(), MakeBadgeStyle(0xDCC8C8C8));
+            const HUDDraw::BadgeStyle badgeStyle = MakeBadgeStyle(0xDCC8C8C8);
+            const ImVec2 bsz = HUDDraw::MeasureBadge(localizedBadge.c_str(), badgeStyle);
+            const float  ox  = ScalePx(static_cast<float>(s->peBadgeOffsetX));
+            const float  oy  = ScalePx(static_cast<float>(s->peBadgeOffsetY));
+            using HUDFlow::Spot;
+            const ImVec2 straddle(0.5f, 0.5f), inside(0.0f, 0.0f);
+            auto at = [&](Spot spot, ImVec2 over, float dx, float dy) {
+                const ImVec2 p = HUDFlow::PlaceBadge(anchor.Min, anchor.Max, bsz, spot, over);
+                return ImVec2(p.x + dx, p.y + dy);
+            };
+            const ImVec2 topCenter    = at(Spot::Top, straddle, 0.0f, oy);
+            const ImVec2 bottomCenter = at(Spot::Bottom, straddle, 0.0f, -oy);
+            ImVec2 badgePos;
+            switch (s->peBadgeAnchor) {
+            case 1:  badgePos = topCenter; break;
+            case 2:  badgePos = bottomCenter; break;
+            case 3:
+            case 4:  badgePos = at(Spot::Left, straddle, ox, 0.0f); break;
+            case 5:  badgePos = at(Spot::Right, straddle, -ox, 0.0f); break;
+            default: badgePos = at(Spot::TopLeft, inside, ScalePx(2.0f) + ox, ScalePx(2.0f) + oy); break;
+            }
+            HUDDraw::DrawBadge(dl, badgePos, 0, localizedBadge.c_str(), badgeStyle);
         }
 
         if (data.enchantCharge >= 0.0f && s->peChargeStyle != 2) {
@@ -1072,7 +1283,7 @@ namespace PlayerHUDEquipment {
                 tb.edgeLightSize = barH * 0.4f;
                 HUDDraw::DrawTimerBarV(dl,
                     ImVec2(screenPos.x + w - barW - ScalePx(3.0f + s->peBadgeOffsetX),
-                           screenPos.y + ScalePx(3.0f + s->peBadgeOffsetY)), tb);
+                           anchor.Min.y + ScalePx(3.0f + s->peBadgeOffsetY)), tb);
             } else {
                 char chargeStr[16];
                 if (data.enchantChargeMax > 0.0f) {
@@ -1082,30 +1293,20 @@ namespace PlayerHUDEquipment {
                     snprintf(chargeStr, sizeof(chargeStr), "%.0f", data.enchantCharge);
                 }
                 HUDDraw::DrawBadge(dl,
-                    ImVec2(screenPos.x + w - ScalePx(2.0f + s->peBadgeOffsetX), screenPos.y + ScalePx(2.0f + s->peBadgeOffsetY)),
+                    ImVec2(screenPos.x + w - ScalePx(2.0f + s->peBadgeOffsetX), anchor.Min.y + ScalePx(2.0f + s->peBadgeOffsetY)),
                     1, chargeStr, MakeBadgeStyle(0xFF64C8FF));
             }
         }
 
         {
             const ImVec2 blAnchor(screenPos.x + ScalePx(2.0f + s->peBadgeOffsetX),
-                                  screenPos.y + h - ScalePx(2.0f + s->peBadgeOffsetY));
+                                  anchor.Max.y - ScalePx(2.0f + s->peBadgeOffsetY));
             if (s->peShowDamage && data.weaponDamage >= 0.0f && data.ammoCount < 0) {
                 char damageStr[16];
-                snprintf(damageStr, sizeof(damageStr), "%.0f", data.weaponDamage);
-                const auto r = HUDDraw::DrawBadge(dl, blAnchor, 3, damageStr,
-                    MakeBadgeStyle(data.symptom ? kSymptomRed : 0xFFFFEBA0));
-                if (data.symptom) {
-                    const float bh = r.max.y - r.min.y;
-                    const float sz = (std::max)(bh, ScalePx(18.0f));
-                    WidgetDraw::DrawSymptomArrow(dl, ImVec2(r.max.x + ScalePx(2.0f), r.min.y + (bh - sz) * 0.5f), sz);
-                }
-            } else if (data.symptom && data.ammoCount < 0 &&
-                       (s->peShowDamage || def.type == SlotType::Shout ||
-                        (data.form && data.form->As<RE::SpellItem>()))) {
-                const float sz = (std::max)(HUDDraw::MeasureBadge("0", MakeBadgeStyle(kSymptomRed)).y,
-                                            ScalePx(18.0f));
-                WidgetDraw::DrawSymptomArrow(dl, ImVec2(blAnchor.x, blAnchor.y - sz), sz);
+                snprintf(damageStr, sizeof(damageStr), "%.0f", data.weaponDamage + data.enchantDamage);
+                auto damageStyle = MakeBadgeStyle(DamageColor(data));
+                damageStyle.trend = DamageTrend(data);
+                HUDDraw::DrawBadge(dl, blAnchor, 3, damageStr, damageStyle);
             }
         }
 
@@ -1129,8 +1330,7 @@ namespace PlayerHUDEquipment {
             const float pipH   = h * 0.22f * sc;
             // Anchor to the slot's bottom-RIGHT corner: the right edge and bottom
             const float rightEdge = screenPos.x + w - ScalePx(3.0f + s->peBadgeOffsetX);
-            // Raised 5px vs the badge inset: the damage/ammo badges read at their
-            const float pipBot    = screenPos.y + h - ScalePx(9.0f + s->peBadgeOffsetY);
+            const float pipBot    = anchor.Max.y - ScalePx(9.0f + s->peBadgeOffsetY);
             const float pipTop    = pipBot - pipH;
 
             for (int i = 0; i < kPipCount; ++i) {
@@ -1146,44 +1346,32 @@ namespace PlayerHUDEquipment {
             char ammoStr[16];
             snprintf(ammoStr, sizeof(ammoStr), "x%d", data.ammoCount);
             HUDDraw::DrawBadge(dl,
-                ImVec2(screenPos.x + w - ScalePx(2.0f), screenPos.y + h - ScalePx(2.0f)),
+                ImVec2(screenPos.x + w - ScalePx(2.0f), anchor.Max.y - ScalePx(2.0f)),
                 2, ammoStr, MakeBadgeStyle(0xFFFFDC64));
         }
 
+        ImRect nameRect(0.0f, 0.0f, 0.0f, 0.0f);
+
         if (s->peShowNames && !data.isEmpty && !data.name.empty()) {
-            float   bpad    = ScalePx(4.0f);
-            float   nameY   = screenPos.y + h + ScalePx(2.0f);
-            ImU32   bgCol   = ImGui::ColorConvertFloat4ToU32(ColorUtils::ArgbToVec4(s->peNameBgColor));
-            ImU32   textCol = ImGui::ColorConvertFloat4ToU32(ColorUtils::ArgbToVec4(s->peNameColor));
-
-            std::string displayName = data.name;
-            int maxChars = s->peNameMaxChars;
-            if (maxChars > 3 && displayName.size() > static_cast<std::size_t>(maxChars)) {
-                displayName.resize(static_cast<std::size_t>(maxChars) - 3);
-                displayName += "...";
-            }
-
-            if (s->peLayout == 1) {
-                ImVec2 textSize = ImGui::CalcTextSize(displayName.c_str(), nullptr, false, w);
-                if ((s->peNameBgColor >> 24) > 0)
-                    dl->AddRectFilled(ImVec2(screenPos.x - bpad, nameY - bpad),
-                                      ImVec2(screenPos.x + w + bpad, nameY + textSize.y + bpad), bgCol, 2.0f);
-                float drawnH = HUDDraw::DrawTextStyledWrapped(dl, ImVec2(screenPos.x, nameY), w,
-                                                              textCol, displayName.c_str(),
-                                                              HUDDraw::TextFx{}, true);
-                contentBottom = (std::max)(contentBottom, nameY + drawnH);
-            } else {
-                float  wrapWidth = (nameMaxWidth > 0.0f) ? nameMaxWidth : w;
-                ImVec2 textSize  = ImGui::CalcTextSize(displayName.c_str(), nullptr, false, wrapWidth);
-                ImVec2 namePos   = ImVec2(screenPos.x, nameY);
+            const float bpad      = ScalePx(4.0f);
+            const ImU32 bgCol     = ImGui::ColorConvertFloat4ToU32(ColorUtils::ArgbToVec4(s->peNameBgColor));
+            const ImU32 textCol   = ImGui::ColorConvertFloat4ToU32(ColorUtils::ArgbToVec4(s->peNameColor));
+            const std::string displayName = DisplayName(data, s);
+            const int    placement = SidePlacement(NamePlacementFor(s), outward);
+            const float  wrapW     = NameWrapWidth(s, w, nameMaxWidth);
+            const ImVec2 textSize  = ImGui::CalcTextSize(displayName.c_str(), nullptr, false, wrapW);
+            const ImVec2 namePos   = PlaceName(anchor, textSize, placement, s->peNameAlignment, NameGap());
                 if ((s->peNameBgColor >> 24) > 0)
                     dl->AddRectFilled(ImVec2(namePos.x - bpad, namePos.y - bpad),
-                                      ImVec2(namePos.x + wrapWidth + bpad, namePos.y + textSize.y + bpad), bgCol, 2.0f);
-                HUDDraw::DrawTextStyledWrapped(dl, namePos, wrapWidth, textCol,
-                                               displayName.c_str(), HUDDraw::TextFx{});
+                                  ImVec2(namePos.x + textSize.x + bpad, namePos.y + textSize.y + bpad), bgCol, 2.0f);
+            const bool centered = (s->peNameAlignment == 1);
+            const ImVec2 drawPos = centered ? ImVec2(namePos.x - (wrapW - textSize.x) * 0.5f, namePos.y) : namePos;
+            HUDDraw::DrawTextStyledWrapped(dl, drawPos, wrapW, textCol, displayName.c_str(), HUDDraw::TextFx{}, centered);
                 contentBottom = (std::max)(contentBottom, namePos.y + textSize.y);
+            nameRect = ImRect(namePos, ImVec2(namePos.x + textSize.x, namePos.y + textSize.y));
             }
-        }
+
+        DrawEffectBadges(dl, anchor, nameRect, data);
 
         return contentBottom;
     }
@@ -1282,16 +1470,28 @@ namespace PlayerHUDEquipment {
         }
 
         {
-            const auto& equip = SurvivalSymptoms::GetEquip(player);
+            const auto& equip = HUDSymptoms::GetEquip(player);
             for (int i = 0; i < k_SlotCount; ++i) {
-                auto* form = g_CachedSlots[i].form;
+                auto& slot = g_CachedSlots[i];
+                auto* form = slot.form;
+                slot.effects.clear();
                 if (k_Slots[i].type == SlotType::Shout) {
-                    g_CachedSlots[i].symptom = equip.shout.on && form && form->Is(RE::FormType::Shout);
+                    const bool isShout = form && form->Is(RE::FormType::Shout);
+                    slot.symptom = equip.shout.on && isShout;
+                    if (isShout) {
+                        AddEffectBadges(slot.effects, equip.shout.cuts, false);
+                        AddEffectBadges(slot.effects, equip.shout.buffs, true);
+                    }
                 } else if (auto* sp = form ? form->As<RE::SpellItem>() : nullptr) {
-                    g_CachedSlots[i].symptom =
-                        !SurvivalSymptoms::GetSkillCauses(player, sp->GetAssociatedSkill()).empty();
+                    const auto& cuts = HUDSymptoms::GetSkillCauses(player, sp->GetAssociatedSkill());
+                    slot.symptom = !cuts.empty();
+                    AddEffectBadges(slot.effects, cuts, false);
+                    AddEffectBadges(slot.effects, HUDSymptoms::GetSkillBuffs(player, sp->GetAssociatedSkill()), true);
                 } else {
-                    g_CachedSlots[i].symptom = HandSymptom(equip, form);
+                    const HandMarkList marks = HandMarks(equip, form);
+                    slot.symptom = HandSymptom(equip, form);
+                    for (const auto* m : marks) if (m) AddEffectBadges(slot.effects, m->cuts, false);
+                    for (const auto* m : marks) if (m) AddEffectBadges(slot.effects, m->buffs, true);
                 }
             }
         }
@@ -1314,7 +1514,7 @@ namespace PlayerHUDEquipment {
                 if (k_Slots[i].type == SlotType::RightHand) {
                     auto stats = EquipmentStatResolver::ResolveHandWeaponStats(player, rh, false);
                     g_CachedSlots[i].weaponDamage  = stats.hitDamage;
-                    g_CachedSlots[i].enchantDamage = stats.enchantDamage;
+                    g_CachedSlots[i].enchantDamage = stats.enchantTotal;
                     g_CachedSlots[i].enchantType   = stats.enchantType;
                     g_CachedSlots[i].castCharge    = ResolveCastCharge(player, RE::MagicSystem::CastingSource::kRightHand, rh);
                     g_CachedSlots[i].enchantCharge = ResolveEnchantCharge(player, rh, true);
@@ -1324,7 +1524,7 @@ namespace PlayerHUDEquipment {
                 } else if (k_Slots[i].type == SlotType::LeftHand) {
                     auto stats = EquipmentStatResolver::ResolveHandWeaponStats(player, g_CachedSlots[i].form, true);
                     g_CachedSlots[i].weaponDamage  = stats.hitDamage;
-                    g_CachedSlots[i].enchantDamage = stats.enchantDamage;
+                    g_CachedSlots[i].enchantDamage = stats.enchantTotal;
                     g_CachedSlots[i].enchantType   = stats.enchantType;
                     g_CachedSlots[i].castCharge    = ResolveCastCharge(player, RE::MagicSystem::CastingSource::kLeftHand, lh);
                     g_CachedSlots[i].enchantCharge = ResolveEnchantCharge(player, lh, false);
@@ -1402,8 +1602,6 @@ namespace PlayerHUDEquipment {
         ImDrawList* dl     = ImGui::GetWindowDrawList();
         ImVec2      origin = ImGui::GetCursorScreenPos();
 
-        float maxContentBottom = origin.y;
-
         // Name label width is computed per-slot in the draw loop below (each slot
         const float gap          = ScalePx(static_cast<float>(settings->peSlotSpacing));
         const float kNameWrapPad = ScalePx(24.0f);
@@ -1417,39 +1615,103 @@ namespace PlayerHUDEquipment {
         float wArr[k_SlotCount], hArr[k_SlotCount], maxW, maxH;
         ComputeSlotExtents(settings, slotOrder, wArr, hArr, maxW, maxH);
 
+        ImVec2 local[k_SlotCount];
+        const int layout = settings->peLayout;
+        if (layout >= 3 && layout <= 5) {
+            float shapeH[k_SlotCount];
+            for (int i = 0; i < k_SlotCount; ++i)
+                shapeH[i] = ShapeHeight(wArr[i], hArr[i], SlotShape(settings, k_Slots[slotOrder[i]].type));
+            if (layout == 3)
+                LayoutCluster(wArr, hArr, gap, static_cast<float>(settings->peClusterAngle1),
+                              static_cast<float>(settings->peClusterAngle2), local);
+            else if (layout == 4)
+                LayoutCross(wArr, hArr, gap, local);
+            else
+                LayoutStack(wArr, hArr, shapeH, static_cast<float>(std::clamp(settings->peStackOverlap, 0, 80)),
+                            ScalePx(static_cast<float>(settings->peStackShiftX)), gap, local);
+        } else {
+
         float cursor = 0.0f;
         for (int i = 0; i < k_SlotCount; ++i) {
-            int si = slotOrder[i];
-            ImVec2 pos;
-            switch (settings->peLayout) {
+                switch (layout) {
             case 1:
-                pos = ImVec2(origin.x + (maxW - wArr[i]) * 0.5f, origin.y + cursor);
+                    local[i] = ImVec2((maxW - wArr[i]) * 0.5f, cursor);
                 cursor += hArr[i] + gap;
                 break;
             case 2:
-                pos = SlotScreenPos(origin, i, settings);
+                    local[i] = SlotScreenPos(ImVec2(0.0f, 0.0f), i, settings);
                 break;
             default:
-                pos = ImVec2(origin.x + cursor, origin.y + (maxH - hArr[i]) * 0.5f);
+                    local[i] = ImVec2(cursor, (maxH - hArr[i]) * 0.5f);
                 cursor += wArr[i] + gap;
                 break;
             }
-            if (i == 1) {
-                pos.x += ScalePx(static_cast<float>(settings->peSlotOffsetX1));
-                pos.y += ScalePx(static_cast<float>(settings->peSlotOffsetY1));
-            } else if (i == 2) {
-                pos.x += ScalePx(static_cast<float>(settings->peSlotOffsetX2));
-                pos.y += ScalePx(static_cast<float>(settings->peSlotOffsetY2));
             }
-            float slotNameMaxW = (settings->peLayout == 1)
-                ? wArr[i]
-                : std::max(wArr[i], wArr[i] + gap - kNameWrapPad);
-            maxContentBottom = (std::max)(maxContentBottom,
-                DrawSlot(dl, pos, slots[si], k_Slots[si], settings, slotNameMaxW, wArr[i]));
         }
 
-        ImVec2 wSize = WidgetSize(settings);
-        ImGui::Dummy(ImVec2(wSize.x, (std::max)(wSize.y, maxContentBottom - origin.y)));
+        local[1].x += ScalePx(static_cast<float>(settings->peSlotOffsetX1));
+        local[1].y += ScalePx(static_cast<float>(settings->peSlotOffsetY1));
+        local[2].x += ScalePx(static_cast<float>(settings->peSlotOffsetX2));
+        local[2].y += ScalePx(static_cast<float>(settings->peSlotOffsetY2));
+
+        float nameMaxW[k_SlotCount];
+        for (int i = 0; i < k_SlotCount; ++i)
+            nameMaxW[i] = (layout == 0 || layout == 2) ? (std::max)(wArr[i], wArr[i] + gap - kNameWrapPad) : wArr[i];
+
+        ImRect shapes[k_SlotCount];
+        for (int i = 0; i < k_SlotCount; ++i)
+            shapes[i] = AnchorRect(local[i], wArr[i], hArr[i], SlotShape(settings, k_Slots[slotOrder[i]].type));
+
+        ImVec2 layoutMid(0.0f, 0.0f);
+        for (int i = 0; i < k_SlotCount; ++i) {
+            const ImVec2 c = shapes[i].GetCenter();
+            layoutMid.x += c.x / k_SlotCount;
+            layoutMid.y += c.y / k_SlotCount;
+        }
+        ImVec2 outward[k_SlotCount];
+        for (int i = 0; i < k_SlotCount; ++i) {
+            outward[i] = ImVec2(-1.0f, 0.0f);
+            if (layout == 3 && i == 0) {
+                outward[i] = ImVec2(0.0f, 0.0f);
+            } else if (layout == 3 || layout == 4) {
+                const ImVec2 c = shapes[i].GetCenter();
+                outward[i] = ImVec2(c.x - (layout == 3 ? shapes[0].GetCenter().x : layoutMid.x),
+                                    c.y - (layout == 3 ? shapes[0].GetCenter().y : layoutMid.y));
+            }
+        }
+
+        ImRect bounds(FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX);
+        const int placementPicked = NamePlacementFor(settings);
+        for (int i = 0; i < k_SlotCount; ++i) {
+            bounds.Add(shapes[i]);
+            const int placement = SidePlacement(placementPicked, outward[i]);
+            const SlotData& d = slots[slotOrder[i]];
+            if (settings->peShowNames) {
+                const ImVec2 reserve(NameWrapWidth(settings, wArr[i], nameMaxW[i]), ImGui::GetTextLineHeight());
+                const ImVec2 rp = PlaceName(shapes[i], reserve, placement, settings->peNameAlignment, NameGap());
+                bounds.Add(ImRect(rp, ImVec2(rp.x + reserve.x, rp.y + reserve.y)));
+            }
+            if (settings->peShowNames && !d.isEmpty && !d.name.empty()) {
+                const std::string nm = DisplayName(d, settings);
+                const ImVec2 ts = ImGui::CalcTextSize(nm.c_str(), nullptr, false,
+                                                      NameWrapWidth(settings, wArr[i], nameMaxW[i]));
+                const ImVec2 np = PlaceName(shapes[i], ts, placement, settings->peNameAlignment, NameGap());
+                bounds.Add(ImRect(np, ImVec2(np.x + ts.x, np.y + ts.y)));
+            }
+        }
+        if (layout <= 2) {
+            const ImVec2 base = WidgetSize(settings);
+            bounds.Add(ImRect(ImVec2(0.0f, 0.0f), base));
+        }
+
+        const ImVec2 shift(origin.x - bounds.Min.x, origin.y - bounds.Min.y);
+        for (int i = 0; i < k_SlotCount; ++i) {
+            const int si = slotOrder[i];
+            const ImVec2 pos(local[i].x + shift.x, local[i].y + shift.y);
+            DrawSlot(dl, pos, slots[si], k_Slots[si], settings, nameMaxW[i], wArr[i], outward[i]);
+        }
+
+        ImGui::Dummy(ImVec2(bounds.GetWidth(), bounds.GetHeight()));
 
         ImGui::SetWindowFontScale(1.0f);
 

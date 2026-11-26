@@ -3,7 +3,6 @@
 // STATUS: Working
 // Dispatches keyboard and hotkey inputs.
 
-
 #include <string>
 
 namespace ImGuiRenderer {

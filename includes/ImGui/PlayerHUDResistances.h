@@ -3,9 +3,9 @@
 // STATUS: Working
 // Player HUD Resistances widget.
 
-
 namespace PlayerHUDResistances {
     void RenderHUD();
     void RenderPreview();
     void ForceReposition();
+    void KeepPlaceOnAnchorChange(int oldAnchor);
 }

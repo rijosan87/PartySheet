@@ -1,6 +1,7 @@
 #include "../../includes/Utils/HUDDraw.h"
 #include "../../includes/Utils/ColorUtils.h"
 #include "../../includes/TextureManager.h"
+#include "../../includes/UIAnimation.h"
 
 #include <imgui_internal.h>
 #include <algorithm>
@@ -97,19 +98,19 @@ namespace HUDDraw {
         const ImVec2 uvWhite = dl->_Data->TexUvWhitePixel;
 
         auto linearH = [&](bool toRight) {
-            const float solidPx = w * solidFrac;
-            const float fadePx  = (w - solidPx) * fadeFrac;
+            const float solidPx = std::floor(w * solidFrac);
+            const float fadePx  = std::floor((w - solidPx) * fadeFrac);
             if (toRight) {
-                dl->AddRectFilled(bbMin, ImVec2(bbMin.x + solidPx, bbMax.y), withA(peakA));
-                float x0 = bbMin.x + solidPx, x3 = x0 + fadePx;
-                float x1 = x0 + (x3 - x0) * 0.4f, x2 = x0 + (x3 - x0) * 0.72f;
+                float x0 = std::floor(bbMin.x + solidPx), x3 = x0 + fadePx;
+                dl->AddRectFilled(bbMin, ImVec2(x0, bbMax.y), withA(peakA));
+                float x1 = std::floor(x0 + (x3 - x0) * 0.4f), x2 = std::floor(x0 + (x3 - x0) * 0.72f);
                 dl->AddRectFilledMultiColor(ImVec2(x0, bbMin.y), ImVec2(x1, bbMax.y), withA(peakA), withA(a1), withA(a1), withA(peakA));
                 dl->AddRectFilledMultiColor(ImVec2(x1, bbMin.y), ImVec2(x2, bbMax.y), withA(a1), withA(a2), withA(a2), withA(a1));
                 dl->AddRectFilledMultiColor(ImVec2(x2, bbMin.y), ImVec2(x3, bbMax.y), withA(a2), clear, clear, withA(a2));
             } else {
                 dl->AddRectFilled(ImVec2(bbMax.x - solidPx, bbMin.y), bbMax, withA(peakA));
                 float x0 = bbMax.x - solidPx, x3 = x0 - fadePx;
-                float x1 = x0 - (x0 - x3) * 0.4f, x2 = x0 - (x0 - x3) * 0.72f;
+                float x1 = std::floor(x0 - (x0 - x3) * 0.4f), x2 = std::floor(x0 - (x0 - x3) * 0.72f);
                 dl->AddRectFilledMultiColor(ImVec2(x1, bbMin.y), ImVec2(x0, bbMax.y), withA(a1), withA(peakA), withA(peakA), withA(a1));
                 dl->AddRectFilledMultiColor(ImVec2(x2, bbMin.y), ImVec2(x1, bbMax.y), withA(a2), withA(a1), withA(a1), withA(a2));
                 dl->AddRectFilledMultiColor(ImVec2(x3, bbMin.y), ImVec2(x2, bbMax.y), clear, withA(a2), withA(a2), clear);
@@ -249,6 +250,17 @@ namespace HUDDraw {
                         std::uint32_t argb, const IconFx& fx,
                         const ImVec2& uvMin, const ImVec2& uvMax)
     {
+        const bool wholeUv = uvMin.x == 0.0f && uvMin.y == 0.0f && uvMax.x == 1.0f && uvMax.y == 1.0f;
+        if (wholeUv && std::fabs(size.x - size.y) < 0.5f) {
+            const float px = std::round(size.x);
+            auto* base  = reinterpret_cast<ID3D11ShaderResourceView*>(tex);
+            auto* exact = TextureManager::GetIconAtPixelSize(base, static_cast<int>(px));
+            if (exact != base) {
+                DrawIconStyled(dl, ImVec2(std::round(pos.x), std::round(pos.y)), ImVec2(px, px),
+                               reinterpret_cast<ImTextureID>(exact), argb, fx, uvMin, uvMax);
+                return;
+            }
+        }
         uint8_t rC = (argb >> 16) & 0xFF, gC = (argb >> 8) & 0xFF, bC = argb & 0xFF, aC = (argb >> 24) & 0xFF;
         const float w = (std::max)(1.0f, size.x);
         const float h = (std::max)(1.0f, size.y);
@@ -402,6 +414,48 @@ namespace HUDDraw {
         return y - pos.y;
     }
 
+    static void TrendRuneBox(ImFont* font, float fs, float& runeH, float& runeY)
+    {
+        ImFontBaked* baked = font->GetFontBaked(fs);
+        const ImFontGlyph* digit = baked ? baked->FindGlyph('0') : nullptr;
+        const float scale = baked ? fs / baked->Size : 1.0f;
+        runeH = digit ? (digit->Y1 - digit->Y0) * scale : fs * 0.7f;
+        runeY = digit ? digit->Y0 * scale : fs * 0.15f;
+    }
+
+    void DrawTrendRune(ImDrawList* dl, float x, float y, float height, bool up, float alpha)
+    {
+        const float width = height * 0.65f;
+        const float shoulder = height * 0.43f;
+        const float shaft = width * 0.30f;
+        const float center = x + width * 0.5f;
+        ImVec2 points[] = {{center, y}, {x + width, y + shoulder},
+            {center + shaft * 0.5f, y + shoulder}, {center + shaft * 0.5f, y + height},
+            {center - shaft * 0.5f, y + height}, {center - shaft * 0.5f, y + shoulder},
+            {x, y + shoulder}};
+        constexpr int kCount = IM_ARRAYSIZE(points);
+        if (!up) {
+            for (auto& p : points) p.y = y + height - (p.y - y);
+            std::reverse(std::begin(points), std::end(points));
+        }
+        ImVec2 shadowPoints[kCount];
+        const float shadowOffset = (std::max)(1.0f, height / 16.0f);
+        for (int i = 0; i < kCount; ++i)
+            shadowPoints[i] = ImVec2(points[i].x + shadowOffset, points[i].y + shadowOffset);
+        dl->AddConcavePolyFilled(shadowPoints, kCount, ImGui::ColorConvertFloat4ToU32(ImVec4(0, 0, 0, 0.55f * alpha)));
+
+        const float blend = static_cast<float>(0.5 - 0.5 * std::cos(ImGui::GetTime() * 3.141592653589793));
+        const ImVec4 base = up ? ImVec4(0.35f, 0.82f, 0.40f, alpha) : ImVec4(0.88f, 0.30f, 0.27f, alpha);
+        const ImVec4 rim((std::min)(base.x * 1.25f, 1.0f), (std::min)(base.y * 1.25f, 1.0f),
+            (std::min)(base.z * 1.25f, 1.0f), alpha);
+        const ImVec4 fill(UIAnimation::Lerp(base.x * 0.45f, rim.x, blend),
+            UIAnimation::Lerp(base.y * 0.45f, rim.y, blend),
+            UIAnimation::Lerp(base.z * 0.45f, rim.z, blend), alpha);
+        dl->AddConcavePolyFilled(points, kCount, ImGui::ColorConvertFloat4ToU32(fill));
+        dl->AddPolyline(points, kCount, ImGui::ColorConvertFloat4ToU32(rim),
+            ImDrawFlags_Closed, (std::max)(1.0f, height * 0.055f));
+    }
+
     static void BadgeMetrics(const char* txt, const BadgeStyle& s,
                              ImFont*& font, float& fs, ImVec2& ts,
                              float& iconSz, float& gap, float& w, float& h)
@@ -414,8 +468,105 @@ namespace HUDDraw {
         const bool hasIcon = s.icon != 0;
         iconSz = hasIcon ? (s.iconSize > 0.0f ? s.iconSize : (hasText ? ts.y : fs)) : 0.0f;
         gap    = (hasIcon && hasText) ? 3.0f : 0.0f;
-        w = iconSz + gap + ts.x + s.padX * 2.0f;
-        h = (std::max)(ts.y, iconSz) + s.padY * 2.0f;
+        const float padX = s.padX < 0.0f ? fs * 0.32f : s.padX;
+        const float padY = s.padY < 0.0f ? fs * 0.10f : s.padY;
+        if (s.trend != 0 && hasText) {
+            float runeH, runeY;
+            TrendRuneBox(font, fs, runeH, runeY);
+            ts.x += runeH * 0.25f + runeH * 0.65f;
+        }
+        if (s.textIcon && hasText) ts.x += ts.y + 2.0f;
+        w = iconSz + gap + ts.x + padX * 2.0f;
+        h = (std::max)(ts.y, iconSz) + padY * 2.0f;
+        const float content = iconSz + gap + ts.x;
+        switch (s.shape) {
+            case BadgeShape_CutCorner: w = (std::max)(w + h * 0.2f, h); break;
+            case BadgeShape_Hex:       w = (std::max)(content + h * 0.6f + padX, h * 1.15f); break;
+            case BadgeShape_Diamond:   w = (std::max)(content + h, h); break;
+            default: break;
+        }
+    }
+
+    static int BadgePolygon(int shape, ImVec2 mn, ImVec2 mx, ImVec2* out)
+    {
+        const float h = mx.y - mn.y, my = (mn.y + mx.y) * 0.5f;
+        if (shape == BadgeShape_Diamond) {
+            const float mxX = (mn.x + mx.x) * 0.5f;
+            out[0] = ImVec2(mxX, mn.y); out[1] = ImVec2(mx.x, my); out[2] = ImVec2(mxX, mx.y); out[3] = ImVec2(mn.x, my);
+            return 4;
+        }
+        if (shape == BadgeShape_Hex) {
+            const float t = h * 0.3f;
+            out[0] = ImVec2(mn.x + t, mn.y); out[1] = ImVec2(mx.x - t, mn.y); out[2] = ImVec2(mx.x, my);
+            out[3] = ImVec2(mx.x - t, mx.y); out[4] = ImVec2(mn.x + t, mx.y); out[5] = ImVec2(mn.x, my);
+            return 6;
+        }
+        const float c = h * 0.28f;
+        out[0] = ImVec2(mn.x + c, mn.y); out[1] = ImVec2(mx.x - c, mn.y);
+        out[2] = ImVec2(mx.x, mn.y + c); out[3] = ImVec2(mx.x, mx.y - c);
+        out[4] = ImVec2(mx.x - c, mx.y); out[5] = ImVec2(mn.x + c, mx.y);
+        out[6] = ImVec2(mn.x, mx.y - c); out[7] = ImVec2(mn.x, mn.y + c);
+        return 8;
+    }
+
+    void TintBadge(BadgeStyle& s, std::uint32_t tint)
+    {
+        const std::uint32_t a = (tint >> 24) & 0xFF;
+        if (a == 0 || (s.bgTop >> 24) == 0) return;
+        const std::uint32_t r = (tint >> 16) & 0xFF, g = (tint >> 8) & 0xFF, b = tint & 0xFF;
+        auto lift = [](std::uint32_t c, float k, float add) { return static_cast<std::uint32_t>((std::min)(255.0f, c * k + add)); };
+        auto sink = [](std::uint32_t c) { return static_cast<std::uint32_t>(c * 0.55f); };
+        if (s.tintRimOnly) {
+            s.innerBorder = 0xE6000000u | (lift(r, 1.1f, 40.0f) << 16) | (lift(g, 1.1f, 40.0f) << 8) | lift(b, 1.1f, 40.0f);
+            return;
+        }
+        s.bgTop    = (a << 24) | (lift(r, 1.2f, 14.0f) << 16) | (lift(g, 1.2f, 14.0f) << 8) | lift(b, 1.2f, 14.0f);
+        s.bgBottom = 0xFF000000u | (sink(r) << 16) | (sink(g) << 8) | sink(b);
+        if (s.innerBorder & 0xFF000000u)
+            s.innerBorder = (s.innerBorder & 0xFF000000u) | (lift(r, 1.3f, 60.0f) << 16) | (lift(g, 1.3f, 60.0f) << 8) | lift(b, 1.3f, 60.0f);
+    }
+
+    BadgeStyle BadgePresetStyle(int preset)
+    {
+        BadgeStyle s;
+        s.padX = s.padY = -1.0f;
+        switch (preset) {
+        case BadgePreset_Text:
+            s.bgTop = s.bgBottom = 0x00000000;
+            s.innerBorder = s.outerBorder = 0;
+            s.shadow = s.highlight = false;
+            break;
+        case BadgePreset_Plain:
+            s.bgTop = 0xC8141414; s.bgBottom = 0xFF141414;
+            s.innerBorder = s.outerBorder = 0;
+            s.shadow = s.highlight = false;
+            s.rounding = 3.0f;
+            s.textDuotone = false;
+            break;
+        case BadgePreset_Glass:
+            s.shape = BadgeShape_Hex;
+            s.bgTop = 0xB45A7894; s.bgBottom = 0xFF101820;
+            s.innerBorder = 0x7090A0B4; s.outerBorder = 0xF0040506;
+            s.textColor = 0xFFE6ECF2;
+            s.tintRimOnly = true;
+            break;
+        case BadgePreset_Steel:
+            s.shape = BadgeShape_CutCorner;
+            s.bgTop = 0xF02C2C2E; s.bgBottom = 0xFF121212;
+            s.innerBorder = 0xB4B9BCC2; s.outerBorder = 0xFF050505;
+            s.textColor = 0xFFEDEDED;
+            s.tintRimOnly = true;
+            break;
+        case BadgePreset_Gem:
+            s.shape = BadgeShape_Diamond;
+            s.bgTop = 0xF0B46E22; s.bgBottom = 0xFF3A1E06;
+            s.innerBorder = 0xB4F5CD82; s.outerBorder = 0xFF1A0C02;
+            s.textColor = 0xFFFFF6E4;
+            s.tintRimOnly = true;
+            break;
+        default: break;
+        }
+        return s;
     }
 
     ImVec2 MeasureBadge(const char* txt, const BadgeStyle& s)
@@ -451,7 +602,40 @@ namespace HUDDraw {
                             static_cast<uint8_t>(std::clamp(aF, 0.0f, 255.0f)));
         };
 
+        const bool angled = s.shape == BadgeShape_CutCorner || s.shape == BadgeShape_Hex || s.shape == BadgeShape_Diamond;
+        if (angled) {
+            ImVec2 pts[8], inner[8];
+            const int n = BadgePolygon(s.shape, bMin, bMax, pts);
+
         if (s.shadow) {
+                ImVec2 sh[8];
+                for (int i = 0; i < n; ++i) sh[i] = ImVec2(pts[i].x + 1.0f, pts[i].y + 2.0f);
+                dl->AddConvexPolyFilled(sh, n, IM_COL32(0, 0, 0, A(60)));
+            }
+            {
+                int v0 = dl->VtxBuffer.Size;
+                dl->AddConvexPolyFilled(pts, n, IM_COL32(255, 255, 255, A((s.bgTop >> 24) & 0xFF)));
+                int v1 = dl->VtxBuffer.Size;
+                ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, v0, v1,
+                    bMin, ImVec2(bMin.x, bMax.y),
+                    Argb(s.bgTop) | IM_COL32_A_MASK, Argb(s.bgBottom) | IM_COL32_A_MASK);
+            }
+            if (s.highlight) {
+                dl->PushClipRect(ImVec2(bMin.x, bMin.y + 1.0f), ImVec2(bMax.x, bMin.y + 2.0f), true);
+                dl->AddConvexPolyFilled(pts, n, IM_COL32(255, 255, 255, A(40)));
+                dl->PopClipRect();
+            }
+            if (s.innerBorder & 0xFF000000u) {
+                BadgePolygon(s.shape, ImVec2(bMin.x + 1.5f, bMin.y + 1.5f), ImVec2(bMax.x - 1.5f, bMax.y - 1.5f), inner);
+                dl->AddPolyline(inner, n, Col(s.innerBorder), ImDrawFlags_Closed, 1.0f);
+            }
+            if (s.outerBorder & 0xFF000000u) {
+                BadgePolygon(s.shape, ImVec2(bMin.x + 0.5f, bMin.y + 0.5f), ImVec2(bMax.x - 0.5f, bMax.y - 0.5f), inner);
+                dl->AddPolyline(inner, n, Col(s.outerBorder), ImDrawFlags_Closed, 1.0f);
+            }
+        }
+
+        if (!angled && s.shadow) {
             for (int i = 2; i >= 1; --i) {
                 float grow = static_cast<float>(i);
                 dl->AddRectFilled(ImVec2(bMin.x - grow + 1.0f, bMin.y - grow + 2.0f),
@@ -460,7 +644,7 @@ namespace HUDDraw {
             }
         }
 
-        {
+        if (!angled) {
             uint8_t fillA = A((s.bgTop >> 24) & 0xFF);
             int v0 = dl->VtxBuffer.Size;
             dl->AddRectFilled(bMin, bMax, IM_COL32(255, 255, 255, fillA), r);
@@ -471,13 +655,13 @@ namespace HUDDraw {
                 Argb(s.bgBottom) | IM_COL32_A_MASK);
         }
 
-        if (s.highlight) {
+        if (!angled && s.highlight) {
             dl->PushClipRect(ImVec2(bMin.x, bMin.y + 1.0f), ImVec2(bMax.x, bMin.y + 2.0f), true);
             dl->AddRectFilled(bMin, bMax, IM_COL32(255, 255, 255, A(30)), r);
             dl->PopClipRect();
         }
 
-        {
+        if (!angled) {
             const ImVec2 sMin(SnapPx(bMin.x), SnapPx(bMin.y)), sMax(SnapPx(bMax.x), SnapPx(bMax.y));
             const float  sr = SnapPx(r);
 
@@ -488,17 +672,24 @@ namespace HUDDraw {
                 dl->AddRect(sMin, sMax, Col(s.outerBorder), sr, 1.0f, ImDrawFlags_StrokeInside);
         }
 
+        const float contentX = bMin.x + (w - (iconSz + gap + ts.x)) * 0.5f;
+
         if (hasIcon) {
             const float iy = bMin.y + (h - iconSz) * 0.5f;
-            dl->AddImage(s.icon, ImVec2(bMin.x + s.padX, iy),
-                         ImVec2(bMin.x + s.padX + iconSz, iy + iconSz),
+            dl->AddImage(s.icon, ImVec2(contentX, iy),
+                         ImVec2(contentX + iconSz, iy + iconSz),
                          ImVec2(0, 0), ImVec2(1, 1), Col(s.iconTint));
         }
         if (!hasText) return { bMin, bMax };
 
         {
-            const ImVec2 tp(bMin.x + s.padX + iconSz + gap, std::floor(bMin.y + (h - ts.y) * 0.5f));
+            ImVec2 tp(contentX + iconSz + gap,std::floor(bMin.y + (h - ts.y) * 0.5f));
             uint8_t tA = A((s.textColor >> 24) & 0xFF);
+            if (s.textIcon) {
+                dl->AddImage(s.textIcon, tp, ImVec2(tp.x + ts.y, tp.y + ts.y),
+                             ImVec2(0, 0), ImVec2(1, 1), Col(s.textColor));
+                tp.x += ts.y + 2.0f;
+            }
             uint8_t tR = (s.textColor >> 16) & 0xFF, tG = (s.textColor >> 8) & 0xFF, tB = s.textColor & 0xFF;
             if (s.textShadow)
                 dl->AddText(font, fs, ImVec2(tp.x + 1.0f, tp.y + 1.0f), IM_COL32(0, 0, 0, A(150)), txt);
@@ -514,6 +705,12 @@ namespace HUDDraw {
                 int v1 = dl->VtxBuffer.Size;
                 ImGui::ShadeVertsLinearColorGradientKeepAlpha(dl, v0, v1,
                     tp, ImVec2(tp.x, tp.y + ts.y), top, bot);
+            }
+            if (s.trend != 0) {
+                float runeH, runeY;
+                TrendRuneBox(font, fs, runeH, runeY);
+                const float textW = font->CalcTextSizeA(fs, 3.402823466e+38f, 0.0f, txt).x;
+                DrawTrendRune(dl, tp.x + textW + runeH * 0.25f, tp.y + runeY, runeH, s.trend > 0, s.alpha);
             }
         }
 
@@ -1539,6 +1736,133 @@ namespace HUDDraw {
         dl->AddRectFilledMultiColor(ImVec2(m, t), ImVec2(r, b), col, clear, clear, col);
     }
 
+    namespace {
+        constexpr ImU32 kCtlGold     = IM_COL32(201, 168, 106, 255);
+        constexpr ImU32 kCtlGoldHi   = IM_COL32(240, 216, 154, 255);
+        constexpr ImU32 kCtlGoldDim  = IM_COL32(201, 168, 106, 90);
+        constexpr ImU32 kCtlMuted    = IM_COL32(150, 148, 140, 255);
+        constexpr ImU32 kCtlHoverTxt = IM_COL32(216, 212, 200, 255);
+        constexpr ImU32 kCtlStoneTop = IM_COL32(29, 29, 32, 235);
+        constexpr ImU32 kCtlStoneBot = IM_COL32(20, 20, 22, 235);
+        constexpr ImU32 kCtlCarveDark  = IM_COL32(6, 6, 7, 255);
+        constexpr ImU32 kCtlCarveLight = IM_COL32(60, 57, 52, 255);
+
+        void Brackets(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 col, float len, float t) {
+            a = ImVec2(SnapPx(a.x), SnapPx(a.y)); b = ImVec2(SnapPx(b.x), SnapPx(b.y));
+            dl->AddLine(a, ImVec2(a.x + len, a.y), col, t); dl->AddLine(a, ImVec2(a.x, a.y + len), col, t);
+            dl->AddLine(ImVec2(b.x, a.y), ImVec2(b.x - len, a.y), col, t); dl->AddLine(ImVec2(b.x, a.y), ImVec2(b.x, a.y + len), col, t);
+            dl->AddLine(ImVec2(a.x, b.y), ImVec2(a.x + len, b.y), col, t); dl->AddLine(ImVec2(a.x, b.y), ImVec2(a.x, b.y - len), col, t);
+            dl->AddLine(b, ImVec2(b.x - len, b.y), col, t); dl->AddLine(b, ImVec2(b.x, b.y - len), col, t);
+        }
+
+        void Diamond(ImDrawList* dl, ImVec2 c, float r, ImU32 col) {
+            dl->AddQuadFilled(ImVec2(c.x, c.y - r), ImVec2(c.x + r, c.y), ImVec2(c.x, c.y + r), ImVec2(c.x - r, c.y), col);
+        }
+
+        void StonePlate(ImDrawList* dl, ImVec2 a, ImVec2 b) {
+            dl->AddRectFilledMultiColor(a, b, kCtlStoneTop, kCtlStoneTop, kCtlStoneBot, kCtlStoneBot);
+        }
+
+        void Bevel(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 light, ImU32 dark) {
+            DrawRuleH(dl, a.x, b.x, a.y, light);
+            DrawRuleV(dl, a.x, a.y, b.y, light);
+            DrawRuleH(dl, a.x, b.x, b.y - 1.0f, dark);
+            DrawRuleV(dl, b.x - 1.0f, a.y, b.y, dark);
+        }
+    }
+
+    void DrawControlTab(ImDrawList* dl, const ImVec2& min, const ImVec2& max, bool selected, bool hovered, float sc)
+    {
+        const ImU32 top = selected ? IM_COL32(74, 60, 34, 240) : IM_COL32(36, 32, 28, 235);
+        const ImU32 bot = selected ? IM_COL32(40, 32, 18, 240) : IM_COL32(22, 20, 18, 235);
+        dl->AddRectFilledMultiColor(min, max, top, top, bot, bot);
+        if (selected) {
+            DrawCrispRect(dl, min, max, kCtlGoldHi);
+            DrawCrispRect(dl, ImVec2(min.x + 1.0f, min.y + 1.0f), ImVec2(max.x - 1.0f, max.y - 1.0f), IM_COL32(90, 70, 30, 255));
+            const float r = 1.5f * sc, in = 3.5f * sc;
+            dl->AddCircleFilled(ImVec2(min.x + in, min.y + in), r, kCtlGoldHi);
+            dl->AddCircleFilled(ImVec2(max.x - in, min.y + in), r, kCtlGoldHi);
+            dl->AddCircleFilled(ImVec2(min.x + in, max.y - in), r, kCtlGoldHi);
+            dl->AddCircleFilled(ImVec2(max.x - in, max.y - in), r, kCtlGoldHi);
+            return;
+        }
+        Bevel(dl, min, max, IM_COL32(110, 92, 60, 255), IM_COL32(12, 10, 8, 255));
+        if (hovered) Brackets(dl, min, max, kCtlGold, 7.0f * sc, 1.0f);
+    }
+
+    void DrawControlTag(ImDrawList* dl, const ImVec2& min, const ImVec2& max, const char* label,
+                        bool on, bool hovered, float sc)
+    {
+        const ImU32  txtCol = on ? kCtlGoldHi : (hovered ? kCtlHoverTxt : kCtlMuted);
+        const ImVec2 ts     = ImGui::CalcTextSize(label);
+        const float  h      = max.y - min.y;
+        const float  dot    = on ? 6.0f * sc : 0.0f;
+        const ImVec2 tp(SnapPx((min.x + max.x - ts.x + dot) * 0.5f), SnapPx(min.y + (h - ts.y) * 0.5f));
+        StonePlate(dl, min, max);
+        if (on)           Bevel(dl, min, max, kCtlGoldHi, IM_COL32(90, 70, 30, 255));
+        else if (hovered) DrawCrispRect(dl, min, max, kCtlGold);
+        else              Bevel(dl, min, max, kCtlCarveDark, kCtlCarveLight);
+        if (on) Diamond(dl, ImVec2(tp.x - 6.0f * sc, min.y + h * 0.5f), 2.0f * sc, kCtlGoldHi);
+        dl->AddText(ImVec2(tp.x + 1.0f, tp.y + 1.0f), IM_COL32(0, 0, 0, 200), label);
+        dl->AddText(tp, txtCol, label);
+    }
+
+    void DrawOrnateFrame(ImDrawList* dl, const ImVec2& min, const ImVec2& max, float sc)
+    {
+        const float in = 4.0f * sc;
+        const ImVec2 a(min.x + in, min.y + in), b(max.x - in, max.y - in);
+        DrawCrispRect(dl, min, max, IM_COL32(201, 168, 106, 140));
+        DrawCrispRect(dl, a, b, IM_COL32(201, 168, 106, 45));
+        const float L = 14.0f * sc, s = 3.0f * sc, l2 = 8.0f * sc;
+        const ImVec2 corners[4] = { a, {b.x, a.y}, {a.x, b.y}, b };
+        const float dx[4] = { 1, -1, 1, -1 }, dy[4] = { 1, 1, -1, -1 };
+        for (int i = 0; i < 4; ++i) {
+            const ImVec2 c = corners[i];
+            dl->AddLine(c, ImVec2(c.x + L * dx[i], c.y), kCtlGold);
+            dl->AddLine(c, ImVec2(c.x, c.y + L * dy[i]), kCtlGold);
+            const ImVec2 c2(c.x + s * dx[i], c.y + s * dy[i]);
+            dl->AddLine(c2, ImVec2(c.x + l2 * dx[i], c2.y), kCtlGold);
+            dl->AddLine(c2, ImVec2(c2.x, c.y + l2 * dy[i]), kCtlGold);
+            Diamond(dl, c, 2.5f * sc, kCtlGoldHi);
+        }
+    }
+
+    void DrawTileCaption(ImDrawList* dl, const ImVec2& tileMin, const ImVec2& tileMax, float pad, ImU32 col, const char* text)
+    {
+        const float maxW  = tileMax.x - tileMin.x - 2.0f * pad;
+        const float lineH = ImGui::GetTextLineHeight();
+        const float top   = tileMax.y - pad - 2.0f * lineH;
+        auto Width = [](const char* b, const char* e) { return ImGui::CalcTextSize(b, e).x; };
+        auto Line  = [&](const char* b, const char* e, float y) {
+            dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+                        ImVec2(SnapPx(tileMin.x + (tileMax.x - tileMin.x - Width(b, e)) * 0.5f), y), col, b, e);
+        };
+        auto PrevChar = [](const char* start, const char* p) { do { --p; } while (p > start && (*p & 0xC0) == 0x80); return p; };
+
+        const char* end = text + std::strlen(text);
+        if (Width(text, end) <= maxW) { Line(text, end, top); return; }
+
+        const char* cut = end;
+        while (cut > text && Width(text, cut) > maxW) cut = PrevChar(text, cut);
+        const char* lineEnd = cut;
+        for (const char* p = cut; p > text; --p)
+            if (*p == ' ') { lineEnd = p; break; }
+        if (lineEnd == text) lineEnd = cut;
+        Line(text, lineEnd, top);
+
+        const char* rest = lineEnd;
+        while (*rest == ' ') ++rest;
+        if (Width(rest, end) <= maxW) { Line(rest, end, top + lineH); return; }
+
+        static constexpr char kDots[] = "...";
+        const float dotsW = Width(kDots, kDots + 3);
+        const char* e2 = end;
+        while (e2 > rest && Width(rest, e2) + dotsW > maxW) e2 = PrevChar(rest, e2);
+        std::string line2(rest, e2);
+        line2 += kDots;
+        Line(line2.c_str(), line2.c_str() + line2.size(), top + lineH);
+    }
+
     void DrawGlowDisc(ImDrawList* dl, const ImVec2& center, float radius, ImU32 ringCol,
                       const GlowDiscStyle& style)
     {
@@ -1550,6 +1874,158 @@ namespace HUDDraw {
         }
         dl->AddCircleFilled(center, radius, style.fillCol, 0);
         dl->AddCircle(center, radius, ringCol, 0, style.ringThickness, ImDrawFlags_StrokeCenterBiased);
+    }
+
+    void RotateEnd(ImDrawList* dl, int startVtx, const ImVec2& center, float degrees)
+    {
+        const float rad = degrees * 3.14159265f / 180.0f;
+        const float cs = std::cos(rad), sn = std::sin(rad);
+        for (int i = startVtx; i < dl->VtxBuffer.Size; ++i) {
+            ImVec2& p = dl->VtxBuffer[i].pos;
+            const float dx = p.x - center.x, dy = p.y - center.y;
+            p = ImVec2(center.x + dx * cs - dy * sn, center.y + dx * sn + dy * cs);
+
+}
+    }
+
+    ImVec2 RotatedExtent(float w, float h, float degrees)
+    {
+        const float rad = degrees * 3.14159265f / 180.0f;
+        const float cs = std::fabs(std::cos(rad)), sn = std::fabs(std::sin(rad));
+        return ImVec2(w * cs + h * sn, w * sn + h * cs);
+    }
+
+    void DrawStrip(ImDrawList* dl, const ImVec2& bbMin, const ImVec2& bbMax, int style,
+                   std::uint32_t color, bool towardRight)
+    {
+        const float w = bbMax.x - bbMin.x;
+        const float h = bbMax.y - bbMin.y;
+        if (w <= 1.0f || h <= 1.0f || (color >> 24) == 0) return;
+
+        switch (style) {
+        case StripStyle_Fade: {
+            constexpr int kSteps = 16;
+            const ImU32 rgb   = Argb(color) & 0x00FFFFFF;
+            const float peakA = static_cast<float>((color >> 24) & 0xFF);
+            auto alphaAt = [&](float t) {
+                const float k = 1.0f - t;
+                return rgb | (static_cast<ImU32>(peakA * k * k * (3.0f - 2.0f * k)) << IM_COL32_A_SHIFT);
+            };
+            const float startX = towardRight ? bbMin.x : bbMax.x;
+            const float dir    = towardRight ? 1.0f : -1.0f;
+            float prevX = startX;
+            for (int i = 0; i < kSteps; ++i) {
+                const float t0 = static_cast<float>(i) / kSteps;
+                const float t1 = static_cast<float>(i + 1) / kSteps;
+                const float x1 = (i + 1 == kSteps) ? startX + dir * w : startX + dir * w * t1;
+                const ImU32 c0 = alphaAt(t0), c1 = alphaAt(t1);
+                if (towardRight)
+                    dl->AddRectFilledMultiColor(ImVec2(prevX, bbMin.y), ImVec2(x1, bbMax.y), c0, c1, c1, c0);
+                else
+                    dl->AddRectFilledMultiColor(ImVec2(x1, bbMin.y), ImVec2(prevX, bbMax.y), c1, c0, c0, c1);
+                prevX = x1;
+            }
+            break;
+        }
+        case StripStyle_Arrow: {
+            const float tip = (std::min)(h * 0.5f, w * 0.3f);
+            const float midY = (bbMin.y + bbMax.y) * 0.5f;
+            ImVec2 pts[5];
+            if (towardRight) {
+                pts[0] = bbMin;
+                pts[1] = ImVec2(bbMax.x - tip, bbMin.y);
+                pts[2] = ImVec2(bbMax.x, midY);
+                pts[3] = ImVec2(bbMax.x - tip, bbMax.y);
+                pts[4] = ImVec2(bbMin.x, bbMax.y);
+            } else {
+                pts[0] = ImVec2(bbMax.x, bbMin.y);
+                pts[1] = ImVec2(bbMin.x + tip, bbMin.y);
+                pts[2] = ImVec2(bbMin.x, midY);
+                pts[3] = ImVec2(bbMin.x + tip, bbMax.y);
+                pts[4] = bbMax;
+            }
+            dl->AddConvexPolyFilled(pts, 5, Argb(color));
+            const ImU32 rim = IM_COL32(230, 215, 190, 110);
+            dl->AddPolyline(pts, 5, rim, ImDrawFlags_None, 1.0f);
+            break;
+        }
+        case StripStyle_Rounded:
+            dl->AddRectFilled(bbMin, bbMax, Argb(color), h * 0.5f);
+            break;
+        default:
+            break;
+        }
+    }
+
+    static ImVec2 PennantAxis(PennantDir direction)
+    {
+        switch (direction) {
+        case PennantDir::Up:    return ImVec2(0.0f, -1.0f);
+        case PennantDir::Left:  return ImVec2(-1.0f, 0.0f);
+        case PennantDir::Right: return ImVec2(1.0f, 0.0f);
+        default:                return ImVec2(0.0f, 1.0f);
+        }
+    }
+
+    static void DrawPennantCloth(ImDrawList* dl, const ImVec2& ringCenter, const PennantStyle& style)
+    {
+        const float r = style.ringRadius;
+        const float half = (std::min)(style.clothWidth * 0.5f, r * 0.9f);
+        const float root = std::sqrt(r * r - half * half);
+        const float tip = style.clothLength;
+        const float shoulder = tip - half * 0.6f;
+        const ImVec2 axis = PennantAxis(style.direction);
+        auto at = [&](float along, float side) {
+            return ImVec2(ringCenter.x + axis.x * along + axis.y * side, ringCenter.y + axis.y * along - axis.x * side);
+        };
+        const ImVec2 fill[5] = { at(root, -half), at(root, half), at(shoulder, half), at(tip, 0.0f), at(shoulder, -half) };
+        dl->AddConvexPolyFilled(fill, 5, Argb(style.clothColor));
+        const ImVec2 edge[5] = { at(root, -half), at(shoulder, -half), at(tip, 0.0f), at(shoulder, half), at(root, half) };
+        if (style.borderWidth > 0.0f)
+            dl->AddPolyline(edge, 5, Argb(style.borderColor), ImDrawFlags_None, style.borderWidth);
+    }
+
+    static void DrawPennantRing(ImDrawList* dl, const ImVec2& ringCenter, const PennantStyle& style)
+    {
+        const float r = style.ringRadius;
+        dl->AddCircleFilled(ImVec2(ringCenter.x + 1.0f, ringCenter.y + 2.0f), r + 1.0f,
+                            IM_COL32(0, 0, 0, 40 * (style.ringColor >> 24) / 255), 0);
+        dl->AddCircleFilled(ringCenter, r, Argb(style.filled ? style.borderColor : style.ringColor), 0);
+        if (style.borderWidth <= 0.0f) return;
+        dl->AddCircle(ringCenter, r - style.borderWidth * 0.5f, Argb(style.borderColor), 0, style.borderWidth);
+        const std::uint32_t inner = style.filled ? style.ringColor : style.borderColor;
+        const std::uint32_t innerFaint = (inner & 0x00FFFFFF) | (((inner >> 24) * 0x70 / 255) << 24);
+        dl->AddCircle(ringCenter, r - style.borderWidth * 2.0f - 1.0f, Argb(innerFaint), 0, 1.0f);
+    }
+
+    void DrawPennantBadge(ImDrawList* dl, const ImVec2& ringCenter, const char* value, ImTextureID icon,
+                          const PennantStyle& style)
+    {
+        DrawPennantCloth(dl, ringCenter, style);
+        DrawPennantRing(dl, ringCenter, style);
+
+        if (icon) {
+            const ImVec2 axis = PennantAxis(style.direction);
+            const float along = (style.ringRadius + style.clothLength) * 0.5f - style.borderWidth;
+            const ImVec2 mid(ringCenter.x + axis.x * along, ringCenter.y + axis.y * along);
+            DrawIconStyled(dl, ImVec2(mid.x - style.iconSize * 0.5f, mid.y - style.iconSize * 0.5f),
+                           style.iconSize, icon, style.iconColor, style.iconFx);
+        }
+        if (!value || !value[0]) return;
+
+        TextFx fx;
+        fx.font = style.font ? style.font : ImGui::GetFont();
+        fx.fontSize = style.fontSize > 0.0f ? style.fontSize : ImGui::GetFontSize();
+        fx.shadow = !style.filled;
+        fx.duotone = !style.filled;
+        ImVec2 size = fx.font->CalcTextSizeA(fx.fontSize, FLT_MAX, 0.0f, value);
+        const float room = style.ringRadius * 1.5f;
+        if (size.x > room) {
+            fx.fontSize *= room / size.x;
+            size = fx.font->CalcTextSizeA(fx.fontSize, FLT_MAX, 0.0f, value);
+        }
+        const std::uint32_t color = style.filled ? (style.ringColor | 0xFF000000) : style.numberColor;
+        DrawTextStyled(dl, ImVec2(ringCenter.x - size.x * 0.5f, ringCenter.y - size.y * 0.5f), Argb(color), value, fx);
     }
 
 }

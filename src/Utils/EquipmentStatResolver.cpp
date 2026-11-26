@@ -180,6 +180,7 @@ namespace EquipmentStatResolver {
             stats.enchantDamage = e->magnitude;
             stats.enchantType   = e->type;
         }
+        stats.enchantTotal = wd.TotalDamage() - wd.physical;
         stats.hitDamage = std::round(stats.physicalDamage + stats.ammoDamage);
         return stats;
     }

@@ -120,12 +120,17 @@ namespace SpellIconManager {
                 }
             }
         }
-        std::string school = GetSpellSchool(spell);
-        std::string schoolPath = std::string(SPELLS_PATH) + school + ".png";
-        if (auto srv = TextureManager::GetTexture(schoolPath)) {
+
+        const std::string school = GetSpellSchool(spell);
+        for (const char* ext : { ".svg", ".png" }) {
+            if (auto srv = TextureManager::GetTexture(std::string(SPELLS_PATH) + school + ext)) {
             return srv;
         }
-        std::string genericPath = std::string(SPELLS_PATH) + "magic.png";
-        return TextureManager::GetTexture(genericPath);
+        }
+
+        if (auto srv = TextureManager::GetTexture(std::string(SPELLS_PATH) + "magic.svg")) {
+            return srv;
+        }
+        return TextureManager::GetTexture(std::string(SPELLS_PATH) + "magic.png");
     }
 }

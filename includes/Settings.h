@@ -13,6 +13,7 @@ public:
 
     void Load();
     void Save();
+    void SaveInventoryModalPos();
 
     // ===== Hotkeys & input =====
     std::int32_t  inspectCardHotkey = 21;
@@ -43,6 +44,7 @@ public:
     bool debugEnableCSLogging        = false;
     bool debugEnablePerformanceStats = false;
     bool debugEnableVerboseLogging   = false;
+    bool debugEnableV2PerfLogging    = false;
 
     // -- Hotkeys (PartyUserSettings.ini) ----------
     std::int32_t  hudToggleKey         = 47;
@@ -74,8 +76,7 @@ public:
     bool         showFollowerSummons = true;
     bool         hudSeparateSummons = true;
     bool         hudHideManagedSummonEffects = true;
-    bool         hudSummonGrowUpward = false;
-    bool         hudSummonAnchorRight = false;
+    std::int32_t hudSummonAnchor = 0;
     std::int32_t hudSummonPosX = 140;
     std::int32_t hudSummonPosY = 250;
     bool         showFollowers      = true;
@@ -84,8 +85,7 @@ public:
 
     // ===== Layout =====
     std::int32_t hudLayout         = 0;
-    bool         hudGrowUpward     = false;
-    bool         hudAnchorRight    = false;
+    std::int32_t hudAnchor         = 0;
     std::int32_t maxPerColumnOrRow = 5;
     std::int32_t hudGroupGap       = 0;
     std::int32_t hudPosX           = 20;
@@ -261,7 +261,7 @@ public:
     std::int32_t  ribbonMargin           = -15;
     std::int32_t  ribbonEffectClearance  = 30;
 
-    bool          qhEnabled                = false;
+    bool          qhEnabled                = true;
     std::int32_t  qhHotkey                 = 0x23;
     std::int32_t  qhModifier               = -1;
     std::wstring  qhSpellMod               = L"Skyrim.esm";
@@ -302,7 +302,7 @@ public:
     std::uint32_t smPortraitBorderColor = 0xFF1E1E1E;
     std::int32_t smPortraitBorderWidth = 2;
     bool smSummonAllowCities = true;
-    bool smEnableHorsePicker = false;
+    bool smEnableHorsePicker = true;
     std::int32_t smSummonKey = -1;
     std::int32_t smSummonModifier = -1;
     bool smNameFirstWordOnly = true;
@@ -362,14 +362,15 @@ public:
     float ptLabelScale = 0.9f;
     float ptCountScale = 0.55f;
     std::int32_t ptCountStyle = 1;
+    std::int32_t ptCountAnchor = 0;
+    std::uint32_t ptBadgeTint = 0;
     std::uint32_t ptIconBgColor = 0x79000000;
-    std::uint32_t ptBadgeBgColor = 0xCF1D1D1D;
     std::int32_t ptIconSize = 48;
     std::int32_t ptRowSpacing = -8;
-    std::int32_t ptPaddingBottom = 8;
+    std::int32_t ptAnchor = 0;
     std::uint32_t ptTextColor = 0xFFFFFF;
     std::uint32_t ptGoalMetColor = 0x33B333;
-    std::int32_t ptCardStyle = 0;
+    std::int32_t ptLabelPlacement = 0;
     std::int32_t ptDirection = 1;
     std::int32_t ptItemWidth = 60;
     bool ptShowLabel = false;
@@ -383,12 +384,16 @@ public:
     float ptIconZoom = 1.0f;
     float ptIconFocusU = 0.5f;
     float ptIconFocusV = 0.5f;
-    // Quick-consume hotkey badge (only on the 3 potion entries that own a hotkey).
-    bool ptShowHotkeyBadge = true;
+    std::int32_t ptHotkeyBadgeStyle = 0;
+    std::uint32_t ptHotkeyBadgeTint = 0;
     float ptHotkeyBadgeScale = 0.9f;
-    std::int32_t ptHotkeyBadgeOffsetX = 30;
-    std::int32_t ptHotkeyBadgeOffsetY = 60;
-    std::uint32_t ptHotkeyBadgeBgColor = 0x001D1D1D;
+    std::int32_t ptHotkeyBadgeOffsetX = 18;
+    std::int32_t ptHotkeyBadgeOffsetY = 45;
+    std::int32_t ptStripStyle = 0;
+    std::int32_t ptStripWidth = 0;
+    std::uint32_t ptStripTint = 0xB4141414;
+    std::int32_t ptCountPosition = 0;
+    std::int32_t ptHotkeyPosition = 0;
 
     // Player HUD - Stats (bars/portrait/XP)
     bool          enablePlayerHud        = true;
@@ -446,7 +451,7 @@ public:
     std::int32_t  phBarEndStyle     = 0;
     std::int32_t  phBarEndStyleLeft = 0;
     bool          phShowBarText    = true;
-    bool          phShowBarIcons   = true;
+    bool          phShowBarIcons   = false;
     std::uint32_t phBarTextColor   = 0xAEFFFFFF;
     std::uint32_t phBarPulseColor  = 0x70FFFFFF;
     std::int32_t  phHealthColor    = 0xFF901515;
@@ -466,6 +471,8 @@ public:
     bool          phShowXP         = true;
     bool          phXPAsBar        = true;
     std::uint32_t phXPColor        = 0xFFD4AF37;
+    bool          phLevelRibbon    = false;
+    std::uint32_t phLevelRibbonColor = 0xB4000000;
 
     // Portrait border and spacing
     std::uint32_t phPortraitBorderColor   = 0xFF1E1E1E;
@@ -525,6 +532,13 @@ public:
     bool          phShowFortify       = true;
     float         phFortifyFontScale  = 0.80f;
     bool          phFortifyRight      = true;
+    bool          phShowEffectBadges  = true;
+    std::int32_t  phEffectBadgeStyle  = 0;
+    std::int32_t  phEffectBadgeSize   = 120;
+    std::int32_t  phEffectBadgeMax    = 4;
+    std::int32_t  phEffectBadgePlace  = 0;
+    bool          phEffectBadgeHideInList = true;
+    bool          phTintRegenPip      = true;
 
     // ============================================================
     // Player HUD - Survival Widget
@@ -535,10 +549,10 @@ public:
     std::int32_t  phSurvivalPosY        = 25;
     std::int32_t  phSurvivalScale       = 100;         // Whole-widget master scale: 50-200%
     std::int32_t  phSurvivalIconSize    = 36;
-    float         phSurvivalLabelScale  = 0.70f;
+    float         phSurvivalLabelScale  = 0.85f;
     float         phSurvivalStageScale  = 0.80f;
     std::uint32_t phSurvivalLabelColor  = 0xFF8C9BAF;
-    std::int32_t  phSurvivalCardWidth   = 70;
+    std::int32_t  phSurvivalCardWidth   = 80;
     std::int32_t  phSurvivalCardSpacing = 6;
     std::int32_t  phSurvivalBgCornerRadius = 6;
     bool          phSurvivalShowBorder = false;
@@ -549,6 +563,7 @@ public:
     std::uint32_t phSurvivalBgColor     = 0x00000000;
     std::int32_t  phSurvivalHideBelowStage = 0;
     std::uint32_t phSurvivalColdColor   = 0xFF78C8FF;
+    std::uint32_t phSurvivalFireColor   = 0xFFFFA23C;
     std::uint32_t phSurvivalHungerColor = 0xFFFF8C32;
     std::uint32_t phSurvivalFatigueColor= 0xFFB4A0D2;
     std::uint32_t phSurvivalThirstColor = 0xFF4FC8E0;
@@ -557,7 +572,7 @@ public:
     std::int32_t  phSurvivalStyle          = 0;
     std::int32_t  phSurvivalDirection     = 0;
     std::int32_t  phSurvivalIndicatorStyle = 0;          // 0=Pips, 1=ProgressBar, 2=None, 3=Arc
-    bool          phSurvivalIconFill = true;
+    bool          phSurvivalIconFill = false;
     std::int32_t  phSurvivalPipShape = 0;               // 0=Circle, 1=Diamond
     std::int32_t  phSurvivalArcSweep = 100;             // degrees; 360 draws a full ring
     std::int32_t  phSurvivalArcRotation = 90;           // midpoint angle; 90 is below the icon
@@ -566,7 +581,7 @@ public:
     bool          phSurvivalShowPercentage = false;
     float         phSurvivalPercentageScale = 0.80f;
     bool          phSurvivalShowLabel      = false;
-    bool          phSurvivalShowStage      = false;
+    bool          phSurvivalShowStage      = true;
     // -1 preserves each layout's existing padding; offsets never change card anchors.
     std::int32_t  phSurvivalInnerPaddingX = -1;
     std::int32_t  phSurvivalInnerPaddingY = -1;
@@ -598,6 +613,40 @@ public:
     std::uint32_t phSurvivalIconOutlineColor = 0xC80A080C;
     bool          phSurvivalIconGlow        = false;
     bool          phSurvivalIconGloss       = false;
+
+    bool          phSuppliesEnable       = false;
+    std::int32_t  phSuppliesPosX         = 35;
+    std::int32_t  phSuppliesPosY         = 335;
+    std::int32_t  phSuppliesLayout       = 0;
+    std::int32_t  phSuppliesAnchor       = 0;
+    std::int32_t  phSuppliesMaxItems     = 0;
+    std::int32_t  phSuppliesWrapAfter    = 0;
+    std::int32_t  phSuppliesScale        = 100;
+    bool          phSuppliesShowMessages = true;
+    bool          phSuppliesShowNames    = true;
+    std::int32_t  phSuppliesEmptyOpacity = 35;
+    std::int32_t  phSuppliesStyle        = 0;
+    std::int32_t  phSuppliesClothDir     = 0;
+    std::int32_t  phSuppliesPopup        = 0;
+    std::uint32_t phSuppliesBgColor        = 0xFF0C0C0C;
+    std::uint32_t phSuppliesStripColor     = 0xB4141414;
+    std::uint32_t phSuppliesBorderColor    = 0xFF2D2626;
+    std::int32_t  phSuppliesBorderWidth  = 2;
+    std::int32_t  phSuppliesCornerRadius = 50;
+    std::uint32_t phSuppliesFoodColor       = 0xFFFF8C32;
+    std::uint32_t phSuppliesDrinksColor     = 0xFF4FC8E0;
+    std::uint32_t phSuppliesDirtyWaterColor = 0xFFB49A64;
+    std::uint32_t phSuppliesFirewoodColor   = 0xFFE07A3A;
+    std::uint32_t phSuppliesTentsColor      = 0xFFC8B48C;
+    std::uint32_t phSuppliesWaterskinColor  = 0xFF6FA8DC;
+    std::uint32_t phSuppliesTorchesColor    = 0xFFFFC857;
+
+    bool          phEnvEnable           = true;
+    std::int32_t  phEnvPosX             = 815;
+    std::int32_t  phEnvPosY             = 25;
+    std::int32_t  phEnvScale            = 100;
+    bool          phEnvHideResourcesWeather = false;
+    bool          phEnvHideColdNeed     = false;
 
     // ============================================================
     // Player HUD - Disease Widget
@@ -659,10 +708,18 @@ public:
     bool          peShowNames      = true;
     std::uint32_t peNameColor      = 0xFFFFFFFF;
     std::uint32_t peNameBgColor    = 0x00000000;
+    std::int32_t  peStripStyle     = 0;
+    std::int32_t  peStripWidth     = 0;
+    std::uint32_t peStripTint      = 0xB4141414;
     std::int32_t  peNameAlignment  = 1;
     std::int32_t  peNameMaxChars   = 20;
+    std::int32_t  peNamePlacement  = 0;
+    bool          peSatelliteNamesBelow = false;
+    std::int32_t  peCenterNameSide = 1;
+    std::int32_t  peNameSideWidth  = 120;
+    std::int32_t  peNameGap        = 4;
     float         peNameFontScale  = 0.75f;
-    float         peBadgeFontScale = 0.75f;
+    float         peBadgeFontScale = 0.90f;
     std::uint32_t peBadgeBgColor   = 0xDB212121;
     std::int32_t  peBadgeOffsetX   = -4;
     std::int32_t  peBadgeOffsetY   = -4;
@@ -670,14 +727,25 @@ public:
     std::int32_t  peChargeBarWidth = 8;
     float         peChargeBarHeight = 0.20f;
     bool          peShowDamage     = true;
+    bool          peShowEffectBadges = true;
+    std::int32_t  peEffectBadgeStyle = 1;
+    std::int32_t  peEffectBadgeSize  = 28;
+    std::int32_t  peEffectBadgeMax   = 3;
+    bool          peEffectBadgeHideInList = true;
+    std::int32_t  peEffectBadgePlace = 0;
 
     // Layout
     std::int32_t  peLayout         = 0;
+    std::int32_t  peClusterAngle1  = 210;
+    std::int32_t  peClusterAngle2  = 150;
+    std::int32_t  peStackOverlap   = 25;
+    std::int32_t  peStackShiftX    = 0;
+    std::int32_t  peBadgeAnchor    = 0;
     std::int32_t  peSlotSpacing    = 50;
     bool          peShowSlotBadge  = true;
     bool          peShowAmmoCount  = true;
     bool          peShowDurability = true;
-    float         peDurabilityScale = 0.6f;
+    float         peDurabilityScale = 0.4f;
     std::int32_t  peSlotOrder0     = 0;
     std::int32_t  peSlotOrder1     = 1;
     std::int32_t  peSlotOrder2     = 2;
@@ -685,6 +753,9 @@ public:
     float         peSlotScale0     = 1.0f;
     float         peSlotScale1     = 1.0f;
     float         peSlotScale2     = 1.0f;
+    std::int32_t  peSlotShape0     = -1;
+    std::int32_t  peSlotShape1     = -1;
+    std::int32_t  peSlotShape2     = -1;
     std::int32_t  peSlotOffsetX1   = 0;
     std::int32_t  peSlotOffsetY1   = 0;
     std::int32_t  peSlotOffsetX2   = 0;
@@ -692,7 +763,7 @@ public:
 
     bool          peIconBgEnabled     = true;
     std::int32_t  peIconBgShape       = 0;
-    std::uint32_t peIconBgColor       = 0x99000000;
+    std::uint32_t peIconBgColor       = 0xFF373737;
     std::uint32_t peIconBorderColor   = 0xFF3E3D32;
     std::int32_t  peIconBorderWidth   = 0;
     std::int32_t  peIconBorderRadius  = 15;
@@ -712,9 +783,9 @@ public:
     std::uint32_t peAuraShockColor  = 0xFFFFD23C;
     std::uint32_t peAuraOtherColor  = 0xFF96AAFF;
 
-    bool          peUseIconBgTexture  = true;
-    std::int32_t  peIconBgIndex       = 10;
-    float         peIconBgTexOpacity  = 0.7f;
+    bool          peUseIconBgTexture  = false;
+    std::int32_t  peIconBgIndex       = 1;
+    float         peIconBgTexOpacity  = 1.0f;
 
     // Spell / shout icon depth
     bool          peSpellIconDuotone  = true;
@@ -755,6 +826,16 @@ public:
     bool          prShowSpeed      = true;
     std::uint32_t prSpeedColor     = 0xFF7FD4A0;
     std::int32_t  prLayout         = 1;
+    std::int32_t  prStyle          = 0;
+    std::int32_t  prAnchor         = 0;
+    std::int32_t  prWrapAfter      = 0;
+    std::int32_t  prClothDir       = 0;
+    bool          prShowNames      = false;
+    std::uint32_t prDiscColor       = 0xFF0C0C0C;
+    std::uint32_t prStripColor      = 0xB4141414;
+    std::uint32_t prDiscBorderColor = 0xFF2D2626;
+    std::int32_t  prDiscBorderWidth = 2;
+    std::int32_t  prDiscRadius      = 50;
     bool          prShowValue      = true;
     bool          prIconFill       = false;
     // Radial layout: entries ride a circle around the window center, each with a value ring.
@@ -803,30 +884,29 @@ public:
     // Player HUD - Resources Widget
     // ============================================================
     bool          enablePlayerResourcesWidget = true;
-    std::int32_t  presPosX         = 1565;
-    std::int32_t  presPosY         = 1040;
+    std::int32_t  presPosX         = 1600;
+    std::int32_t  presPosY         = 1032;
     std::int32_t  presScale        = 100;           // Whole-widget master scale: 50-200%
     float         presFontScale    = 0.95f;
     bool          presShowGold        = true;
     bool          presShowCarryWeight = true;
     bool          presShowTime        = true;
-    bool          pres24HourTime      = false;
+    bool          pres24HourTime      = true;
     bool          presShowWeather     = true;
     std::uint32_t presTextColor    = 0xFFFFFFFF;
-    std::uint32_t presGoldColor    = 0xFFFFFFFF;
-    std::uint32_t presCarryColor   = 0xFFFFFFFF;
-    std::uint32_t presTimeColor    = 0xFFFFFFFF;
+    std::uint32_t presGoldColor    = 0xFFE0C435;
+    std::uint32_t presCarryColor   = 0xFF9C9C9C;
+    std::uint32_t presTimeColor    = 0xFFF8A287;
     std::uint32_t presWeatherColor = 0xFFFFFFFF;
-    std::int32_t  presIconSize     = 24;
+    std::int32_t  presIconSize     = 28;
     std::int32_t  presLayout       = 1;
     std::int32_t  presSpacing      = 24;
-    // Resources window background (manual AddRectFilled, drawn behind items). Alpha=0 → off.
-    std::uint32_t presBgColor        = 0x00000000;
-    std::int32_t  presBgStyle        = 0;
-    std::int32_t  presFadeMode       = 0;
-    std::int32_t  presFadeAnchor     = 25;
-    std::int32_t  presFadeLength     = 75;
-    std::int32_t  presBgPadding      = 7;
+    std::uint32_t presBgColor        = 0xFF222121;
+    std::int32_t  presBgStyle        = 1;
+    std::int32_t  presFadeMode       = 1;
+    std::int32_t  presFadeAnchor     = 0;
+    std::int32_t  presFadeLength     = 100;
+    std::int32_t  presBgPadding      = 10;
     bool          presLocSeparate     = true;
     std::int32_t  presLocPosX         = 1926;
     std::int32_t  presLocPosY         = 0;
@@ -919,13 +999,17 @@ public:
 
     bool psUseFullscreenMode = true;
     bool psV2LiveCharacter = true;
+    bool psV2CharacterRight = false;
     std::int32_t psV2LiveCamX       = -15;
+    std::int32_t psV2LiveCamXRight  = -65;
+    std::int32_t psV2LiveLight      = 10;
+    std::int32_t psV2LiveCamYawRight = 0;
     std::int32_t psV2LiveCamZ       = 0;
     std::int32_t psV2LiveCamDist    = 70;
     std::int32_t psV2LiveOpenW      = 35;
     std::int32_t psV2LiveOpenH      = 85;
-    std::int32_t psV2LiveSoftness   = 60;
-    std::int32_t psV2LiveBottomFade = 0;
+    std::int32_t psV2LiveSoftness   = 70;
+    std::int32_t psV2LiveBottomFade = 20;
     std::int32_t psV2LiveDim        = 0;
     bool psV2LiveClassTint = true;
     std::uint32_t psV2LiveClassColors[11] = {
@@ -934,17 +1018,29 @@ public:
     float psV2Scale = 1.0f;
     float psV2FontDisplay = 1.00f;
     float psV2FontHeading = 0.70f;
-    float psV2FontBody    = 0.85f;
-    float psV2FontSmall   = 0.8f;
-    float psV2IconSkill   = 28.0f;
-    float psV2IconStat    = 24.0f;
-    float psV2IconCard    = 48.0f;
-    float psV2IconTrait   = 36.0f;
-    float psV2IconBadge   = 20.0f;
+    float psV2FontBody    = 0.90f;
+    float psV2FontSmall   = 0.90f;
+    float psV2IconSkill   = 34.0f;
+    float psV2IconStat    = 30.0f;
+    float psV2IconCard    = 64.0f;
+    float psV2IconTrait   = 40.0f;
+    float psV2IconBadge   = 26.0f;
     float psV2IconFooter  = 28.0f;
-    float psV2IconEquip   = 144.0f;
-    float psV2IconArmor   = 112.0f;
+    float psV2IconEquip   = 120.0f;
+    float psV2IconArmor   = 110.0f;
+    int   psV2IconRecentList  = 46;
+    int   psV2IconRecentCards = 28;
+    float psV2EquipCardH  = 180.0f;
+    int   psV2ArmorCardScale = 95;
+    int   psV2SlotLayout  = 0;
+    int   psV2WeaponIconRotate = 0;
+    bool  psV2InvPictograms   = true;
+    bool  psV2InvKeepItemArt  = true;
+    int   psV2InvItemArtScale = 130;
+    int   psV2InvPosX = -1;
+    int   psV2InvPosY = -1;
     bool          psV2IconDuotone     = false;
+    int           psV2PanelStyle      = 0;
     bool          psV2IconShadow      = false;
     bool          psV2IconOutline     = false;
     std::int32_t  psV2IconOutlineWidth = 1;

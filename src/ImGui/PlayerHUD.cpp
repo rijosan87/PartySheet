@@ -1,7 +1,8 @@
 #include "../../includes/ImGui/PlayerHUD.h"
+#include "../../includes/Utils/EffectBadges.h"
 #include "../../includes/PlayerStatus.h"
 #include "../../includes/ImGui/PlayerHUDPenalties.h"
-#include "../../includes/SurvivalSymptoms.h"
+#include "../../includes/HUDSymptoms.h"
 #include "../../includes/ImGui/PlayerHUDSurvival.h"
 #include "../../includes/ImGui/PlayerHUDDisease.h"
 #include "../../includes/Settings.h"
@@ -30,36 +31,6 @@
 #include <string>
 
 namespace PlayerHUD {
-
-    // Gilded Rune geometry from IMGUI PlayGround/components/PartySheetElements.cpp.
-    static void DrawLevelUpRune(ImDrawList* draw, float x, float y, float height, float alpha)
-    {
-        const float width = height * 0.65f;
-        const float shoulder = height * 0.43f;
-        const float shaft = width * 0.30f;
-        const float center = x + width * 0.5f;
-        const ImVec2 points[] = {{center, y}, {x + width, y + shoulder},
-            {center + shaft * 0.5f, y + shoulder}, {center + shaft * 0.5f, y + height},
-            {center - shaft * 0.5f, y + height}, {center - shaft * 0.5f, y + shoulder},
-            {x, y + shoulder}};
-        ImVec2 shadowPoints[IM_ARRAYSIZE(points)];
-        const float shadowOffset = (std::max)(1.0f, height / 16.0f);
-        for (int i = 0; i < IM_ARRAYSIZE(points); ++i)
-            shadowPoints[i] = ImVec2(points[i].x + shadowOffset, points[i].y + shadowOffset);
-        draw->AddConcavePolyFilled(shadowPoints, IM_ARRAYSIZE(shadowPoints),
-            ImGui::ColorConvertFloat4ToU32(ImVec4(0, 0, 0, 0.55f * alpha)));
-
-        const float blend = static_cast<float>(0.5 - 0.5 * std::cos(ImGui::GetTime() * 3.141592653589793));
-        const ImVec4 green(0.35f, 0.82f, 0.40f, alpha);
-        const ImVec4 rim(std::min(green.x * 1.25f, 1.0f), std::min(green.y * 1.25f, 1.0f),
-            std::min(green.z * 1.25f, 1.0f), alpha);
-        const ImVec4 fill(UIAnimation::Lerp(green.x * 0.45f, rim.x, blend),
-            UIAnimation::Lerp(green.y * 0.45f, rim.y, blend),
-            UIAnimation::Lerp(green.z * 0.45f, rim.z, blend), alpha);
-        draw->AddConcavePolyFilled(points, IM_ARRAYSIZE(points), ImGui::ColorConvertFloat4ToU32(fill));
-        draw->AddPolyline(points, IM_ARRAYSIZE(points), ImGui::ColorConvertFloat4ToU32(rim),
-            ImDrawFlags_Closed, (std::max)(1.0f, height * 0.055f));
-    }
 
     static float MasterScale()
     {
@@ -91,6 +62,33 @@ namespace PlayerHUD {
     static float g_DynLastChangeTime[(int)DynBar::Count] = { 0.0f, 0.0f, 0.0f, 0.0f };
     static bool  g_DynPrevBattleReady = false;
     static float g_DynMaxAlphaLastFrame = 1.0f;
+
+    static std::vector<EffectBadges::Badge> BadgesFor(const HUDSymptoms::Bar& bar)
+    {
+        std::vector<EffectBadges::Badge> badges;
+        EffectBadges::AddFromCauses(badges, bar.cuts, false);
+        EffectBadges::AddFromCauses(badges, bar.buffs, true);
+        return badges;
+    }
+
+    std::vector<EffectAttribution::GroupKey> BarBadgeGroups()
+    {
+        std::vector<EffectAttribution::GroupKey> out;
+        const auto* settings = Settings::GetSingleton();
+        if (!settings->phShowEffectBadges || !ShouldShow()) return out;
+
+        auto addBar = [&](bool shown, const HUDSymptoms::Bar& bar) {
+            if (!shown) return;
+            const auto badges = BadgesFor(bar);
+            const auto drawn  = (std::min)(badges.size(), static_cast<std::size_t>((std::max)(settings->phEffectBadgeMax, 1)));
+            for (std::size_t i = 0; i < drawn; ++i) out.push_back(badges[i].key);
+        };
+        const auto& bars = HUDSymptoms::GetBars(RE::PlayerCharacter::GetSingleton());
+        addBar(settings->phShowHealth, bars.health);
+        addBar(settings->phShowMagicka, bars.magicka);
+        addBar(settings->phShowStamina, bars.stamina);
+        return out;
+    }
 
     static float ComputeDynamicAlpha(DynBar which, float current, float maxVal, bool battleReady, bool allowDrag) {
         const auto* settings = Settings::GetSingleton();
@@ -258,7 +256,7 @@ namespace PlayerHUD {
         auto stats = GetActorStats(player);
         const auto survivalPenalties = PlayerHUDPenalties::GetSurvivalPenalties();
         const auto tempPenalties = PlayerHUDPenalties::GetTemporaryPenalties(player);
-        const auto& symptoms = SurvivalSymptoms::Get(player, stats.healthRegen, stats.magickaRegen, stats.staminaRegen);
+        const auto& symptoms = HUDSymptoms::Get(player, stats.healthRegen, stats.magickaRegen, stats.staminaRegen);
 
         // WindowPadding already insets the cursor by frameMargin on each side.
         float padX         = ScalePx(8.0f);
@@ -270,7 +268,7 @@ namespace PlayerHUD {
         float portSz       = ScalePx(static_cast<float>(settings->phPortraitSize));
         const bool hasRightColumn = settings->phShowName || settings->phShowHealth ||
             (settings->phShowMagicka && !isWerewolf && !isWerebear) || settings->phShowStamina ||
-            (settings->phShowXP && (!settings->phShowPortrait || settings->phXPAsBar));
+            (settings->phXPAsBar || (settings->phShowXP && !settings->phShowPortrait));
         float colSpacing   = hasRightColumn ? ScalePx(static_cast<float>(settings->phPortraitColumnSpacing)) : 0.0f;
         float barSpacing   = ScalePx(static_cast<float>(settings->phBarSpacing));
         // User Y nudge for all in/around-bar text (bar text, regen pip, fortify) at once.
@@ -295,7 +293,7 @@ namespace PlayerHUD {
         const bool needsFullClip = hasBarOffset || hasAnnotationOffset ||
             (settings->phShowPortrait && (settings->phPortraitOffsetX || settings->phPortraitOffsetY)) ||
             settings->phShowFortify ||
-            (settings->phShowBarIcons && !settings->phShowPortrait);
+            settings->phShowBarIcons;
         bool clipPushed = false;
         if (needsFullClip) {
             const ImVec2 ds = ImGui::GetIO().DisplaySize;
@@ -524,13 +522,13 @@ namespace PlayerHUD {
                 auto p = diamondPts(portX, portY, portSz);
                 dl->AddPolyline(p.data(), (int)p.size(), bc, ImDrawFlags_Closed, bw);
 
-                if (settings->phShowXP && !settings->phXPAsBar) {
+                if (settings->phShowXP) {
                     float xpFrac = 0.0f;
                     if (auto* runtimeData = player->GetInfoRuntimeData().skills)
                         if (runtimeData->data) {
                             float needed = runtimeData->data->levelThreshold;
                             if (needed > 0.0f)
-                                xpFrac = std::clamp(runtimeData->data->xp / needed, 0.0f, 1.0f);
+                                xpFrac = std::max(runtimeData->data->xp / needed, 0.0f);
                         }
 
                     ImU32 xpCol = IM_COL32((settings->phXPColor >> 16) & 0xFF,
@@ -569,13 +567,13 @@ namespace PlayerHUD {
                                      settings->phPortraitBorderColor & 0xFF,
                                     (settings->phPortraitBorderColor >> 24) & 0xFF);
 
-                if (settings->phShowXP && !settings->phXPAsBar) {
+                if (settings->phShowXP) {
                     float xpFrac = 0.0f;
                     if (auto* runtimeData = player->GetInfoRuntimeData().skills)
                         if (runtimeData->data) {
                             float needed = runtimeData->data->levelThreshold;
                             if (needed > 0.0f)
-                                xpFrac = std::clamp(runtimeData->data->xp / needed, 0.0f, 1.0f);
+                                xpFrac = std::max(runtimeData->data->xp / needed, 0.0f);
                         }
 
                     ImU32 xpCol = IM_COL32((settings->phXPColor >> 16) & 0xFF,
@@ -700,7 +698,7 @@ namespace PlayerHUD {
             if (settings->phShowHealth)                                    rightColH += barH   + barSpacing;
             if (settings->phShowMagicka && !isWerewolf && !isWerebear)    rightColH += barHMp + barSpacing;
             if (settings->phShowStamina)                                  rightColH += barHSp + barSpacing;
-            if (settings->phShowXP && settings->phXPAsBar)                rightColH += static_cast<float>(settings->phXPBarHeight) + barSpacing;
+            if (settings->phXPAsBar)                                      rightColH += static_cast<float>(settings->phXPBarHeight) + barSpacing;
             if (rightColH > 0.0f) rightColH -= barSpacing;
             float portraitCenterY = curY + portSz * 0.5f;
             curY = portraitCenterY - rightColH * 0.5f;
@@ -847,22 +845,30 @@ namespace PlayerHUD {
             regenSP = stats.stamina.GetMax() * (stats.staminaRegen / 100.0f);
         }
 
-        auto statBonus = [](const RichStat& v, const SurvivalSymptoms::Bar& b) {
+        auto statBonus = [](const RichStat& v, const HUDSymptoms::Bar& b) {
             return b.Lost() > 0.5f ? -b.Lost() : v.perm + v.temp;
         };
         const float statBonusHP = settings->phShowFortify ? statBonus(stats.health,  symptoms.health)  : 0.0f;
         const float statBonusMP = settings->phShowFortify ? statBonus(stats.magicka, symptoms.magicka) : 0.0f;
         const float statBonusSP = settings->phShowFortify ? statBonus(stats.stamina, symptoms.stamina) : 0.0f;
 
+        auto FormatStatBonus = [](char (&buf)[16], float bonusVal) {
+            snprintf(buf, sizeof(buf), bonusVal > 0.0f ? "+%.0f" : "%.0f", bonusVal);
+        };
+        auto StatBonusWidth = [&](float bonusVal) {
+            if (bonusVal == 0.0f) return 0.0f;
+            char buf[16];
+            FormatStatBonus(buf, bonusVal);
+            ImFont* font = ImGui::GetFont();
+            return font->CalcTextSizeA(font->LegacySize * settings->phFortifyFontScale, FLT_MAX, 0.0f, buf).x;
+        };
+
         auto DrawStatBonus = [&](float x, float y, float w, float h, float bonusVal, float a) {
             if (bonusVal == 0.0f) return;
             ImFont* font     = ImGui::GetFont();
             float   fontSize = font->LegacySize * settings->phFortifyFontScale;
             char    buf[16];
-            if (bonusVal > 0.0f)
-                snprintf(buf, sizeof(buf), "+%.0f", bonusVal);
-            else
-                snprintf(buf, sizeof(buf), "%.0f", bonusVal);
+            FormatStatBonus(buf, bonusVal);
             const int aTxt = static_cast<int>(220 * a);
             ImU32   color = bonusVal > 0.0f ? IM_COL32(180, 230, 180, aTxt) : IM_COL32(230, 130, 130, aTxt);
             ImVec2  ts = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, buf);
@@ -874,20 +880,57 @@ namespace PlayerHUD {
             dl->AddText(font, fontSize, ImVec2(tx, ty), color, buf);
         };
 
-        auto DrawRegenPip = [&](float x, float y, float h, float regenVal, float a) {
+        auto DrawBarBadges = [&](float x, float y, float w, float h, float bonusVal, const HUDSymptoms::Bar& bar, float a) {
+            if (!settings->phShowEffectBadges || (bar.cuts.empty() && bar.buffs.empty())) return;
+            const auto badges = BadgesFor(bar);
+            if (badges.empty()) return;
+
+            const bool inside = settings->phEffectBadgePlace == 1;
+            EffectBadges::RowStyle style;
+            style.preset    = settings->phEffectBadgeStyle;
+            style.max       = settings->phEffectBadgeMax;
+            style.fontScale = settings->phFortifyFontScale;
+            style.gap       = ScalePx(2.0f);
+            style.alpha     = a;
+            const float textH = ImGui::GetFont()->LegacySize * settings->phFortifyFontScale;
+            const float side  = textH * settings->phEffectBadgeSize * 0.01f;
+            style.size = (std::max)(inside ? (std::min)(side, h - ScalePx(2.0f)) : side, ScalePx(8.0f));
+            const auto row = EffectBadges::Measure(badges, style);
+
+            const float gap         = std::max(ScalePx(6.0f), colSpacing * 0.10f);
+            const float number      = settings->phShowFortify ? StatBonusWidth(bonusVal) : 0.0f;
+            const float afterNumber = number > 0.0f ? number + gap : 0.0f;
+            float bx;
+            if (inside)                        bx = x + w - ScalePx(3.0f) - row.total.x;
+            else if (settings->phFortifyRight) bx = x + w + gap + afterNumber;
+            else                               bx = x - gap - afterNumber - row.total.x;
+            const float by = y + (h - row.total.y) * 0.5f + barTextOffsetY;
+            EffectBadges::Draw(dl, ImVec2(bx, by), badges, row, style, [](const EffectBadges::Badge&) {});
+        };
+
+        auto RegenTint = [&](const HUDSymptoms::Bar& bar) -> ImU32 {
+            if (settings->phTintRegenPip && bar.regen != HUDSymptoms::Regen::kNormal) return IM_COL32(240, 130, 120, 255);
+            if (settings->phTintRegenPip && bar.regenRaised)                         return IM_COL32(150, 225, 150, 255);
+            return IM_COL32(200, 200, 200, 255);
+        };
+
+        auto DrawRegenPip = [&](float x, float y, float h, float regenVal, const HUDSymptoms::Bar& bar, float a) {
             if (regenVal <= 0.0f) return;
+            const ImU32 tint    = RegenTint(bar);
+            const bool  tinted  = tint != IM_COL32(200, 200, 200, 255);
+            auto withAlpha = [&](int alpha) { return (tint & 0x00FFFFFFu) | (static_cast<ImU32>(alpha * a) << IM_COL32_A_SHIFT); };
             ImFont* font     = ImGui::GetFont();
             float   fontSize = font->LegacySize * settings->phRegenFontScale;
             float   pip      = std::max(ScalePx(4.0f), fontSize * 0.55f);
             float   cx       = x + ScalePx(5.0f) + pip;
             float   cy       = y + h * 0.5f + barTextOffsetY;
-            dl->AddCircleFilled(ImVec2(cx, cy), pip * 0.5f, IM_COL32(200, 200, 200, static_cast<int>(90 * a)));
+            dl->AddCircleFilled(ImVec2(cx, cy), pip * 0.5f, withAlpha(tinted ? 220 : 90));
             char buf[16];
             snprintf(buf, sizeof(buf), "+%.1f/s", regenVal);
             float tx = cx + pip * 0.5f + ScalePx(3.0f);
             float ty = cy - fontSize * 0.5f;
             dl->AddText(font, fontSize, ImVec2(tx + ScalePx(1.0f), ty + ScalePx(1.0f)), IM_COL32(0, 0, 0, static_cast<int>(180 * a)), buf);
-            dl->AddText(font, fontSize, ImVec2(tx, ty), IM_COL32(200, 200, 200, static_cast<int>(180 * a)), buf);
+            dl->AddText(font, fontSize, ImVec2(tx, ty), withAlpha(tinted ? 230 : 180), buf);
         };
 
         if (settings->debugEnableVerboseLogging) {
@@ -915,7 +958,7 @@ namespace PlayerHUD {
         };
 
         auto DrawSymptoms = [&](float x, float y, float w, float h, float fillFrac, float maxNow,
-                                const SurvivalSymptoms::Bar& s, float a, ID3D11ShaderResourceView* fillTex) {
+                                const HUDSymptoms::Bar& s, float a, ID3D11ShaderResourceView* fillTex) {
             if (w <= 0.0f) return;
             const float full  = maxNow + s.Lost();
             const float needs = full > 0.0f ? (s.capPoints + s.needPoints) / full : 0.0f;
@@ -932,10 +975,10 @@ namespace PlayerHUD {
                 DrawSlice(x, y, w, h, 1.0f - total, 1.0f - total + tickU,
                           IM_COL32(242, 227, 181, static_cast<int>(230 * a)), fillTex);
             }
-            if (s.regen != SurvivalSymptoms::Regen::kNormal && fillFrac > 0.005f && fillFrac < 0.995f) {
+            if (s.regen != HUDSymptoms::Regen::kNormal && fillFrac > 0.005f && fillFrac < 0.995f) {
                 const float edgeU = std::max(ScalePx(4.0f), 0.02f * w) / w;
                 ImU32 tint;
-                if (s.regen == SurvivalSymptoms::Regen::kStopped) {
+                if (s.regen == HUDSymptoms::Regen::kStopped) {
                     tint = IM_COL32(207, 233, 255, static_cast<int>(200 * a));
                 } else {
                     const float pulse = UIAnimation::Pulse(1.2f, 0.0f, 1.0f);
@@ -976,7 +1019,7 @@ namespace PlayerHUD {
         };
         float widestBarW = barW;
 
-        const bool showBarIcons = settings->phShowBarIcons && !settings->phShowPortrait;
+        const bool showBarIcons = settings->phShowBarIcons;
         HUDDraw::IconFx barIconFx;
         barIconFx.duotone = true;
         barIconFx.shadow  = true;
@@ -1028,8 +1071,9 @@ namespace PlayerHUD {
                 DrawSymptoms(bx, by, barW, barH, frac, stats.health.GetMax(), symptoms.health, dynA, hpTextures.fill);
                 const float ax = bx + ScalePx(static_cast<float>(settings->phHpAnnotationOffsetX));
                 const float ay = by + ScalePx(static_cast<float>(settings->phHpAnnotationOffsetY));
-                DrawRegenPip(ax, ay, barH, regenHP, dynA);
+                DrawRegenPip(ax, ay, barH, regenHP, symptoms.health, dynA);
                 DrawStatBonus(ax, ay, barW, barH, statBonusHP, dynA);
+                DrawBarBadges(ax, ay, barW, barH, statBonusHP, symptoms.health, dynA);
                 if (showBarText) DrawBarText(ax, ay, barW, barH, stats.health.current, textMax, dynA);
                 DrawBarIcon(TextureManager::GetPartyIcon("health"), bx, by, barH, dynA);
             }
@@ -1067,8 +1111,9 @@ namespace PlayerHUD {
                 DrawSymptoms(bx, by, barW, bh, frac, stats.magicka.GetMax(), symptoms.magicka, dynA, mpTextures.fill);
                 const float ax = bx + ScalePx(static_cast<float>(settings->phMpAnnotationOffsetX));
                 const float ay = by + ScalePx(static_cast<float>(settings->phMpAnnotationOffsetY));
-                DrawRegenPip(ax, ay, bh, regenMP, dynA);
+                DrawRegenPip(ax, ay, bh, regenMP, symptoms.magicka, dynA);
                 DrawStatBonus(ax, ay, barW, bh, statBonusMP, dynA);
+                DrawBarBadges(ax, ay, barW, bh, statBonusMP, symptoms.magicka, dynA);
                 if (showBarText) DrawBarText(ax, ay, barW, bh, stats.magicka.current, textMax, dynA);
                 DrawBarIcon(TextureManager::GetPartyIcon("magicka"), bx, by, bh, dynA);
                 if (frac < 0.01f && pulseSettingA > 0) {
@@ -1119,8 +1164,9 @@ namespace PlayerHUD {
                 DrawSymptoms(bx, by, barW, bh, frac, stats.stamina.GetMax(), symptoms.stamina, dynA, spTextures.fill);
                 const float ax = bx + ScalePx(static_cast<float>(settings->phSpAnnotationOffsetX));
                 const float ay = by + ScalePx(static_cast<float>(settings->phSpAnnotationOffsetY));
-                DrawRegenPip(ax, ay, bh, regenSP, dynA);
+                DrawRegenPip(ax, ay, bh, regenSP, symptoms.stamina, dynA);
                 DrawStatBonus(ax, ay, barW, bh, statBonusSP, dynA);
+                DrawBarBadges(ax, ay, barW, bh, statBonusSP, symptoms.stamina, dynA);
                 if (showBarText) DrawBarText(ax, ay, barW, bh, stats.stamina.current, textMax, dynA);
                 DrawBarIcon(TextureManager::GetPartyIcon("stamina"), bx, by, bh, dynA);
                 if (frac < 0.01f && pulseSettingA > 0) {
@@ -1140,8 +1186,7 @@ namespace PlayerHUD {
             curY += bh + barSpacing;
         }
 
-        // XP bar: shown as a flat bar when portrait is hidden, or when XP as Bar is enabled.
-        if (settings->phShowXP && (!settings->phShowPortrait || settings->phXPAsBar)) {
+        if (settings->phXPAsBar || (settings->phShowXP && !settings->phShowPortrait)) {
             float currentXP = 0.0f, xpNeeded = 1.0f;
             if (auto* runtimeData = player->GetInfoRuntimeData().skills)
                 if (runtimeData->data) {
@@ -1184,8 +1229,10 @@ namespace PlayerHUD {
                 snprintf(xpValues, sizeof(xpValues), "%.0f / %.0f", currentXP, xpNeeded);
                 const std::string xpText = std::string(xpValues) + " " + LocalizationManager::Get("Common.XP");
 
-                const float lineX = textX + ScalePx((float)settings->phXPBarOffsetX) + ScalePx(static_cast<float>(settings->phXPAnnotationOffsetX));
-                const float lineY = curY + ScalePx((float)settings->phXPBarOffsetY) + ScalePx(static_cast<float>(settings->phXPAnnotationOffsetY));
+                const float ribbonPadX = settings->phLevelRibbon ? ScalePx(8.0f) : 0.0f;
+                const float lineX = ribbonPadX + textX + ScalePx((float)settings->phXPBarOffsetX) + ScalePx(static_cast<float>(settings->phXPAnnotationOffsetX));
+                const float ribbonGap = settings->phLevelRibbon ? ScalePx(5.0f) : 0.0f;
+                const float lineY = curY + ribbonGap + ScalePx((float)settings->phXPBarOffsetY) + ScalePx(static_cast<float>(settings->phXPAnnotationOffsetY));
                 const int   txtA  = (int)(((settings->phBarTextColor >> 24) & 0xFF) * dynA);
                 const ImU32 lvlCol = IM_COL32((settings->phBarTextColor >> 16) & 0xFF,
                                               (settings->phBarTextColor >>  8) & 0xFF,
@@ -1195,8 +1242,8 @@ namespace PlayerHUD {
                                                settings->phBarTextColor        & 0xFF, (int)(txtA * 0.7f));
                 ImFont*     hFont   = ImGui::GetFont();
                 ImFont*     bFont   = ImGui::GetFont();
-                const float lvlSz   = ImGuiRenderer::GetHeadingFontSize() * 0.8f;
-                const float xpSz   = bFont->LegacySize * 0.8f;
+                const float lvlSz   = ImGuiRenderer::GetHeadingFontSize() * 0.8f * MasterScale();
+                const float xpSz   = bFont->LegacySize * 0.8f * MasterScale();
                 ImFontBaked* hBaked = hFont->GetFontBaked(lvlSz);
                 ImFontBaked* bBaked = bFont->GetFontBaked(xpSz);
                 const float lvlAsc  = hBaked ? hBaked->Ascent * (lvlSz / hBaked->Size) : lvlSz;
@@ -1204,6 +1251,33 @@ namespace PlayerHUD {
                 const float baseY   = lineY + std::max(lvlAsc, xpAsc);
                 const float lvlY    = baseY - lvlAsc;
                 const float xpY    = baseY - xpAsc;
+
+                if (settings->phLevelRibbon) {
+                    float lineW = hFont->CalcTextSizeA(lvlSz, FLT_MAX, 0.0f, lvlBuf).x + ScalePx(6.0f);
+                    if (levelUpReady) {
+                        const ImFontGlyph* digit = hBaked ? hBaked->FindGlyph('0') : nullptr;
+                        const float arrowH = digit ? (digit->Y1 - digit->Y0) * (lvlSz / hBaked->Size) : lvlSz;
+                        lineW += arrowH * 0.65f + ScalePx(6.0f);
+                    }
+                    lineW += bFont->CalcTextSizeA(xpSz, FLT_MAX, 0.0f, xpText.c_str()).x;
+
+                    const float padX  = ribbonPadX;
+                    const float padY  = ScalePx(2.0f);
+                    const float slant = ScalePx(8.0f);
+                    const float top   = (std::min)(lvlY, xpY) - padY;
+                    const float bot   = baseY + ScalePx(3.0f) + padY;
+                    const float left  = lineX - padX;
+                    const float right = lineX + lineW + padX;
+                    const ImVec2 plate[4] = { ImVec2(left, top), ImVec2(right + slant, top),
+                                              ImVec2(right, bot), ImVec2(left, bot) };
+
+                    const auto Faded = [&](std::uint32_t argb) {
+                        return IM_COL32((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF,
+                                        (int)(((argb >> 24) & 0xFF) * dynA));
+                    };
+                    dl->AddConvexPolyFilled(plate, 4, Faded(settings->phLevelRibbonColor));
+                    dl->AddLine(plate[0], plate[1], Faded(settings->phBadgeBorderColor), ScalePx(1.0f));
+                }
                 // Use the shared duotone and soft shadow, keeping the existing font hierarchy.
                 HUDDraw::TextFx textFx;
                 textFx.shadow = true;
@@ -1219,14 +1293,14 @@ namespace PlayerHUD {
                     const float fontScale = hBaked ? lvlSz / hBaked->Size : 1.0f;
                     const float arrowH = digit ? (digit->Y1 - digit->Y0) * fontScale : lvlSz;
                     const float arrowY = digit ? lvlY + digit->Y0 * fontScale : lvlY;
-                    DrawLevelUpRune(dl, xpX, arrowY, arrowH, txtA / 255.0f);
+                    HUDDraw::DrawTrendRune(dl, xpX, arrowY, arrowH, true, txtA / 255.0f);
                     xpX += arrowH * 0.65f + ScalePx(6.0f);
                 }
                 textFx.font = bFont;
                 textFx.fontSize = xpSz;
                 HUDDraw::DrawTextStyled(dl, ImVec2(xpX, xpY), xpCol, xpText.c_str(), textFx);
             }
-            curY += ImGui::GetTextLineHeight() + barSpacing;
+            curY += ImGui::GetTextLineHeight() * MasterScale() + (settings->phLevelRibbon ? ScalePx(5.0f) : 0.0f) + barSpacing;
         }
 
         if (dynAlphaSeenThisFrame) g_DynMaxAlphaLastFrame = dynAlphaFrameMax;

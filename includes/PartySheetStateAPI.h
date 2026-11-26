@@ -82,4 +82,3 @@ namespace PartySheetAPI
         virtual bool IsHotkeySuppressed(Panel a_panel) const = 0;
     };
 }
-

@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 # Set your project name. This will be the name of your SKSE .dll file.
-project(SkyrimPartySheet VERSION 3.9.1 LANGUAGES CXX)
+project(SkyrimPartySheet VERSION 4.0.0 LANGUAGES CXX)
 
 #
 # YOU DO NOT NEED TO EDIT ANYTHING BELOW HERE
@@ -65,6 +65,9 @@ find_package(imgui CONFIG REQUIRED)
 find_package(directxtex CONFIG REQUIRED)
 find_package(lunasvg CONFIG REQUIRED)
 
+# Spell tags compile Smart Search's shared IntentModel, from a SmartSearch checkout next to this repo.
+set(SMARTSEARCH_SHARED "${CMAKE_SOURCE_DIR}/../SmartSearch/shared" CACHE PATH "Path to SmartSearch/shared")
+
 add_commonlibsse_plugin(${PROJECT_NAME} MINIMUM_SKSE_VERSION 2.0.17 SOURCES
     src/plugin.cpp
     src/PartySheetStateAPI.cpp
@@ -74,14 +77,19 @@ add_commonlibsse_plugin(${PROJECT_NAME} MINIMUM_SKSE_VERSION 2.0.17 SOURCES
     src/LocalizationManager.cpp
     src/ImGui/Renderer.cpp
     src/InputHandler.cpp
+    src/MenuFrameworkPage.cpp
     src/ImGui/FollowerHUD.cpp
     src/EffectCategories.cpp
     src/TextureManager.cpp
     src/ImGui/PartySheet.cpp
     src/ImGui/PartySheetV2.cpp
     src/ImGui/PartySheetV2Camera.cpp
+    src/ImGui/PartySheetV2Light.cpp
+    src/ImGui/PartySheetV2Header.cpp
     src/ImGui/PartySheetV2Modal.cpp
+    src/ImGui/PartySheetV2Condition.cpp
     src/ImGui/PartySheetV2InventoryModal.cpp
+    src/ImGui/PartySheetV2SpellPicker.cpp
     src/ImGui/PartySheetV2StatusModal.cpp
     src/ImGui/InspectCard.cpp
     src/ImGui/InspectCardKYE.cpp
@@ -94,10 +102,20 @@ add_commonlibsse_plugin(${PROJECT_NAME} MINIMUM_SKSE_VERSION 2.0.17 SOURCES
     src/Utils/TraitResolver.cpp
     src/Utils/WornGearStatResolver.cpp
     src/Utils/EffectAttribution.cpp
+    src/Utils/EffectBadges.cpp
     src/Utils/LocationUtils.cpp
     src/Utils/PerkModifiers.cpp
+    src/Utils/SurvivalState.cpp
+    src/Utils/SurvivalSupplies.cpp
+    src/Utils/WeatherDisplay.cpp
+    src/Utils/EnvironmentChips.cpp
     src/Utils/GearCatalog.cpp
+    src/Utils/SpellCatalog.cpp
+    src/Utils/SpellTags.cpp
+    "${SMARTSEARCH_SHARED}/IntentModel/IntentModel.cpp"
+    src/Utils/RecentEquips.cpp
     src/Utils/GearSwitcher.cpp
+    src/Utils/FollowerCombatHold.cpp
     src/ImGui/WidgetStableMount.cpp
     src/ImGui/WidgetHorsePicker.cpp
     src/ImGui/WidgetCollectibles.cpp
@@ -113,8 +131,10 @@ add_commonlibsse_plugin(${PROJECT_NAME} MINIMUM_SKSE_VERSION 2.0.17 SOURCES
     src/ImGui/SettingsPinned.cpp
     src/ImGui/PlayerHUD.cpp
     src/ImGui/PlayerHUDPenalties.cpp
-    src/SurvivalSymptoms.cpp
+    src/HUDSymptoms.cpp
     src/ImGui/PlayerHUDSurvival.cpp
+    src/ImGui/PlayerHUDSupplies.cpp
+    src/ImGui/PlayerHUDEnvironment.cpp
     src/ImGui/PlayerHUDDisease.cpp
     src/ImGui/PlayerHUDEquipment.cpp
     src/ImGui/PlayerHUDEffects.cpp
@@ -137,6 +157,7 @@ add_commonlibsse_plugin(${PROJECT_NAME} MINIMUM_SKSE_VERSION 2.0.17 SOURCES
 )
 target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_23) # <--- use C++23 standard
 target_precompile_headers(${PROJECT_NAME} PRIVATE includes/PCH.h) # <--- PCH.h is required!
+target_include_directories(${PROJECT_NAME} PRIVATE "${SMARTSEARCH_SHARED}")
 
 # Always emit a matching PDB, even on Release, so a user's crash-log offsets can be
 # resolved later. /Zi generates full debug info; /DEBUG writes the PDB; /OPT:REF /OPT:ICF

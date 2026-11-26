@@ -5,7 +5,7 @@
 #include "../includes/UIAnimation.h"
 #include "../includes/Settings.h"
 #include "../includes/Utils/GearCatalog.h"
-#include "../includes/Utils/GearSwitcher.h"
+#include "../includes/Utils/FollowerCombatHold.h"
 
 #include <chrono>
 #include <unordered_map>
@@ -120,7 +120,7 @@ namespace AllyEvents {
     {
         if (!event) return RE::BSEventNotifyControl::kContinue;
 
-        GearSwitcher::OnEquipChanged(event->actor.get());
+        FollowerCombatHold::OnEquipChanged(event->actor.get());
 
         if (auto* equipActor = event->actor.get()) GearCatalog::Invalidate(equipActor->GetFormID());
 

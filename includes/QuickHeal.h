@@ -3,7 +3,6 @@
 // STATUS: Working
 // Automates quick healing item use.
 
-
 #include <RE/Skyrim.h>
 #include <string>
 #include <vector>

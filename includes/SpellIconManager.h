@@ -3,7 +3,6 @@
 // STATUS: Working
 // Loads and caches spell icons.
 
-
 #include <d3d11.h>
 #include <string>
 #include <unordered_map>

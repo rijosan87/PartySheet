@@ -1,5 +1,6 @@
 #include "../includes/Settings.h"
 #include "../includes/SettingsIni.h"
+#include "../includes/Utils/HUDDraw.h"
 
 #include <Windows.h>
 
@@ -130,6 +131,7 @@ void Settings::Load() {
     debugEnableCSLogging        = GetPrivateProfileIntW(L"Debug", L"EnableCSLogging",        0, userPath) != 0;
     debugEnablePerformanceStats = GetPrivateProfileIntW(L"Debug", L"EnablePerformanceStats", 0, userPath) != 0;
     debugEnableVerboseLogging   = GetPrivateProfileIntW(L"Debug", L"EnableVerboseLogging",   0, userPath) != 0;
+    debugEnableV2PerfLogging    = GetPrivateProfileIntW(L"Debug", L"EnableV2PerfLogging",    0, userPath) != 0;
 
     // =====================================
     // PartySheet.ini - Visual presets (shareable)
@@ -137,8 +139,11 @@ void Settings::Load() {
     followerHudMode  = GetPrivateProfileIntW(L"FollowerHUD", L"Mode",           followerHudMode,  presetPath);
     showTextOnBars   = GetPrivateProfileIntW(L"FollowerHUD", L"ShowTextOnBars", showTextOnBars,   presetPath) != 0;
     hudLayout        = GetPrivateProfileIntW(L"FollowerHUD", L"Layout",         hudLayout,        presetPath);
-    hudGrowUpward    = GetPrivateProfileIntW(L"FollowerHUD", L"GrowUpward",     hudGrowUpward ? 1 : 0, presetPath) != 0;
-    hudAnchorRight   = GetPrivateProfileIntW(L"FollowerHUD", L"AnchorRight",    hudAnchorRight ? 1 : 0, presetPath) != 0;
+    {
+        const int legacyCorner = (GetPrivateProfileIntW(L"FollowerHUD", L"GrowUpward", hudAnchor >= 2 ? 1 : 0, presetPath) ? 2 : 0)
+                               + (GetPrivateProfileIntW(L"FollowerHUD", L"AnchorRight", hudAnchor % 2, presetPath) ? 1 : 0);
+        hudAnchor = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"FollowerHUD", L"Anchor", legacyCorner, presetPath)), 0, 3);
+    }
     maxPerColumnOrRow= GetPrivateProfileIntW(L"FollowerHUD", L"MaxPerColumnOrRow", maxPerColumnOrRow, presetPath);
     if (maxPerColumnOrRow < 1) maxPerColumnOrRow = 1;
     if (maxPerColumnOrRow > 30) maxPerColumnOrRow = 30;
@@ -184,8 +189,11 @@ void Settings::Load() {
     showFollowerSummons = GetPrivateProfileIntW(L"FollowerHUD", L"ShowFollowerSummons", showFollowerSummons ? 1 : 0, presetPath) != 0;
     hudSeparateSummons = GetPrivateProfileIntW(L"FollowerHUD", L"SeparateSummons", hudSeparateSummons ? 1 : 0, presetPath) != 0;
     hudHideManagedSummonEffects = GetPrivateProfileIntW(L"FollowerHUD", L"HideManagedSummonEffects", hudHideManagedSummonEffects ? 1 : 0, presetPath) != 0;
-    hudSummonGrowUpward = GetPrivateProfileIntW(L"FollowerHUD", L"SummonGrowUpward", hudSummonGrowUpward ? 1 : 0, presetPath) != 0;
-    hudSummonAnchorRight = GetPrivateProfileIntW(L"FollowerHUD", L"SummonAnchorRight", hudSummonAnchorRight ? 1 : 0, presetPath) != 0;
+    {
+        const int legacyCorner = (GetPrivateProfileIntW(L"FollowerHUD", L"SummonGrowUpward", hudSummonAnchor >= 2 ? 1 : 0, presetPath) ? 2 : 0)
+                               + (GetPrivateProfileIntW(L"FollowerHUD", L"SummonAnchorRight", hudSummonAnchor % 2, presetPath) ? 1 : 0);
+        hudSummonAnchor = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"FollowerHUD", L"SummonAnchor", legacyCorner, presetPath)), 0, 3);
+    }
     hudSummonPosX = GetPrivateProfileIntW(L"FollowerHUD", L"SummonPosX", hudSummonPosX, presetPath);
     hudSummonPosY = GetPrivateProfileIntW(L"FollowerHUD", L"SummonPosY", hudSummonPosY, presetPath);
     showFollowers       = GetPrivateProfileIntW(L"FollowerHUD", L"ShowFollowers",       showFollowers,       presetPath) != 0;
@@ -465,6 +473,8 @@ void Settings::Load() {
     phShowXP  = GetPrivateProfileIntW(L"PlayerHUD", L"ShowXP", phShowXP ? 1 : 0, presetPath) != 0;
     phXPAsBar = GetPrivateProfileIntW(L"PlayerHUD", L"XPAsBar", phXPAsBar ? 1 : 0, presetPath) != 0;
     phXPColor = GetPrivateProfileHex(L"PlayerHUD", L"XPColor", phXPColor, presetPath);
+    phLevelRibbon = GetPrivateProfileIntW(L"PlayerHUD", L"LevelRibbon", phLevelRibbon ? 1 : 0, presetPath) != 0;
+    phLevelRibbonColor = GetPrivateProfileHex(L"PlayerHUD", L"LevelRibbonColor", phLevelRibbonColor, presetPath);
 
     enablePlayerEquipWidget = GetPrivateProfileIntW(L"PlayerEquipWidget", L"Enabled", enablePlayerEquipWidget ? 1 : 0, presetPath) != 0;
     pePosX     = GetPrivateProfileIntW(L"PlayerEquipWidget", L"PosX",      pePosX,    presetPath);
@@ -475,6 +485,9 @@ void Settings::Load() {
     peShowNames      = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowNames",      peShowNames      ? 1 : 0, presetPath) != 0;
     peNameColor      = GetPrivateProfileHex(L"PlayerEquipWidget",  L"NameColor",      peNameColor,   presetPath);
     peNameBgColor    = GetPrivateProfileHex(L"PlayerEquipWidget",  L"NameBgColor",    peNameBgColor, presetPath);
+    peStripStyle     = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerEquipWidget", L"StripStyle", peStripStyle, presetPath)), 0, HUDDraw::StripStyle_Count - 1);
+    peStripWidth     = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerEquipWidget", L"StripWidth", peStripWidth, presetPath)), 0, 400);
+    peStripTint      = GetPrivateProfileHex(L"PlayerEquipWidget", L"StripTint", peStripTint, presetPath);
     peNameAlignment  = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NameAlignment",  peNameAlignment,  presetPath);
     peNameMaxChars   = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NameMaxChars",   peNameMaxChars,   presetPath);
     peNameFontScale  = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NameFontScale",  (int)(peNameFontScale  * 100), presetPath) / 100.0f;
@@ -488,6 +501,16 @@ void Settings::Load() {
     peLayout       = GetPrivateProfileIntW(L"PlayerEquipWidget", L"Layout",       peLayout,       presetPath);
     peSlotSpacing  = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotSpacing",  peSlotSpacing,  presetPath);
     peShowSlotBadge = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowSlotBadge", peShowSlotBadge ? 1 : 0, presetPath) != 0;
+    peNamePlacement = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NamePlacement", peNamePlacement, presetPath);
+    peSatelliteNamesBelow = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SatelliteNamesBelow", peSatelliteNamesBelow ? 1 : 0, presetPath) != 0;
+    peCenterNameSide = GetPrivateProfileIntW(L"PlayerEquipWidget", L"CenterNameSide", peCenterNameSide, presetPath);
+    peNameSideWidth = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NameSideWidth", peNameSideWidth, presetPath);
+    peNameGap = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NameGap", peNameGap, presetPath);
+    peClusterAngle1 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ClusterAngle1", peClusterAngle1, presetPath);
+    peClusterAngle2 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ClusterAngle2", peClusterAngle2, presetPath);
+    peStackOverlap = GetPrivateProfileIntW(L"PlayerEquipWidget", L"StackOverlap", peStackOverlap, presetPath);
+    peStackShiftX = GetPrivateProfileIntW(L"PlayerEquipWidget", L"StackShiftX", peStackShiftX, presetPath);
+    peBadgeAnchor = GetPrivateProfileIntW(L"PlayerEquipWidget", L"BadgeAnchor", peBadgeAnchor, presetPath);
     peShowAmmoCount = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowAmmoCount", peShowAmmoCount ? 1 : 0, presetPath) != 0;
     peShowDurability = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowDurability", peShowDurability ? 1 : 0, presetPath) != 0;
     peDurabilityScale = GetPrivateProfileIntW(L"PlayerEquipWidget", L"DurabilityScale", (int)(peDurabilityScale * 100), presetPath) / 100.0f;
@@ -497,6 +520,9 @@ void Settings::Load() {
     peSlotScale0    = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotScale0",    (int)(peSlotScale0 * 100), presetPath) / 100.0f;
     peSlotScale1    = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotScale1",    (int)(peSlotScale1 * 100), presetPath) / 100.0f;
     peSlotScale2    = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotScale2",    (int)(peSlotScale2 * 100), presetPath) / 100.0f;
+    peSlotShape0 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotShape0", peSlotShape0, presetPath);
+    peSlotShape1 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotShape1", peSlotShape1, presetPath);
+    peSlotShape2 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotShape2", peSlotShape2, presetPath);
     peIconBgEnabled   = GetPrivateProfileIntW(L"PlayerEquipWidget", L"IconBgEnabled",   peIconBgEnabled   ? 1 : 0, presetPath) != 0;
     peIconBgShape     = GetPrivateProfileIntW(L"PlayerEquipWidget", L"IconBgShape",     peIconBgShape,    presetPath);
     peIconBgColor     = GetPrivateProfileHex(L"PlayerEquipWidget",  L"IconBgColor",     peIconBgColor,    presetPath);
@@ -544,6 +570,16 @@ void Settings::Load() {
     prShowSpeed      = GetPrivateProfileIntW(L"PlayerResistWidget", L"ShowSpeed", prShowSpeed ? 1 : 0, presetPath) != 0;
     prSpeedColor     = GetPrivateProfileHex(L"PlayerResistWidget", L"SpeedColor",     prSpeedColor,     presetPath);
     prLayout         = GetPrivateProfileIntW(L"PlayerResistWidget", L"Layout",  prLayout,  presetPath);
+    prStyle = std::clamp((int)GetPrivateProfileIntW(L"PlayerResistWidget", L"Style", prStyle, presetPath), 0, 2);
+    prAnchor = std::clamp((int)GetPrivateProfileIntW(L"PlayerResistWidget", L"Anchor", prAnchor, presetPath), 0, 3);
+    prWrapAfter = std::clamp((int)GetPrivateProfileIntW(L"PlayerResistWidget", L"WrapAfter", prWrapAfter, presetPath), 0, 20);
+    prClothDir = std::clamp((int)GetPrivateProfileIntW(L"PlayerResistWidget", L"ClothDir", prClothDir, presetPath), 0, 4);
+    prDiscBorderWidth = std::clamp((int)GetPrivateProfileIntW(L"PlayerResistWidget", L"DiscBorderWidth", prDiscBorderWidth, presetPath), 0, 6);
+    prDiscRadius = std::clamp((int)GetPrivateProfileIntW(L"PlayerResistWidget", L"DiscRadius", prDiscRadius, presetPath), 0, 50);
+    prShowNames = GetPrivateProfileIntW(L"PlayerResistWidget", L"ShowNames", prShowNames ? 1 : 0, presetPath) != 0;
+    prDiscColor = GetPrivateProfileHex(L"PlayerResistWidget", L"DiscColor", prDiscColor, presetPath);
+    prStripColor = GetPrivateProfileHex(L"PlayerResistWidget", L"StripColor", prStripColor, presetPath);
+    prDiscBorderColor = GetPrivateProfileHex(L"PlayerResistWidget", L"DiscBorderColor", prDiscBorderColor, presetPath);
     prShowValue      = GetPrivateProfileIntW(L"PlayerResistWidget", L"ShowValue", prShowValue ? 1 : 0, presetPath) != 0;
     prIconFill       = GetPrivateProfileIntW(L"PlayerResistWidget", L"IconFill", prIconFill ? 1 : 0, presetPath) != 0;
     prRadialRadius     = GetPrivateProfileIntW(L"PlayerResistWidget", L"RadialRadius",     prRadialRadius,     presetPath);
@@ -637,12 +673,16 @@ void Settings::Load() {
 
     psUseFullscreenMode = GetPrivateProfileIntW(L"PartySheet", L"UseFullscreenMode", psUseFullscreenMode, presetPath) != 0;
     psV2LiveCharacter = GetPrivateProfileIntW(L"PartySheet", L"V2LiveCharacter", psV2LiveCharacter ? 1 : 0, presetPath) != 0;
+    psV2CharacterRight = GetPrivateProfileIntW(L"PartySheet", L"V2CharacterRight", psV2CharacterRight ? 1 : 0, presetPath) != 0;
+    psV2LiveLight = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveLight", psV2LiveLight, presetPath), 0, 100);
+    psV2LiveCamYawRight = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveCamYawRight", psV2LiveCamYawRight, presetPath), -45, 45);
+    psV2LiveCamXRight = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveCamXRight", psV2LiveCamXRight, presetPath), -150, 150);
     psV2LiveCamX = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveCamX", psV2LiveCamX, presetPath), -60, 60);
     psV2LiveCamZ = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveCamZ", psV2LiveCamZ, presetPath), -60, 60);
-    psV2LiveCamDist = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveCamDist", psV2LiveCamDist, presetPath), 0, 400);
-    psV2LiveOpenW = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveOpenW", psV2LiveOpenW, presetPath), 20, 60);
+    psV2LiveCamDist = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveCamDist", psV2LiveCamDist, presetPath), -120, 400);
+    psV2LiveOpenW = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveOpenW", psV2LiveOpenW, presetPath), 20, 100);
     psV2LiveOpenH = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveOpenH", psV2LiveOpenH, presetPath), 40, 100);
-    psV2LiveSoftness = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveSoftness", psV2LiveSoftness, presetPath), 5, 60);
+    psV2LiveSoftness = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveSoftness", psV2LiveSoftness, presetPath), 5, 100);
     psV2LiveBottomFade = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveBottomFade", psV2LiveBottomFade, presetPath), 0, 70);
     psV2LiveDim = std::clamp<int>((int)GetPrivateProfileIntW(L"PartySheet", L"V2LiveDim", psV2LiveDim, presetPath), 0, 60);
     psV2LiveClassTint = GetPrivateProfileIntW(L"PartySheet", L"V2LiveClassTint", psV2LiveClassTint ? 1 : 0, presetPath) != 0;
@@ -663,6 +703,7 @@ void Settings::Load() {
     psV2FontBody     = GetPrivateProfileIntW(L"PartySheet", L"V2FontBody",     (int)(psV2FontBody     * 100), presetPath) / 100.0f;
     psV2FontSmall    = GetPrivateProfileIntW(L"PartySheet", L"V2FontSmall",    (int)(psV2FontSmall    * 100), presetPath) / 100.0f;
     psV2IconDuotone      = GetPrivateProfileIntW(L"PartySheet", L"V2IconDuotone", psV2IconDuotone ? 1 : 0, presetPath) != 0;
+    psV2PanelStyle       = GetPrivateProfileIntW(L"PartySheet", L"V2PanelStyle", psV2PanelStyle, presetPath);
     psV2IconShadow       = GetPrivateProfileIntW(L"PartySheet", L"V2IconShadow",  psV2IconShadow  ? 1 : 0, presetPath) != 0;
     psV2IconOutline      = GetPrivateProfileIntW(L"PartySheet", L"V2IconOutline", psV2IconOutline ? 1 : 0, presetPath) != 0;
     psV2IconOutlineWidth = GetPrivateProfileIntW(L"PartySheet", L"V2IconOutlineWidth", psV2IconOutlineWidth, presetPath);
@@ -675,6 +716,17 @@ void Settings::Load() {
     psV2IconFooter   = GetPrivateProfileIntW(L"PartySheet", L"V2IconFooter",  (int)psV2IconFooter,  presetPath) * 1.0f;
     psV2IconEquip    = GetPrivateProfileIntW(L"PartySheet", L"V2IconEquip",   (int)psV2IconEquip,   presetPath) * 1.0f;
     psV2IconArmor    = GetPrivateProfileIntW(L"PartySheet", L"V2IconArmor",   (int)psV2IconArmor,   presetPath) * 1.0f;
+    psV2IconRecentList  = GetPrivateProfileIntW(L"PartySheet", L"V2IconRecentList",  psV2IconRecentList,  presetPath);
+    psV2IconRecentCards = GetPrivateProfileIntW(L"PartySheet", L"V2IconRecentCards", psV2IconRecentCards, presetPath);
+    psV2EquipCardH   = GetPrivateProfileIntW(L"PartySheet", L"V2EquipCardH",  (int)psV2EquipCardH,  presetPath) * 1.0f;
+    psV2ArmorCardScale = GetPrivateProfileIntW(L"PartySheet", L"V2ArmorCardScale", psV2ArmorCardScale, presetPath);
+    psV2SlotLayout   = GetPrivateProfileIntW(L"PartySheet", L"V2SlotLayout", psV2SlotLayout, presetPath);
+    psV2WeaponIconRotate = GetPrivateProfileIntW(L"PartySheet", L"V2WeaponIconRotate", psV2WeaponIconRotate, presetPath);
+    psV2InvPictograms  = GetPrivateProfileIntW(L"PartySheet", L"V2InvPictograms", psV2InvPictograms ? 1 : 0, presetPath) != 0;
+    psV2InvKeepItemArt = GetPrivateProfileIntW(L"PartySheet", L"V2InvKeepItemArt", psV2InvKeepItemArt ? 1 : 0, presetPath) != 0;
+    psV2InvItemArtScale = GetPrivateProfileIntW(L"PartySheet", L"V2InvItemArtScale", psV2InvItemArtScale, presetPath);
+    psV2InvPosX = GetPrivateProfileIntW(L"PartySheet", L"V2InvPosX", psV2InvPosX, userPath);
+    psV2InvPosY = GetPrivateProfileIntW(L"PartySheet", L"V2InvPosY", psV2InvPosY, userPath);
     partySheetPosX   = GetPrivateProfileIntW(L"PartySheet", L"PosX",   partySheetPosX,   presetPath);
     partySheetPosY   = GetPrivateProfileIntW(L"PartySheet", L"PosY",   partySheetPosY,   presetPath);
     partySheetWidth  = GetPrivateProfileIntW(L"PartySheet", L"Width",  partySheetWidth,  presetPath);
@@ -1019,22 +1071,25 @@ void Settings::Load() {
     ptCountScale       = GetPrivateProfileIntW(L"PinnedItems", L"CountScale",     static_cast<int>(ptCountScale * 100), presetPath) / 100.0f;
     if (ptCountScale < 0.5f) ptCountScale = 0.5f;
     if (ptCountScale > 2.0f) ptCountScale = 2.0f;
-    ptCountStyle       = GetPrivateProfileIntW(L"PinnedItems", L"CountStyle",     ptCountStyle,       presetPath);
+    ptCountStyle       = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"CountStyle", ptCountStyle, presetPath)), 0, HUDDraw::BadgePreset_Count - 1);
+    ptCountAnchor      = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"CountAnchor", ptCountAnchor, presetPath)), 0, 8);
+    ptBadgeTint        = GetPrivateProfileHex(L"PinnedItems",  L"BadgeTint",      ptBadgeTint,        presetPath);
     ptIconBgColor      = GetPrivateProfileHex(L"PinnedItems",  L"IconBgColor",    ptIconBgColor,      presetPath);
-    ptBadgeBgColor     = GetPrivateProfileHex(L"PinnedItems",  L"BadgeBgColor",   ptBadgeBgColor,     presetPath);
     ptIconSize         = GetPrivateProfileIntW(L"PinnedItems", L"IconSize",       ptIconSize,         presetPath);
     if (ptIconSize < 12) ptIconSize = 12;
     if (ptIconSize > 128) ptIconSize = 128;
     ptRowSpacing       = GetPrivateProfileIntW(L"PinnedItems", L"RowSpacing",     ptRowSpacing,       presetPath);
     if (ptRowSpacing < -20) ptRowSpacing = -20;
     if (ptRowSpacing >  20) ptRowSpacing =  20;
-    ptPaddingBottom    = GetPrivateProfileIntW(L"PinnedItems", L"PaddingBottom",  ptPaddingBottom,    presetPath);
-    if (ptPaddingBottom < -20) ptPaddingBottom = -20;
-    if (ptPaddingBottom > 40)  ptPaddingBottom = 40;
+    ptAnchor           = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"Anchor", ptAnchor, presetPath)), 0, 3);
     ptTextColor        = GetPrivateProfileHex(L"PinnedItems", L"TextColor",       ptTextColor,        presetPath);
     ptGoalMetColor     = GetPrivateProfileHex(L"PinnedItems", L"GoalMetColor",    ptGoalMetColor,     presetPath);
-    ptCardStyle        = GetPrivateProfileIntW(L"PinnedItems", L"CardStyle",      ptCardStyle,        presetPath);
     ptDirection        = GetPrivateProfileIntW(L"PinnedItems", L"Direction",      ptDirection,        presetPath);
+    {
+        const int oldCard  = static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"CardStyle", 1, presetPath));
+        const int fallback = (ptDirection == 1 || oldCard == 1) ? 0 : 3;
+        ptLabelPlacement   = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"LabelPlacement", fallback, presetPath)), 0, 3);
+    }
     ptItemWidth        = GetPrivateProfileIntW(L"PinnedItems", L"ItemWidth",      ptItemWidth,        presetPath);
     if (ptItemWidth < 20)  ptItemWidth = 20;
     if (ptItemWidth > 400) ptItemWidth = 400;
@@ -1055,7 +1110,7 @@ void Settings::Load() {
     if (ptBadgeOffsetY > 100) ptBadgeOffsetY = 100;
     ptHideInCombat = GetPrivateProfileIntW(L"PinnedItems", L"HideInCombat", ptHideInCombat ? 1 : 0, presetPath) != 0;
     ptIconZoom     = GetPrivateProfileIntW(L"PinnedItems", L"IconZoom",    static_cast<int>(ptIconZoom * 100), presetPath) / 100.0f;
-    if (ptIconZoom < 1.0f) ptIconZoom = 1.0f;
+    if (ptIconZoom < 0.5f) ptIconZoom = 0.5f;
     if (ptIconZoom > 4.0f) ptIconZoom = 4.0f;
     ptIconFocusU   = GetPrivateProfileIntW(L"PinnedItems", L"IconFocusU",  static_cast<int>(ptIconFocusU * 100), presetPath) / 100.0f;
     if (ptIconFocusU < 0.0f) ptIconFocusU = 0.0f;
@@ -1063,11 +1118,17 @@ void Settings::Load() {
     ptIconFocusV   = GetPrivateProfileIntW(L"PinnedItems", L"IconFocusV",  static_cast<int>(ptIconFocusV * 100), presetPath) / 100.0f;
     if (ptIconFocusV < 0.0f) ptIconFocusV = 0.0f;
     if (ptIconFocusV > 1.0f) ptIconFocusV = 1.0f;
-    ptShowHotkeyBadge    = GetPrivateProfileIntW(L"PinnedItems", L"ShowHotkeyBadge", ptShowHotkeyBadge ? 1 : 0, presetPath) != 0;
+    ptHotkeyBadgeStyle   = GetPrivateProfileIntW(L"PinnedItems", L"ShowHotkeyBadge", 1, presetPath) ? ptHotkeyBadgeStyle : -1;
+    ptHotkeyBadgeStyle   = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"HotkeyBadgeStyle", ptHotkeyBadgeStyle, presetPath)), -1, HUDDraw::BadgePreset_Count - 1);
+    ptHotkeyBadgeTint    = GetPrivateProfileHex(L"PinnedItems",  L"HotkeyBadgeTint", ptHotkeyBadgeTint, presetPath);
     ptHotkeyBadgeScale   = GetPrivateProfileIntW(L"PinnedItems", L"HotkeyBadgeScale", static_cast<int>(ptHotkeyBadgeScale * 100), presetPath) / 100.0f;
     ptHotkeyBadgeOffsetX = GetPrivateProfileIntW(L"PinnedItems", L"HotkeyBadgeOffsetX", ptHotkeyBadgeOffsetX, presetPath);
     ptHotkeyBadgeOffsetY = GetPrivateProfileIntW(L"PinnedItems", L"HotkeyBadgeOffsetY", ptHotkeyBadgeOffsetY, presetPath);
-    ptHotkeyBadgeBgColor = GetPrivateProfileHex(L"PinnedItems",  L"HotkeyBadgeBgColor", ptHotkeyBadgeBgColor, presetPath);
+    ptStripStyle     = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"StripStyle", ptStripStyle, presetPath)), 0, HUDDraw::StripStyle_Count - 1);
+    ptStripWidth     = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"StripWidth", ptStripWidth, presetPath)), 0, 400);
+    ptStripTint      = GetPrivateProfileHex(L"PinnedItems", L"StripTint", ptStripTint, presetPath);
+    ptCountPosition  = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"CountPosition", ptCountPosition, presetPath)), 0, 2);
+    ptHotkeyPosition = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PinnedItems", L"HotkeyPosition", ptHotkeyPosition, presetPath)), 0, 1);
 
     enablePlayerHud          = GetPrivateProfileIntW(L"PlayerHUD", L"Enable",       enablePlayerHud ? 1 : 0,          presetPath) != 0;
     enablePlayerStatusWidget = GetPrivateProfileIntW(L"PlayerHUD", L"EnableStatus", enablePlayerStatusWidget ? 1 : 0, presetPath) != 0;
@@ -1151,6 +1212,8 @@ void Settings::Load() {
     phMagickaColor = GetPrivateProfileHex(L"PlayerHUD", L"MagickaColor", phMagickaColor, presetPath);
     phStaminaColor = GetPrivateProfileHex(L"PlayerHUD", L"StaminaColor", phStaminaColor, presetPath);
     phXPColor      = GetPrivateProfileHex(L"PlayerHUD", L"XPColor",      phXPColor,      presetPath);
+    phLevelRibbon = GetPrivateProfileIntW(L"PlayerHUD", L"LevelRibbon", phLevelRibbon ? 1 : 0, presetPath) != 0;
+    phLevelRibbonColor = GetPrivateProfileHex(L"PlayerHUD", L"LevelRibbonColor", phLevelRibbonColor, presetPath);
     phPortraitBorderColor   = GetPrivateProfileHex(L"PlayerHUD", L"PortraitBorderColor",   phPortraitBorderColor,   presetPath);
     phPortraitBorderWidth   = GetPrivateProfileIntW(L"PlayerHUD", L"PortraitBorderWidth",  phPortraitBorderWidth,   presetPath);
     phPortraitBorderRadius  = GetPrivateProfileFloat100(L"PlayerHUD", L"PortraitBorderRadius", phPortraitBorderRadius, presetPath);
@@ -1201,6 +1264,13 @@ void Settings::Load() {
     phShowFortify     = GetPrivateProfileIntW(L"PlayerHUD", L"ShowFortify", phShowFortify ? 1 : 0, presetPath) != 0;
     phFortifyFontScale = GetPrivateProfileFloat100(L"PlayerHUD", L"FortifyFontScale", phFortifyFontScale, presetPath);
     phFortifyRight    = GetPrivateProfileIntW(L"PlayerHUD", L"FortifyRight", phFortifyRight ? 1 : 0, presetPath) != 0;
+    phShowEffectBadges = GetPrivateProfileIntW(L"PlayerHUD", L"ShowEffectBadges", phShowEffectBadges ? 1 : 0, presetPath) != 0;
+    phEffectBadgeStyle = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerHUD", L"EffectBadgeStyle", phEffectBadgeStyle, presetPath)), 0, HUDDraw::BadgePreset_Count - 1);
+    phEffectBadgeSize  = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerHUD", L"EffectBadgeSize",  phEffectBadgeSize,  presetPath)), 60, 200);
+    phEffectBadgeMax   = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerHUD", L"EffectBadgeMax",   phEffectBadgeMax,   presetPath)), 1, 8);
+    phEffectBadgePlace = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerHUD", L"EffectBadgePlace", phEffectBadgePlace, presetPath)), 0, 1);
+    phEffectBadgeHideInList = GetPrivateProfileIntW(L"PlayerHUD", L"EffectBadgeHideInList", phEffectBadgeHideInList ? 1 : 0, presetPath) != 0;
+    phTintRegenPip     = GetPrivateProfileIntW(L"PlayerHUD", L"TintRegenPip", phTintRegenPip ? 1 : 0, presetPath) != 0;
     enablePlayerSurvivalWidget = GetPrivateProfileIntW(L"PlayerSurvivalWidget", L"Enable",       enablePlayerSurvivalWidget ? 1 : 0, presetPath) != 0;
     phSurvivalPosX        = GetPrivateProfileIntW(L"PlayerSurvivalWidget", L"PosX",         phSurvivalPosX,        presetPath);
     phSurvivalPosY        = GetPrivateProfileIntW(L"PlayerSurvivalWidget", L"PosY",         phSurvivalPosY,        presetPath);
@@ -1220,6 +1290,7 @@ void Settings::Load() {
     phSurvivalBorderWidth = std::clamp(GetPrivateProfileFloat100(L"PlayerSurvivalWidget", L"BorderWidth", phSurvivalBorderWidth, presetPath), 0.5f, 6.0f);
     phSurvivalBorderColor = GetPrivateProfileHex(L"PlayerSurvivalWidget", L"BorderColor", phSurvivalBorderColor, presetPath);
     phSurvivalColdColor    = GetPrivateProfileHex(L"PlayerSurvivalWidget", L"ColdColor",     phSurvivalColdColor,    presetPath);
+    phSurvivalFireColor    = GetPrivateProfileHex(L"PlayerSurvivalWidget", L"FireColor",     phSurvivalFireColor,    presetPath);
     phSurvivalHungerColor  = GetPrivateProfileHex(L"PlayerSurvivalWidget", L"HungerColor",   phSurvivalHungerColor,  presetPath);
     phSurvivalFatigueColor = GetPrivateProfileHex(L"PlayerSurvivalWidget", L"FatigueColor",  phSurvivalFatigueColor, presetPath);
     phSurvivalThirstColor  = GetPrivateProfileHex(L"PlayerSurvivalWidget", L"ThirstColor",   phSurvivalThirstColor,  presetPath);
@@ -1235,7 +1306,7 @@ void Settings::Load() {
         phSurvivalIndicatorStyle = survivalSavedIndicator == 3 ? 0 : std::clamp(survivalSavedIndicator, 0, 2);
     } else {
         phSurvivalIndicatorStyle = std::clamp(survivalSavedIndicator < 0 ? 0 : survivalSavedIndicator, 0, 3);
-        phSurvivalIconFill = GetPrivateProfileIntW(L"PlayerSurvivalWidget", L"IconFill", 1, presetPath) != 0;
+        phSurvivalIconFill = GetPrivateProfileIntW(L"PlayerSurvivalWidget", L"IconFill", phSurvivalIconFill ? 1 : 0, presetPath) != 0;
     }
     phSurvivalPipShape = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerSurvivalWidget", L"PipShape", 0, presetPath)), 0, 1);
     phSurvivalArcSweep = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerSurvivalWidget", L"ArcSweep", 100, presetPath)), 1, 360);
@@ -1275,6 +1346,39 @@ void Settings::Load() {
     phSurvivalIconOutlineColor = GetPrivateProfileHex(L"PlayerSurvivalWidget", L"IconOutlineColor", phSurvivalIconOutlineColor, presetPath);
     phSurvivalIconGlow        = GetPrivateProfileIntW(L"PlayerSurvivalWidget", L"IconGlow",        phSurvivalIconGlow  ? 1 : 0, presetPath) != 0;
     phSurvivalIconGloss       = GetPrivateProfileIntW(L"PlayerSurvivalWidget", L"IconGloss",       phSurvivalIconGloss ? 1 : 0, presetPath) != 0;
+
+    phSuppliesEnable       = GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"Enable",       phSuppliesEnable ? 1 : 0, presetPath) != 0;
+    phSuppliesPosX         = GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"PosX",         phSuppliesPosX,           presetPath);
+    phSuppliesPosY         = GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"PosY",         phSuppliesPosY,           presetPath);
+    phSuppliesLayout       = std::clamp((int)GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"Layout", phSuppliesLayout, presetPath), 0, 1);
+    phSuppliesAnchor       = std::clamp((int)GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"Anchor", phSuppliesAnchor, presetPath), 0, 3);
+    phSuppliesMaxItems     = GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"MaxItems",     phSuppliesMaxItems,       presetPath);
+    phSuppliesWrapAfter    = GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"WrapAfter",    phSuppliesWrapAfter,      presetPath);
+    phSuppliesScale        = std::clamp((int)GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"Scale", phSuppliesScale, presetPath), 50, 200);
+    phSuppliesShowMessages = GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"ShowMessages", phSuppliesShowMessages ? 1 : 0, presetPath) != 0;
+    phSuppliesShowNames    = GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"ShowNames",    phSuppliesShowNames ? 1 : 0,    presetPath) != 0;
+    phSuppliesEmptyOpacity = std::clamp((int)GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"EmptyOpacity", phSuppliesEmptyOpacity, presetPath), 0, 100);
+    phSuppliesStyle        = std::clamp((int)GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"Style", phSuppliesStyle, presetPath), 0, 1);
+    phSuppliesClothDir     = std::clamp((int)GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"ClothDir", phSuppliesClothDir, presetPath), 0, 4);
+    phSuppliesPopup        = std::clamp((int)GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"Popup", phSuppliesPopup, presetPath), 0, 1);
+    phSuppliesBgColor      = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"BgColor", phSuppliesBgColor, presetPath);
+    phSuppliesStripColor   = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"StripColor", phSuppliesStripColor, presetPath);
+    phSuppliesBorderColor  = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"BorderColor", phSuppliesBorderColor, presetPath);
+    phSuppliesBorderWidth  = std::clamp((int)GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"BorderWidth", phSuppliesBorderWidth, presetPath), 0, 6);
+    phSuppliesCornerRadius = std::clamp((int)GetPrivateProfileIntW(L"PlayerSuppliesWidget", L"CornerRadius", phSuppliesCornerRadius, presetPath), 0, 50);
+    phSuppliesFoodColor       = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"FoodColor",       phSuppliesFoodColor,       presetPath);
+    phSuppliesDrinksColor     = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"DrinksColor",     phSuppliesDrinksColor,     presetPath);
+    phSuppliesDirtyWaterColor = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"DirtyWaterColor", phSuppliesDirtyWaterColor, presetPath);
+    phSuppliesFirewoodColor   = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"FirewoodColor",   phSuppliesFirewoodColor,   presetPath);
+    phSuppliesTentsColor      = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"TentsColor",      phSuppliesTentsColor,      presetPath);
+    phSuppliesWaterskinColor  = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"WaterskinColor",  phSuppliesWaterskinColor,  presetPath);
+    phSuppliesTorchesColor    = GetPrivateProfileHex(L"PlayerSuppliesWidget", L"TorchesColor",    phSuppliesTorchesColor,    presetPath);
+    phEnvEnable           = GetPrivateProfileIntW(L"PlayerEnvironmentWidget", L"Enable",           phEnvEnable ? 1 : 0, presetPath) != 0;
+    phEnvPosX             = GetPrivateProfileIntW(L"PlayerEnvironmentWidget", L"PosX",             phEnvPosX,           presetPath);
+    phEnvPosY             = GetPrivateProfileIntW(L"PlayerEnvironmentWidget", L"PosY",             phEnvPosY,           presetPath);
+    phEnvScale            = std::clamp((int)GetPrivateProfileIntW(L"PlayerEnvironmentWidget", L"Scale", phEnvScale, presetPath), 50, 200);
+    phEnvHideResourcesWeather = GetPrivateProfileIntW(L"PlayerEnvironmentWidget", L"HideResourcesWeather", phEnvHideResourcesWeather ? 1 : 0, presetPath) != 0;
+    phEnvHideColdNeed = GetPrivateProfileIntW(L"PlayerEnvironmentWidget", L"HideColdNeed", phEnvHideColdNeed ? 1 : 0, presetPath) != 0;
 
     enablePlayerDiseaseWidget = GetPrivateProfileIntW(L"PlayerDiseaseWidget", L"Enable",        enablePlayerDiseaseWidget ? 1 : 0, presetPath) != 0;
     phDiseasePosX        = GetPrivateProfileIntW(L"PlayerDiseaseWidget", L"PosX",          phDiseasePosX,        presetPath);
@@ -1328,6 +1432,9 @@ void Settings::Load() {
     peShowNames      = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowNames",     peShowNames      ? 1 : 0, presetPath) != 0;
     peNameColor      = GetPrivateProfileHex(L"PlayerEquipWidget",  L"NameColor",     peNameColor,   presetPath);
     peNameBgColor    = GetPrivateProfileHex(L"PlayerEquipWidget",  L"NameBgColor",   peNameBgColor, presetPath);
+    peStripStyle     = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerEquipWidget", L"StripStyle", peStripStyle, presetPath)), 0, HUDDraw::StripStyle_Count - 1);
+    peStripWidth     = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerEquipWidget", L"StripWidth", peStripWidth, presetPath)), 0, 400);
+    peStripTint      = GetPrivateProfileHex(L"PlayerEquipWidget", L"StripTint", peStripTint, presetPath);
     peNameAlignment  = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NameAlignment", peNameAlignment,  presetPath);
     peNameFontScale  = GetPrivateProfileFloat100(L"PlayerEquipWidget", L"NameFontScale",  peNameFontScale,  presetPath);
     peBadgeFontScale = GetPrivateProfileFloat100(L"PlayerEquipWidget", L"BadgeFontScale", peBadgeFontScale, presetPath);
@@ -1338,9 +1445,25 @@ void Settings::Load() {
     peChargeBarWidth = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ChargeBarWidth", peChargeBarWidth, presetPath);
     peChargeBarHeight = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ChargeBarHeight", (int)(peChargeBarHeight * 100), presetPath) / 100.0f;
     peShowDamage     = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowDamage",    peShowDamage ? 1 : 0, presetPath) != 0;
+    peShowEffectBadges = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowEffectBadges", peShowEffectBadges ? 1 : 0, presetPath) != 0;
+    peEffectBadgeStyle = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerEquipWidget", L"EffectBadgeStyle", peEffectBadgeStyle, presetPath)), 0, HUDDraw::BadgePreset_Count - 1);
+    peEffectBadgeSize  = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerEquipWidget", L"EffectBadgeSize",  peEffectBadgeSize,  presetPath)), 15, 50);
+    peEffectBadgeMax   = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerEquipWidget", L"EffectBadgeMax",   peEffectBadgeMax,   presetPath)), 1, 6);
+    peEffectBadgeHideInList = GetPrivateProfileIntW(L"PlayerEquipWidget", L"EffectBadgeHideInList", peEffectBadgeHideInList ? 1 : 0, presetPath) != 0;
+    peEffectBadgePlace = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerEquipWidget", L"EffectBadgePlace", peEffectBadgePlace, presetPath)), 0, 1);
     peLayout        = GetPrivateProfileIntW(L"PlayerEquipWidget", L"Layout",       peLayout,       presetPath);
     peSlotSpacing   = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotSpacing",  peSlotSpacing,  presetPath);
     peShowSlotBadge = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowSlotBadge", peShowSlotBadge ? 1 : 0, presetPath) != 0;
+    peNamePlacement = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NamePlacement", peNamePlacement, presetPath);
+    peSatelliteNamesBelow = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SatelliteNamesBelow", peSatelliteNamesBelow ? 1 : 0, presetPath) != 0;
+    peCenterNameSide = GetPrivateProfileIntW(L"PlayerEquipWidget", L"CenterNameSide", peCenterNameSide, presetPath);
+    peNameSideWidth = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NameSideWidth", peNameSideWidth, presetPath);
+    peNameGap = GetPrivateProfileIntW(L"PlayerEquipWidget", L"NameGap", peNameGap, presetPath);
+    peClusterAngle1 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ClusterAngle1", peClusterAngle1, presetPath);
+    peClusterAngle2 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ClusterAngle2", peClusterAngle2, presetPath);
+    peStackOverlap = GetPrivateProfileIntW(L"PlayerEquipWidget", L"StackOverlap", peStackOverlap, presetPath);
+    peStackShiftX = GetPrivateProfileIntW(L"PlayerEquipWidget", L"StackShiftX", peStackShiftX, presetPath);
+    peBadgeAnchor = GetPrivateProfileIntW(L"PlayerEquipWidget", L"BadgeAnchor", peBadgeAnchor, presetPath);
     peShowAmmoCount = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowAmmoCount", peShowAmmoCount ? 1 : 0, presetPath) != 0;
     peShowDurability = GetPrivateProfileIntW(L"PlayerEquipWidget", L"ShowDurability", peShowDurability ? 1 : 0, presetPath) != 0;
     peDurabilityScale = GetPrivateProfileIntW(L"PlayerEquipWidget", L"DurabilityScale", (int)(peDurabilityScale * 100), presetPath) / 100.0f;
@@ -1350,6 +1473,9 @@ void Settings::Load() {
     peSlotScale0    = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotScale0",    (int)(peSlotScale0 * 100), presetPath) / 100.0f;
     peSlotScale1    = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotScale1",    (int)(peSlotScale1 * 100), presetPath) / 100.0f;
     peSlotScale2    = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotScale2",    (int)(peSlotScale2 * 100), presetPath) / 100.0f;
+    peSlotShape0 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotShape0", peSlotShape0, presetPath);
+    peSlotShape1 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotShape1", peSlotShape1, presetPath);
+    peSlotShape2 = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotShape2", peSlotShape2, presetPath);
     peSlotOffsetX1  = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotOffsetX1",  peSlotOffsetX1, presetPath);
     peSlotOffsetY1  = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotOffsetY1",  peSlotOffsetY1, presetPath);
     peSlotOffsetX2  = GetPrivateProfileIntW(L"PlayerEquipWidget", L"SlotOffsetX2",  peSlotOffsetX2, presetPath);
@@ -1549,6 +1675,13 @@ void Settings::Load() {
     SettingsIni::EndLoad();
 }
 
+void Settings::SaveInventoryModalPos() {
+    if (!SettingsIni::BeginSave()) return;
+    WritePrivateProfileStringW(L"PartySheet", L"V2InvPosX", std::to_wstring(psV2InvPosX).c_str(), L"Data/SKSE/Plugins/PartyUserSettings.ini");
+    WritePrivateProfileStringW(L"PartySheet", L"V2InvPosY", std::to_wstring(psV2InvPosY).c_str(), L"Data/SKSE/Plugins/PartyUserSettings.ini");
+    SettingsIni::EndSave();
+}
+
 void Settings::Save() {
     if (!SettingsIni::BeginSave()) {
         return;
@@ -1629,8 +1762,9 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"FollowerHUD", L"Mode", toWStr(followerHudMode).c_str(), presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"ShowTextOnBars", toWStr(showTextOnBars ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"Layout", toWStr(hudLayout).c_str(), presetPath);
-    WritePrivateProfileStringW(L"FollowerHUD", L"GrowUpward", toWStr(hudGrowUpward ? 1 : 0).c_str(), presetPath);
-    WritePrivateProfileStringW(L"FollowerHUD", L"AnchorRight", toWStr(hudAnchorRight ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"FollowerHUD", L"Anchor", toWStr(hudAnchor).c_str(), presetPath);
+    WritePrivateProfileStringW(L"FollowerHUD", L"GrowUpward", nullptr, presetPath);
+    WritePrivateProfileStringW(L"FollowerHUD", L"AnchorRight", nullptr, presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"MaxPerColumnOrRow", toWStr(maxPerColumnOrRow).c_str(), presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"PosX", toWStr(hudPosX).c_str(), presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"PosY", toWStr(hudPosY).c_str(), presetPath);
@@ -1669,8 +1803,9 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"FollowerHUD", L"ShowFollowerSummons", toWStr(showFollowerSummons ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"SeparateSummons", toWStr(hudSeparateSummons ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"HideManagedSummonEffects", toWStr(hudHideManagedSummonEffects ? 1 : 0).c_str(), presetPath);
-    WritePrivateProfileStringW(L"FollowerHUD", L"SummonGrowUpward", toWStr(hudSummonGrowUpward ? 1 : 0).c_str(), presetPath);
-    WritePrivateProfileStringW(L"FollowerHUD", L"SummonAnchorRight", toWStr(hudSummonAnchorRight ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"FollowerHUD", L"SummonAnchor", toWStr(hudSummonAnchor).c_str(), presetPath);
+    WritePrivateProfileStringW(L"FollowerHUD", L"SummonGrowUpward", nullptr, presetPath);
+    WritePrivateProfileStringW(L"FollowerHUD", L"SummonAnchorRight", nullptr, presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"SummonPosX", toWStr(hudSummonPosX).c_str(), presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"SummonPosY", toWStr(hudSummonPosY).c_str(), presetPath);
     WritePrivateProfileStringW(L"FollowerHUD", L"ShowFollowers", toWStr(showFollowers ? 1 : 0).c_str(), presetPath);
@@ -1911,6 +2046,8 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerHUD", L"ShowXP", toWStr(phShowXP ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"XPAsBar", toWStr(phXPAsBar ? 1 : 0).c_str(), presetPath);
     swprintf_s(hexBuf, L"%08X", phXPColor); WritePrivateProfileStringW(L"PlayerHUD", L"XPColor", hexBuf, presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"LevelRibbon", toWStr(phLevelRibbon ? 1 : 0).c_str(), presetPath);
+    swprintf_s(hexBuf, L"%08X", phLevelRibbonColor); WritePrivateProfileStringW(L"PlayerHUD", L"LevelRibbonColor", hexBuf, presetPath);
 
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"Enabled",   toWStr(enablePlayerEquipWidget ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"PosX",      toWStr(pePosX).c_str(),    presetPath);
@@ -1921,6 +2058,9 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowNames",     toWStr(peShowNames      ? 1 : 0).c_str(), presetPath);
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", peNameColor);    WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameColor",    buf, presetPath); }
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", peNameBgColor);  WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameBgColor",  buf, presetPath); }
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StripStyle", toWStr(peStripStyle).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StripWidth", toWStr(peStripWidth).c_str(), presetPath);
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", peStripTint);    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StripTint",    buf, presetPath); }
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameAlignment",  toWStr(peNameAlignment).c_str(),                    presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameMaxChars",   toWStr(peNameMaxChars).c_str(),                     presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameFontScale",  toWStr((int)(peNameFontScale  * 100)).c_str(),       presetPath);
@@ -1934,6 +2074,16 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"Layout",        toWStr(peLayout).c_str(),                    presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotSpacing",   toWStr(peSlotSpacing).c_str(),               presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowSlotBadge", toWStr(peShowSlotBadge ? 1 : 0).c_str(),    presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"NamePlacement", toWStr(peNamePlacement).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"SatelliteNamesBelow", toWStr(peSatelliteNamesBelow ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"CenterNameSide", toWStr(peCenterNameSide).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameSideWidth", toWStr(peNameSideWidth).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameGap", toWStr(peNameGap).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"ClusterAngle1", toWStr(peClusterAngle1).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"ClusterAngle2", toWStr(peClusterAngle2).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StackOverlap", toWStr(peStackOverlap).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StackShiftX", toWStr(peStackShiftX).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"BadgeAnchor", toWStr(peBadgeAnchor).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowAmmoCount", toWStr(peShowAmmoCount ? 1 : 0).c_str(),    presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowDurability", toWStr(peShowDurability ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"DurabilityScale", toWStr((int)(peDurabilityScale * 100)).c_str(), presetPath);
@@ -1943,6 +2093,9 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotScale0",    toWStr((int)(peSlotScale0 * 100)).c_str(),  presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotScale1",    toWStr((int)(peSlotScale1 * 100)).c_str(),  presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotScale2",    toWStr((int)(peSlotScale2 * 100)).c_str(),  presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotShape0", toWStr(peSlotShape0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotShape1", toWStr(peSlotShape1).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotShape2", toWStr(peSlotShape2).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"IconBgEnabled",   toWStr(peIconBgEnabled   ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"IconBgShape",     toWStr(peIconBgShape).c_str(),             presetPath);
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", peIconBgColor);    WritePrivateProfileStringW(L"PlayerEquipWidget", L"IconBgColor",    buf, presetPath); }
@@ -1992,6 +2145,16 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerResistWidget", L"ShowSpeed", toWStr(prShowSpeed ? 1 : 0).c_str(), presetPath);
     swprintf_s(hexBuf, L"%08X", prSpeedColor);     WritePrivateProfileStringW(L"PlayerResistWidget", L"SpeedColor",     hexBuf, presetPath);
     WritePrivateProfileStringW(L"PlayerResistWidget", L"Layout",  toWStr(prLayout).c_str(),  presetPath);
+    WritePrivateProfileStringW(L"PlayerResistWidget", L"Style", toWStr(prStyle).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerResistWidget", L"Anchor", toWStr(prAnchor).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerResistWidget", L"WrapAfter", toWStr(prWrapAfter).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerResistWidget", L"ClothDir", toWStr(prClothDir).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerResistWidget", L"DiscBorderWidth", toWStr(prDiscBorderWidth).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerResistWidget", L"DiscRadius", toWStr(prDiscRadius).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerResistWidget", L"ShowNames", toWStr(prShowNames ? 1 : 0).c_str(), presetPath);
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", prDiscColor); WritePrivateProfileStringW(L"PlayerResistWidget", L"DiscColor", buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", prStripColor); WritePrivateProfileStringW(L"PlayerResistWidget", L"StripColor", buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", prDiscBorderColor); WritePrivateProfileStringW(L"PlayerResistWidget", L"DiscBorderColor", buf, presetPath); }
     WritePrivateProfileStringW(L"PlayerResistWidget", L"ShowValue", toWStr(prShowValue ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerResistWidget", L"IconFill", toWStr(prIconFill ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerResistWidget", L"RadialRadius",     toWStr(prRadialRadius).c_str(),     presetPath);
@@ -2085,7 +2248,11 @@ void Settings::Save() {
 
     WritePrivateProfileStringW(L"PartySheet", L"UseFullscreenMode", toWStr(psUseFullscreenMode ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2LiveCharacter", toWStr(psV2LiveCharacter ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2CharacterRight", toWStr(psV2CharacterRight ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2LiveCamX", toWStr(psV2LiveCamX).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveCamXRight", toWStr(psV2LiveCamXRight).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveLight", toWStr(psV2LiveLight).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2LiveCamYawRight", toWStr(psV2LiveCamYawRight).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2LiveCamZ", toWStr(psV2LiveCamZ).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2LiveCamDist", toWStr(psV2LiveCamDist).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2LiveOpenW", toWStr(psV2LiveOpenW).c_str(), presetPath);
@@ -2111,6 +2278,7 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PartySheet", L"V2FontBody",    toWStr((int)(psV2FontBody    * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2FontSmall",   toWStr((int)(psV2FontSmall   * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2IconDuotone", toWStr(psV2IconDuotone ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2PanelStyle", toWStr(psV2PanelStyle).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2IconShadow",  toWStr(psV2IconShadow  ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2IconOutline", toWStr(psV2IconOutline ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2IconOutlineWidth", toWStr(psV2IconOutlineWidth).c_str(), presetPath);
@@ -2123,6 +2291,17 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PartySheet", L"V2IconFooter", toWStr((int)psV2IconFooter).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2IconEquip",  toWStr((int)psV2IconEquip).c_str(),  presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"V2IconArmor",  toWStr((int)psV2IconArmor).c_str(),  presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2IconRecentList",  toWStr(psV2IconRecentList).c_str(),  presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2IconRecentCards", toWStr(psV2IconRecentCards).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2EquipCardH", toWStr((int)psV2EquipCardH).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2ArmorCardScale", toWStr(psV2ArmorCardScale).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2SlotLayout", toWStr(psV2SlotLayout).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2WeaponIconRotate", toWStr(psV2WeaponIconRotate).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2InvPictograms", toWStr(psV2InvPictograms ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2InvKeepItemArt", toWStr(psV2InvKeepItemArt ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2InvItemArtScale", toWStr(psV2InvItemArtScale).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2InvPosX", toWStr(psV2InvPosX).c_str(), userPath);
+    WritePrivateProfileStringW(L"PartySheet", L"V2InvPosY", toWStr(psV2InvPosY).c_str(), userPath);
     WritePrivateProfileStringW(L"PartySheet", L"PosX", toWStr(partySheetPosX).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"PosY", toWStr(partySheetPosY).c_str(), presetPath);
     WritePrivateProfileStringW(L"PartySheet", L"Width", toWStr(partySheetWidth).c_str(), presetPath);
@@ -2357,14 +2536,15 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PinnedItems", L"LabelScale",      toWStr(static_cast<int>(ptLabelScale * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"CountScale",      toWStr(static_cast<int>(ptCountScale * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"CountStyle",      toWStr(ptCountStyle).c_str(),       presetPath);
+    swprintf_s(hexBuf, L"%08X", ptBadgeTint); WritePrivateProfileStringW(L"PinnedItems", L"BadgeTint", hexBuf, presetPath);
     swprintf_s(hexBuf, L"%08X", ptIconBgColor); WritePrivateProfileStringW(L"PinnedItems", L"IconBgColor", hexBuf, presetPath);
-    swprintf_s(hexBuf, L"%08X", ptBadgeBgColor); WritePrivateProfileStringW(L"PinnedItems", L"BadgeBgColor", hexBuf, presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"IconSize",        toWStr(ptIconSize).c_str(),         presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"RowSpacing",      toWStr(ptRowSpacing).c_str(),       presetPath);
-    WritePrivateProfileStringW(L"PinnedItems", L"PaddingBottom",   toWStr(ptPaddingBottom).c_str(),    presetPath);
+    WritePrivateProfileStringW(L"PinnedItems", L"Anchor",          toWStr(ptAnchor).c_str(),           presetPath);
     swprintf_s(hexBuf, L"%06X", ptTextColor    & 0xFFFFFF); WritePrivateProfileStringW(L"PinnedItems", L"TextColor",    hexBuf, presetPath);
     swprintf_s(hexBuf, L"%06X", ptGoalMetColor & 0xFFFFFF); WritePrivateProfileStringW(L"PinnedItems", L"GoalMetColor", hexBuf, presetPath);
-    WritePrivateProfileStringW(L"PinnedItems", L"CardStyle",       toWStr(ptCardStyle).c_str(),        presetPath);
+    WritePrivateProfileStringW(L"PinnedItems", L"LabelPlacement",  toWStr(ptLabelPlacement).c_str(),   presetPath);
+    WritePrivateProfileStringW(L"PinnedItems", L"CountAnchor",     toWStr(ptCountAnchor).c_str(),      presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"Direction",       toWStr(ptDirection).c_str(),        presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"ItemWidth",       toWStr(ptItemWidth).c_str(),        presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"ShowLabel",        toWStr(ptShowLabel        ? 1 : 0).c_str(), presetPath);
@@ -2378,11 +2558,16 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PinnedItems", L"IconZoom",        toWStr(static_cast<int>(ptIconZoom * 100)).c_str(),   presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"IconFocusU",      toWStr(static_cast<int>(ptIconFocusU * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"IconFocusV",      toWStr(static_cast<int>(ptIconFocusV * 100)).c_str(), presetPath);
-    WritePrivateProfileStringW(L"PinnedItems", L"ShowHotkeyBadge",    toWStr(ptShowHotkeyBadge ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PinnedItems", L"HotkeyBadgeStyle",   toWStr(ptHotkeyBadgeStyle).c_str(), presetPath);
+    swprintf_s(hexBuf, L"%08X", ptHotkeyBadgeTint); WritePrivateProfileStringW(L"PinnedItems", L"HotkeyBadgeTint", hexBuf, presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"HotkeyBadgeScale",   toWStr(static_cast<int>(ptHotkeyBadgeScale * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"HotkeyBadgeOffsetX", toWStr(ptHotkeyBadgeOffsetX).c_str(), presetPath);
     WritePrivateProfileStringW(L"PinnedItems", L"HotkeyBadgeOffsetY", toWStr(ptHotkeyBadgeOffsetY).c_str(), presetPath);
-    swprintf_s(hexBuf, L"%08X", ptHotkeyBadgeBgColor); WritePrivateProfileStringW(L"PinnedItems", L"HotkeyBadgeBgColor", hexBuf, presetPath);
+    WritePrivateProfileStringW(L"PinnedItems", L"StripStyle",     toWStr(ptStripStyle).c_str(),     presetPath);
+    WritePrivateProfileStringW(L"PinnedItems", L"StripWidth",     toWStr(ptStripWidth).c_str(),     presetPath);
+    swprintf_s(hexBuf, L"%08X", ptStripTint); WritePrivateProfileStringW(L"PinnedItems", L"StripTint", hexBuf, presetPath);
+    WritePrivateProfileStringW(L"PinnedItems", L"CountPosition",  toWStr(ptCountPosition).c_str(),  presetPath);
+    WritePrivateProfileStringW(L"PinnedItems", L"HotkeyPosition", toWStr(ptHotkeyPosition).c_str(), presetPath);
 
     WritePrivateProfileStringW(L"PlayerHUD", L"Enable",       toWStr(enablePlayerHud ? 1 : 0).c_str(),          presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"EnableStatus", toWStr(enablePlayerStatusWidget ? 1 : 0).c_str(), presetPath);
@@ -2446,6 +2631,8 @@ void Settings::Save() {
     swprintf_s(hexBuf, L"%08X", phMagickaColor); WritePrivateProfileStringW(L"PlayerHUD", L"MagickaColor", hexBuf, presetPath);
     swprintf_s(hexBuf, L"%08X", phStaminaColor); WritePrivateProfileStringW(L"PlayerHUD", L"StaminaColor", hexBuf, presetPath);
     swprintf_s(hexBuf, L"%08X", phXPColor);      WritePrivateProfileStringW(L"PlayerHUD", L"XPColor",      hexBuf, presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"LevelRibbon", toWStr(phLevelRibbon ? 1 : 0).c_str(), presetPath);
+    swprintf_s(hexBuf, L"%08X", phLevelRibbonColor); WritePrivateProfileStringW(L"PlayerHUD", L"LevelRibbonColor", hexBuf, presetPath);
     swprintf_s(hexBuf, L"%08X", phPortraitBorderColor); WritePrivateProfileStringW(L"PlayerHUD", L"PortraitBorderColor", hexBuf, presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"PortraitBorderWidth",  toWStr(phPortraitBorderWidth).c_str(),  presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"PortraitBorderRadius", toWStr(static_cast<int>(phPortraitBorderRadius * 100)).c_str(), presetPath);
@@ -2490,6 +2677,13 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerHUD", L"ShowFortify",      toWStr(phShowFortify ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"FortifyFontScale", toWStr(static_cast<int>(phFortifyFontScale * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"FortifyRight",     toWStr(phFortifyRight ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"ShowEffectBadges", toWStr(phShowEffectBadges ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"EffectBadgeStyle", toWStr(phEffectBadgeStyle).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"EffectBadgeSize",  toWStr(phEffectBadgeSize).c_str(),  presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"EffectBadgeMax",   toWStr(phEffectBadgeMax).c_str(),   presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"EffectBadgePlace", toWStr(phEffectBadgePlace).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"EffectBadgeHideInList", toWStr(phEffectBadgeHideInList ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"TintRegenPip",     toWStr(phTintRegenPip ? 1 : 0).c_str(), presetPath);
 
     WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"Enable",       toWStr(enablePlayerSurvivalWidget ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"PosX",         toWStr(phSurvivalPosX).c_str(),        presetPath);
@@ -2510,6 +2704,7 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"BorderWidth", toWStr(static_cast<int>(phSurvivalBorderWidth * 100.0f + 0.5f)).c_str(), presetPath);
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSurvivalBorderColor); WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"BorderColor", buf, presetPath); }
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSurvivalColdColor);   WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"ColdColor",   buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSurvivalFireColor);   WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"FireColor",   buf, presetPath); }
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSurvivalHungerColor); WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"HungerColor", buf, presetPath); }
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSurvivalFatigueColor);WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"FatigueColor",buf, presetPath); }
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSurvivalThirstColor); WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"ThirstColor", buf, presetPath); }
@@ -2556,6 +2751,39 @@ void Settings::Save() {
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSurvivalIconOutlineColor); WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"IconOutlineColor", buf, presetPath); }
     WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"IconGlow",        toWStr(phSurvivalIconGlow  ? 1 : 0).c_str(),   presetPath);
     WritePrivateProfileStringW(L"PlayerSurvivalWidget", L"IconGloss",       toWStr(phSurvivalIconGloss ? 1 : 0).c_str(),   presetPath);
+
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"Enable",       toWStr(phSuppliesEnable ? 1 : 0).c_str(),       presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"PosX",         toWStr(phSuppliesPosX).c_str(),                 presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"PosY",         toWStr(phSuppliesPosY).c_str(),                 presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"Layout",       toWStr(phSuppliesLayout).c_str(),               presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"Anchor",       toWStr(phSuppliesAnchor).c_str(),               presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"MaxItems",     toWStr(phSuppliesMaxItems).c_str(),             presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"WrapAfter",    toWStr(phSuppliesWrapAfter).c_str(),            presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"Scale",        toWStr(phSuppliesScale).c_str(),                presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"ShowMessages", toWStr(phSuppliesShowMessages ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"ShowNames",    toWStr(phSuppliesShowNames ? 1 : 0).c_str(),    presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"EmptyOpacity", toWStr(phSuppliesEmptyOpacity).c_str(),           presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"Style", toWStr(phSuppliesStyle).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"ClothDir", toWStr(phSuppliesClothDir).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"Popup", toWStr(phSuppliesPopup).c_str(), presetPath);
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesBgColor); WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"BgColor", buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesStripColor); WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"StripColor", buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesBorderColor); WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"BorderColor", buf, presetPath); }
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"BorderWidth", toWStr(phSuppliesBorderWidth).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"CornerRadius", toWStr(phSuppliesCornerRadius).c_str(), presetPath);
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesFoodColor);       WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"FoodColor",       buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesDrinksColor);     WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"DrinksColor",     buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesDirtyWaterColor); WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"DirtyWaterColor", buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesFirewoodColor);   WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"FirewoodColor",   buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesTentsColor);      WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"TentsColor",      buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesWaterskinColor);  WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"WaterskinColor",  buf, presetPath); }
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", phSuppliesTorchesColor);    WritePrivateProfileStringW(L"PlayerSuppliesWidget", L"TorchesColor",    buf, presetPath); }
+    WritePrivateProfileStringW(L"PlayerEnvironmentWidget", L"Enable",           toWStr(phEnvEnable ? 1 : 0).c_str(),           presetPath);
+    WritePrivateProfileStringW(L"PlayerEnvironmentWidget", L"PosX",             toWStr(phEnvPosX).c_str(),                     presetPath);
+    WritePrivateProfileStringW(L"PlayerEnvironmentWidget", L"PosY",             toWStr(phEnvPosY).c_str(),                     presetPath);
+    WritePrivateProfileStringW(L"PlayerEnvironmentWidget", L"Scale",            toWStr(phEnvScale).c_str(),                    presetPath);
+    WritePrivateProfileStringW(L"PlayerEnvironmentWidget", L"HideResourcesWeather", toWStr(phEnvHideResourcesWeather ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEnvironmentWidget", L"HideColdNeed", toWStr(phEnvHideColdNeed ? 1 : 0).c_str(), presetPath);
 
     WritePrivateProfileStringW(L"PlayerDiseaseWidget", L"Enable",        toWStr(enablePlayerDiseaseWidget ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerDiseaseWidget", L"PosX",          toWStr(phDiseasePosX).c_str(),        presetPath);
@@ -2608,6 +2836,9 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowNames",     toWStr(peShowNames      ? 1 : 0).c_str(), presetPath);
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", peNameColor);    WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameColor",    buf, presetPath); }
     { wchar_t buf[16]; swprintf_s(buf, L"%08X", peNameBgColor);  WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameBgColor",  buf, presetPath); }
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StripStyle", toWStr(peStripStyle).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StripWidth", toWStr(peStripWidth).c_str(), presetPath);
+    { wchar_t buf[16]; swprintf_s(buf, L"%08X", peStripTint);    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StripTint",    buf, presetPath); }
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameAlignment",  toWStr(peNameAlignment).c_str(),                          presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameMaxChars",   toWStr(peNameMaxChars).c_str(),                           presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameFontScale",  toWStr(static_cast<int>(peNameFontScale  * 100)).c_str(), presetPath);
@@ -2619,9 +2850,25 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ChargeBarWidth", toWStr(peChargeBarWidth).c_str(),            presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ChargeBarHeight", toWStr((int)(peChargeBarHeight * 100)).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowDamage",    toWStr(peShowDamage ? 1 : 0).c_str(),        presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowEffectBadges", toWStr(peShowEffectBadges ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"EffectBadgeStyle", toWStr(peEffectBadgeStyle).c_str(),       presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"EffectBadgeSize",  toWStr(peEffectBadgeSize).c_str(),        presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"EffectBadgeMax",   toWStr(peEffectBadgeMax).c_str(),         presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"EffectBadgeHideInList", toWStr(peEffectBadgeHideInList ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"EffectBadgePlace", toWStr(peEffectBadgePlace).c_str(),       presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"Layout",        toWStr(peLayout).c_str(),                    presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotSpacing",   toWStr(peSlotSpacing).c_str(),               presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowSlotBadge", toWStr(peShowSlotBadge ? 1 : 0).c_str(),    presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"NamePlacement", toWStr(peNamePlacement).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"SatelliteNamesBelow", toWStr(peSatelliteNamesBelow ? 1 : 0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"CenterNameSide", toWStr(peCenterNameSide).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameSideWidth", toWStr(peNameSideWidth).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"NameGap", toWStr(peNameGap).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"ClusterAngle1", toWStr(peClusterAngle1).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"ClusterAngle2", toWStr(peClusterAngle2).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StackOverlap", toWStr(peStackOverlap).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"StackShiftX", toWStr(peStackShiftX).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"BadgeAnchor", toWStr(peBadgeAnchor).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowAmmoCount", toWStr(peShowAmmoCount ? 1 : 0).c_str(),    presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"ShowDurability", toWStr(peShowDurability ? 1 : 0).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"DurabilityScale", toWStr((int)(peDurabilityScale * 100)).c_str(), presetPath);
@@ -2631,6 +2878,9 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotScale0",    toWStr((int)(peSlotScale0 * 100)).c_str(),  presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotScale1",    toWStr((int)(peSlotScale1 * 100)).c_str(),  presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotScale2",    toWStr((int)(peSlotScale2 * 100)).c_str(),  presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotShape0", toWStr(peSlotShape0).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotShape1", toWStr(peSlotShape1).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotShape2", toWStr(peSlotShape2).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotOffsetX1",  toWStr(peSlotOffsetX1).c_str(),             presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotOffsetY1",  toWStr(peSlotOffsetY1).c_str(),             presetPath);
     WritePrivateProfileStringW(L"PlayerEquipWidget", L"SlotOffsetX2",  toWStr(peSlotOffsetX2).c_str(),             presetPath);

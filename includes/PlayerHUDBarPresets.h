@@ -13,7 +13,7 @@ namespace PlayerHUDBarPresets
         const char* name;
     };
 
-    inline constexpr std::array<Preset, 7> kPresets{ {
+    inline constexpr std::array<Preset, 8> kPresets{ {
         { "Animated Portrait" },
         { "Custom Bars" },
         { "Scaled Bars" },
@@ -21,6 +21,7 @@ namespace PlayerHUDBarPresets
         { "No Portrait" },
         { "Halo" },
         { "Curved Status" },
+        { "Diamond Frame" },
     } };
 
     inline void ApplyAnimatedPortrait(Settings& s)
@@ -73,7 +74,7 @@ namespace PlayerHUDBarPresets
         s.phBarEndStyleLeft = 0;
 
         s.phShowBarText   = true;
-        s.phShowBarIcons  = true;
+        s.phShowBarIcons  = false;
         s.phBarTextColor  = 0xAEFFFFFF;
         s.phBarPulseColor = 0x70FFFFFF;
 
@@ -143,7 +144,7 @@ namespace PlayerHUDBarPresets
         s.phBarEndStyleLeft = 0;
 
         s.phShowBarText   = true;
-        s.phShowBarIcons  = true;
+        s.phShowBarIcons  = false;
         s.phBarTextColor  = 0xAEFFFFFF;
         s.phBarPulseColor = 0x70FFFFFF;
 
@@ -166,6 +167,7 @@ namespace PlayerHUDBarPresets
 
     inline void ApplyScaledBars(Settings& s)
     {
+        s.phShowEffectBadges      = false;
         s.phShowPortrait          = true;
         s.phPortraitSize          = 96;
         s.phPortraitShape         = 1;
@@ -213,7 +215,7 @@ namespace PlayerHUDBarPresets
         s.phBarEndStyleLeft = 0;
 
         s.phShowBarText   = true;
-        s.phShowBarIcons  = true;
+        s.phShowBarIcons  = false;
         s.phBarTextColor  = 0xAEFFFFFF;
         s.phBarPulseColor = 0x70FFFFFF;
 
@@ -241,6 +243,7 @@ namespace PlayerHUDBarPresets
         s.phPortraitSize          = 96;
         s.phPortraitShape         = 2;
         s.phPortraitMode          = 1;
+        s.phShowEffectBadges      = false;
         s.phPortraitAnimEnabled   = false;
         s.phPortraitIndex         = 0;
         s.phPortraitFrameEnabled  = true;
@@ -284,7 +287,7 @@ namespace PlayerHUDBarPresets
         s.phBarEndStyleLeft = 0;
 
         s.phShowBarText   = true;
-        s.phShowBarIcons  = true;
+        s.phShowBarIcons  = false;
         s.phBarTextColor  = 0xAEFFFFFF;
         s.phBarPulseColor = 0x70FFFFFF;
 
@@ -309,6 +312,7 @@ namespace PlayerHUDBarPresets
     {
         ApplyAnimatedPortrait(s);
         s.phShowPortrait = false;
+        s.phShowEffectBadges = false;
         s.phBarHeight = 4;
         s.phMagickaBarHeight = 4;
         s.phStaminaBarHeight = 4;
@@ -317,12 +321,14 @@ namespace PlayerHUDBarPresets
         s.phBarTextOffsetY = 95;
         s.phRegenFontScale = 0.75f;
         s.phXPAnnotationOffsetY = -8;
+        s.phShowBarIcons = true;
     }
 
     inline void ApplyHalo(Settings& s)
     {
         ApplyAnimatedPortrait(s);
         s.phHaloEnable = true;
+        s.phShowEffectBadges = false;
         s.phPortraitAlwaysVisible = true;
         s.phPortraitFrameEnabled = false;
         s.phPortraitBorderWidth = 0;
@@ -353,6 +359,7 @@ namespace PlayerHUDBarPresets
         s.phHaloEnable = false;
         s.phShowFortify = false;
         s.phShowRegenPip = false;
+        s.phShowEffectBadges = false;
         s.phLevelBadgeOnPortrait = false;
         s.phPortraitMode = 1;
         s.phPortraitShape = 1;
@@ -399,6 +406,93 @@ namespace PlayerHUDBarPresets
         s.phBarTextOffsetY = 0;
     }
 
+    inline void ApplyDiamondFrame(Settings& s)
+    {
+        const auto& filenames = BackgroundManager::GetBackgrounds(BackgroundManager::Type::BarStyle);
+        int barStyle = 1;
+        for (std::size_t i = 0; i < filenames.size(); ++i)
+            if (filenames[i] == "BarStyle_3.png") barStyle = static_cast<int>(i + 1);
+
+        s.phShowPortrait          = true;
+        s.phPortraitSize          = 122;
+        s.phPortraitShape         = 2;
+        s.phPortraitMode          = 0;
+        s.phPortraitAnimEnabled   = false;
+        s.phPortraitIndex         = 1;
+        s.phPortraitFrameEnabled  = true;
+        s.phPortraitFrameIndex    = 5;
+        s.phPortraitFrameScale    = 0.79f;
+        s.phPortraitBorderColor   = 0xFF222222;
+        s.phPortraitBorderWidth   = 3;
+        s.phPortraitBorderRadius  = 0.21f;
+        s.phPortraitColumnSpacing = 0;
+        s.phPortraitOffsetX       = -21;
+        s.phPortraitOffsetY       = 0;
+
+        s.phDynamicBars           = false;
+        s.phPortraitAlwaysVisible = false;
+        s.phDamageGhost           = true;
+        s.phScaledBarWidth        = false;
+
+        s.phBarWidth         = 300;
+        s.phBarHeight        = 20;
+        s.phMagickaBarHeight = 18;
+        s.phStaminaBarHeight = 18;
+        s.phXPBarHeight      = 9;
+        s.phXPBarWidth       = 0;
+
+        s.phBarStyleEnabled = true;
+        s.phBarStyleIndex   = barStyle;
+
+        s.phBarVisualStyle  = 2;
+        s.phBarSegmentPoints = 100;
+        s.phBarSegmentGap   = 0;
+        s.phBarGlow         = true;
+        s.phBarTrack        = true;
+        s.phBarDepthShading = true;
+        s.phBarEdgeLight    = true;
+        s.phBarTip          = true;
+        s.phBarSmoothDrain  = true;
+        s.phBarCornerRadius = 0.0f;
+        s.phBarOuterBorderWidth = 2;
+        s.phBarOuterBorderColor = 0xFF291B12;
+        s.phBarInnerBorderWidth = 0;
+        s.phBarInnerBorderColor = 0x37968A74;
+        s.phBarEndStyle     = 4;
+        s.phBarEndStyleLeft = 0;
+
+        s.phShowBarText      = true;
+        s.phShowBarIcons     = true;
+        s.phBarTextColor     = 0xAEFFFFFF;
+        s.phBarPulseColor    = 0x70FFFFFF;
+        s.phBarTextFontScale = 0.80f;
+        s.phBarTextOffsetY   = 0;
+        s.phShowRegenPip     = true;
+        s.phRegenFontScale   = 0.78f;
+        s.phFortifyFontScale = 0.85f;
+        s.phFortifyRight     = true;
+
+        s.phShowXP       = true;
+        s.phXPAsBar      = false;
+        s.phHealthColor  = 0xFF901515;
+        s.phMagickaColor = 0xFF1E439F;
+        s.phStaminaColor = 0xFF1F731F;
+        s.phXPColor      = 0xFFD4AF37;
+
+        s.phBarSpacing = 0;
+        s.phHpOffsetX = -50;  s.phHpOffsetY = 0;
+        s.phMpOffsetX = -34;  s.phMpOffsetY = 0;
+        s.phSpOffsetX = -50;  s.phSpOffsetY = 0;
+        s.phXPBarOffsetX = -24; s.phXPBarOffsetY = 5;
+        s.phHpAnnotationOffsetX = 9;
+        s.phMpAnnotationOffsetX = 8;
+        s.phSpAnnotationOffsetX = 8;
+
+        s.phLevelBadgeOffsetX = -6; s.phLevelBadgeOffsetY = -3;
+        s.phXPBadgeOffsetX    = 3;  s.phXPBadgeOffsetY    = 0;
+        s.phLevelRibbon       = true;
+    }
+
     inline void ApplyPreset(Settings& s, std::size_t index)
     {
         s.phPortraitOffsetX = 0;
@@ -432,6 +526,7 @@ namespace PlayerHUDBarPresets
         s.phShowStamina = true;
         s.phLevelBadgeOnPortrait = true;
         s.phShowFortify = true;
+        s.phShowEffectBadges = true;
         switch (index) {
         case 0:  ApplyAnimatedPortrait(s); break;
         case 1:  ApplyCustomBarDesign(s);  break;
@@ -439,6 +534,7 @@ namespace PlayerHUDBarPresets
         case 3:  ApplyLevelEmblem(s);      break;
         case 4:  ApplyNoPortrait(s);       break;
         case 5:  ApplyHalo(s);             break;
+        case 7:  ApplyDiamondFrame(s);     break;
         default: ApplyAnimatedPortrait(s); break;
         }
     }
