@@ -468,6 +468,8 @@ public:
     std::int32_t  phPortraitFrameIndex   = 1;
     std::int32_t  phPortraitIndex        = 0;
     float         phPortraitFrameScale   = 1.4f;
+    std::int32_t  phPortraitFrameOffsetX = 0;
+    std::int32_t  phPortraitFrameOffsetY = 0;
     bool          phShowXP         = true;
     bool          phXPAsBar        = true;
     std::uint32_t phXPColor        = 0xFFD4AF37;

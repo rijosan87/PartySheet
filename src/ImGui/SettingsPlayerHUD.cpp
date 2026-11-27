@@ -573,6 +573,8 @@ namespace ImGuiRenderer::SettingsUI {
                     int frameScaleInt = static_cast<int>(settings->phPortraitFrameScale * 100);
                     if (ImGui::SliderInt("##phFrameScale", &frameScaleInt, 50, 200, "Frame Scale %d%%"))
                         settings->phPortraitFrameScale = static_cast<float>(frameScaleInt) / 100.0f;
+                    DrawPositionSlider("##phFrameOffsetX", settings->phPortraitFrameOffsetX, -500, 500, "Frame X %d px");
+                    DrawPositionSlider("##phFrameOffsetY", settings->phPortraitFrameOffsetY, -500, 500, "Frame Y %d px");
                 }
                 ImGui::Spacing();
                 ImGui::Separator();

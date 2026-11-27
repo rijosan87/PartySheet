@@ -291,7 +291,8 @@ namespace PlayerHUD {
             settings->phXPAnnotationOffsetX ||
             settings->phXPAnnotationOffsetY;
         const bool needsFullClip = hasBarOffset || hasAnnotationOffset ||
-            (settings->phShowPortrait && (settings->phPortraitOffsetX || settings->phPortraitOffsetY)) ||
+            (settings->phShowPortrait && (settings->phPortraitOffsetX || settings->phPortraitOffsetY ||
+                                          settings->phPortraitFrameOffsetX || settings->phPortraitFrameOffsetY)) ||
             settings->phShowFortify ||
             settings->phShowBarIcons;
         bool clipPushed = false;
@@ -357,8 +358,10 @@ namespace PlayerHUD {
             if (settings->phPortraitFrameEnabled && !isEmblem) {
                 float frameSz = portSz * settings->phPortraitFrameScale;
                 float frameOff = (frameSz - portSz) * 0.5f;
-                ImVec2 frameMin(portX - frameOff, portY - frameOff);
-                ImVec2 frameMax(portX + portSz + frameOff, portY + portSz + frameOff);
+                const float frameX = portX + ScalePx(static_cast<float>(settings->phPortraitFrameOffsetX));
+                const float frameY = portY + ScalePx(static_cast<float>(settings->phPortraitFrameOffsetY));
+                ImVec2 frameMin(frameX - frameOff, frameY - frameOff);
+                ImVec2 frameMax(frameX + portSz + frameOff, frameY + portSz + frameOff);
                 ID3D11ShaderResourceView* frame = BackgroundManager::GetBackground(
                     BackgroundManager::Type::PortraitFrame, settings->phPortraitFrameIndex);
                 if (frame) {

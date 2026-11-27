@@ -459,6 +459,8 @@ void Settings::Load() {
     phPortraitSize = GetPrivateProfileIntW(L"PlayerHUD", L"PortraitSize", phPortraitSize,presetPath);
     phPortraitOffsetX = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerHUD", L"PortraitOffsetX", 0, presetPath)), -3840, 3840);
     phPortraitOffsetY = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerHUD", L"PortraitOffsetY", 0, presetPath)), -2160, 2160);
+    phPortraitFrameOffsetX = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerHUD", L"PortraitFrameOffsetX", 0, presetPath)), -500, 500);
+    phPortraitFrameOffsetY = std::clamp(static_cast<int>(GetPrivateProfileIntW(L"PlayerHUD", L"PortraitFrameOffsetY", 0, presetPath)), -500, 500);
     phLevelBadgeOnPortrait = GetPrivateProfileIntW(L"PlayerHUD", L"LevelBadgeOnPortrait", phLevelBadgeOnPortrait ? 1 : 0, presetPath) != 0;
     phPortraitFrameEnabled = GetPrivateProfileIntW(L"PlayerHUD", L"PortraitFrameEnabled", phPortraitFrameEnabled ? 1 : 0, presetPath) != 0;
     phPortraitFrameIndex   = GetPrivateProfileIntW(L"PlayerHUD", L"PortraitFrameIndex",   phPortraitFrameIndex,   presetPath);
@@ -2032,6 +2034,8 @@ void Settings::Save() {
     WritePrivateProfileStringW(L"PlayerHUD", L"PortraitSize",           toWStr(phPortraitSize).c_str(),                    presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"PortraitOffsetX", toWStr(phPortraitOffsetX).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"PortraitOffsetY", toWStr(phPortraitOffsetY).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"PortraitFrameOffsetX", toWStr(phPortraitFrameOffsetX).c_str(), presetPath);
+    WritePrivateProfileStringW(L"PlayerHUD", L"PortraitFrameOffsetY", toWStr(phPortraitFrameOffsetY).c_str(), presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"LevelBadgeOnPortrait",  toWStr(phLevelBadgeOnPortrait ? 1 : 0).c_str(),    presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"PortraitFrameEnabled",  toWStr(phPortraitFrameEnabled ? 1 : 0).c_str(),    presetPath);
     WritePrivateProfileStringW(L"PlayerHUD", L"PortraitFrameIndex",    toWStr(phPortraitFrameIndex).c_str(),               presetPath);

@@ -497,6 +497,8 @@ namespace PlayerHUDBarPresets
     {
         s.phPortraitOffsetX = 0;
         s.phPortraitOffsetY = 0;
+        s.phPortraitFrameOffsetX = 0;
+        s.phPortraitFrameOffsetY = 0;
         s.phHpAnnotationOffsetX = 0;
         s.phHpAnnotationOffsetY = 0;
         s.phMpAnnotationOffsetX = 0;
