@@ -1684,6 +1684,65 @@ void Settings::SaveInventoryModalPos() {
     SettingsIni::EndSave();
 }
 
+namespace {
+    constexpr auto kUserIni   = L"Data/SKSE/Plugins/PartyUserSettings.ini";
+    constexpr auto kPresetIni = L"Data/SKSE/Plugins/PartySheet.ini";
+
+    void WriteInt(const wchar_t* a_section, const wchar_t* a_key, int a_value, const wchar_t* a_path) {
+        WritePrivateProfileStringW(a_section, a_key, std::to_wstring(a_value).c_str(), a_path);
+    }
+}
+
+void Settings::SavePartySheetWindow() {
+    if (!SettingsIni::BeginSave()) return;
+    WriteInt(L"PartySheet", L"PosX",   partySheetPosX,   kPresetIni);
+    WriteInt(L"PartySheet", L"PosY",   partySheetPosY,   kPresetIni);
+    WriteInt(L"PartySheet", L"Width",  partySheetWidth,  kPresetIni);
+    WriteInt(L"PartySheet", L"Height", partySheetHeight, kPresetIni);
+    SettingsIni::EndSave();
+}
+
+void Settings::SaveV2LiveCamera() {
+    if (!SettingsIni::BeginSave()) return;
+    WriteInt(L"PartySheet", L"V2LiveCamZ",        psV2LiveCamZ,        kPresetIni);
+    WriteInt(L"PartySheet", L"V2LiveCamDist",     psV2LiveCamDist,     kPresetIni);
+    WriteInt(L"PartySheet", L"V2LiveCamYawRight", psV2LiveCamYawRight, kPresetIni);
+    SettingsIni::EndSave();
+}
+
+void Settings::SaveHotkeys() {
+    if (!SettingsIni::BeginSave()) return;
+    WriteInt(L"Hotkeys", L"InspectCardHotkey",      inspectCardHotkey,      kUserIni);
+    WriteInt(L"Hotkeys", L"InspectCardModifier",    inspectCardModifier,    kUserIni);
+    WriteInt(L"Hotkeys", L"MenuSettingsKey",        menuSettingsKey,        kUserIni);
+    WriteInt(L"Hotkeys", L"MenuSettingsModifier",   menuSettingsModifier,   kUserIni);
+    WriteInt(L"Hotkeys", L"PartySheetHotkey",       partySheetHotkey,       kUserIni);
+    WriteInt(L"Hotkeys", L"PartySheetModifier",     partySheetModifier,     kUserIni);
+    WriteInt(L"Hotkeys", L"CharacterSheetHotkey",   characterSheetHotkey,   kUserIni);
+    WriteInt(L"Hotkeys", L"CharacterSheetModifier", characterSheetModifier, kUserIni);
+    WriteInt(L"Hotkeys", L"SummonHorseKey",         smSummonKey,            kUserIni);
+    WriteInt(L"Hotkeys", L"SummonHorseModifier",    smSummonModifier,       kUserIni);
+    WriteInt(L"Hotkeys", L"PotionHealthKey",        potionHealthKey,        kUserIni);
+    WriteInt(L"Hotkeys", L"PotionHealthModifier",   potionHealthModifier,   kUserIni);
+    WriteInt(L"Hotkeys", L"PotionMagickaKey",       potionMagickaKey,       kUserIni);
+    WriteInt(L"Hotkeys", L"PotionMagickaModifier",  potionMagickaModifier,  kUserIni);
+    WriteInt(L"Hotkeys", L"PotionStaminaKey",       potionStaminaKey,       kUserIni);
+    WriteInt(L"Hotkeys", L"PotionStaminaModifier",  potionStaminaModifier,  kUserIni);
+    WriteInt(L"Hotkeys", L"HudToggleKey",           hudToggleKey,           kUserIni);
+    WriteInt(L"Hotkeys", L"HudToggleModifier",      hudToggleModifier,      kUserIni);
+    WriteInt(L"QuickHeal", L"Hotkey",               qhHotkey,               kPresetIni);
+    WriteInt(L"QuickHeal", L"Modifier",             qhModifier,             kPresetIni);
+    SettingsIni::EndSave();
+}
+
+void Settings::SaveWidgetEnables() {
+    if (!SettingsIni::BeginSave()) return;
+    WriteInt(L"FollowerHUD", L"Mode",       followerHudMode,                   kPresetIni);
+    WriteInt(L"PlayerHUD",   L"Enable",     enablePlayerHud ? 1 : 0,           kPresetIni);
+    WriteInt(L"PlayerHUD",   L"EnableStatus", enablePlayerStatusWidget ? 1 : 0, kPresetIni);
+    SettingsIni::EndSave();
+}
+
 void Settings::Save() {
     if (!SettingsIni::BeginSave()) {
         return;

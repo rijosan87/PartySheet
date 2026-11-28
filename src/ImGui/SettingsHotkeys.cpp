@@ -54,13 +54,13 @@ namespace ImGuiRenderer::SettingsUI {
                 uint32_t mod = GetHeldModifierSided();
                 if (mod == 0) mod = GetHeldModifier();
                 *modField = static_cast<std::int32_t>(mod);
-                settings->Save();
+                settings->SaveHotkeys();
                 if (s_bindingId == idCopy) s_bindingId.clear();
             };
         }
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
             *modField = 0;
-            settings->Save();
+            settings->SaveHotkeys();
         }
         if (ImGui::IsItemHovered()) {
             if (tooltip)
@@ -73,7 +73,7 @@ namespace ImGuiRenderer::SettingsUI {
             if (ImGui::SmallButton((std::string("Unbind") + btnId).c_str())) {
                 *keyField = -1;
                 *modField = 0;
-                settings->Save();
+                settings->SaveHotkeys();
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Turn this hotkey off so another mod can own the key.");

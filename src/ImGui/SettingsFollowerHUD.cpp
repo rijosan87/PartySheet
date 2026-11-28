@@ -45,7 +45,7 @@ namespace ImGuiRenderer::SettingsUI {
                 s_lastNonZeroMode = settings->followerHudMode;
             if (ImGui::Checkbox("Enable Follower HUD", &fhEnabled)) {
                 settings->followerHudMode = fhEnabled ? s_lastNonZeroMode : 0;
-                settings->Save();
+                settings->SaveWidgetEnables();
             }
             ImGui::Spacing();
             ImGui::Separator();

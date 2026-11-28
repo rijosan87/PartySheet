@@ -1297,8 +1297,8 @@ namespace PartySheet {
                 settings->partySheetPosY != lastSavedY || 
                 settings->partySheetWidth != lastSavedW || 
                 settings->partySheetHeight != lastSavedH) {
-                
-                settings->Save();
+
+                settings->SavePartySheetWindow();
                 
                 lastSavedX = settings->partySheetPosX;
                 lastSavedY = settings->partySheetPosY;

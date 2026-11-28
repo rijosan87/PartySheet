@@ -134,7 +134,7 @@ namespace ImGuiRenderer::SettingsUI {
         ImGui::Spacing();
 
         if (ImGui::Checkbox("Enable Player HUD", &settings->enablePlayerHud))
-            settings->Save();
+            settings->SaveWidgetEnables();
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::Spacing();
@@ -150,7 +150,7 @@ namespace ImGuiRenderer::SettingsUI {
             ImGui::Spacing();
 
             if (ImGui::Checkbox("Enable Player Status##phStatusEnable", &settings->enablePlayerStatusWidget))
-                settings->Save();
+                settings->SaveWidgetEnables();
 
             ImGui::Spacing();
             ImGui::TextDisabled("Preset Styles");

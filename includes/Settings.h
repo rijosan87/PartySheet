@@ -14,6 +14,10 @@ public:
     void Load();
     void Save();
     void SaveInventoryModalPos();
+    void SavePartySheetWindow();
+    void SaveV2LiveCamera();
+    void SaveHotkeys();
+    void SaveWidgetEnables();
 
     // ===== Hotkeys & input =====
     std::int32_t  inspectCardHotkey = 21;

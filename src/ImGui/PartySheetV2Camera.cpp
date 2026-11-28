@@ -368,7 +368,7 @@ namespace PartySheetV2Camera {
             s_baseDist += dd; s_distNudge -= dd;
             set->psV2LiveCamZ = s_appliedCamZ = z;
             set->psV2LiveCamDist = s_appliedCamDist = dist;
-            set->Save();
+            set->SaveV2LiveCamera();
             logger::debug("PartySheetV2Camera: saved nudge height={} distance={} turn={}", z, dist, yaw);
         }
     }

@@ -2539,6 +2539,7 @@ static void DrawCustomProgressBar(const char* label, float fraction, ImVec2 size
             ImGui::SetWindowFontScale(1.0f);
             ImGui::Unindent(ribbonPaddingLeft);
             
+            ImGui::Dummy(ImVec2(0.0f, 0.0f));
             ImGui::EndChild();
 
             if (ribbonFadeAlpha < 0.999f) {
